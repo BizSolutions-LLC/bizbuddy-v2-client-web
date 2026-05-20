@@ -38,6 +38,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import useAuthStore from "@/store/useAuthStore";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -348,6 +349,7 @@ export default function PunchLogs() {
   const [requestDescription,     setRequestDescription]     = useState("");
   const [requestSubmitting,      setRequestSubmitting]      = useState(false);
   const [requestErrors,          setRequestErrors]          = useState({});
+  const [requestStep,            setRequestStep]            = useState(1);
 
   const columnOptions = useMemo(() => [
     { value: "date",      label: "Date"       },
@@ -1165,45 +1167,6 @@ export default function PunchLogs() {
           </CardContent>
         </Card>
 
-        {/* Pre-eligibility threshold progress — weekly / cutoff only, before threshold is met */}
-        {otBasis !== "daily" && thresholdStatus?.data && !thresholdStatus.data.eligible && (
-          <Card className="border-2 shadow-md overflow-hidden dark:border-white/10">
-            <div className="h-1 w-full bg-purple-500" />
-            <CardContent className="p-4 space-y-3">
-              <div className="flex items-center justify-between text-sm">
-                <div className="flex items-center gap-2 font-medium">
-                  <TrendingUp className="h-4 w-4 text-purple-500" />
-                  OT Threshold Progress
-                </div>
-                <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
-                  {otBasis === "weekly" ? "Weekly" : "Cutoff"} — Not Yet Eligible
-                </span>
-              </div>
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>
-                    {thresholdStatus.data.periodStart && thresholdStatus.data.periodEnd
-                      ? `${thresholdStatus.data.periodStart} – ${thresholdStatus.data.periodEnd}`
-                      : "Current period"}
-                  </span>
-                  <span className="font-mono font-bold text-foreground">
-                    {Number(thresholdStatus.data.accumulatedHours).toFixed(2)}h
-                    <span className="text-muted-foreground font-normal"> / {Number(thresholdStatus.data.threshold).toFixed(2)}h</span>
-                  </span>
-                </div>
-                <div className="h-2 w-full bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-purple-500 transition-all duration-500"
-                    style={{ width: `${Math.min(100, (thresholdStatus.data.accumulatedHours / thresholdStatus.data.threshold) * 100)}%` }}
-                  />
-                </div>
-                <p className="text-[11px] text-muted-foreground">
-                  {(thresholdStatus.data.threshold - thresholdStatus.data.accumulatedHours).toFixed(2)}h more needed to unlock OT requests
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        )}
 
         {/* Filters */}
         <Card className="border-2 shadow-md overflow-hidden dark:border-white/10">
@@ -1288,79 +1251,104 @@ export default function PunchLogs() {
         {myRequests.length > 0 && (
           <Card className="border-2 shadow-md overflow-hidden dark:border-white/10">
             <div className="h-1 w-full bg-orange-500" />
-            <CardHeader className="pb-4 cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => setRequestsExpanded(!requestsExpanded)}>
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <AlarmClockPlus className="h-5 w-5 text-orange-500" />
-                  My Punch Log Requests
+            <CardHeader
+              className="pb-3 cursor-pointer hover:bg-muted/50 transition-colors"
+              onClick={() => setRequestsExpanded(!requestsExpanded)}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <AlarmClockPlus className="h-5 w-5 text-orange-500 shrink-0" />
+                  <CardTitle className="text-base truncate">My Punch Log Requests</CardTitle>
                   {myRequests.filter((r) => r.status === "PENDING").length > 0 && (
-                    <span className="ml-2 bg-orange-500 text-white text-xs font-bold px-2 py-1 rounded-full">
+                    <span className="shrink-0 bg-orange-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
                       {myRequests.filter((r) => r.status === "PENDING").length} Pending
                     </span>
                   )}
-                </CardTitle>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">{myRequests.length} total</span>
-                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                    {requestsExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                  </Button>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-xs text-muted-foreground hidden sm:inline">{myRequests.length} total</span>
+                  {requestsExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                 </div>
               </div>
             </CardHeader>
+
             <AnimatePresence>
               {requestsExpanded && (
                 <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }}>
-                  <CardContent className="pb-4">
+                  <CardContent className="pt-0 pb-4">
                     {loadingRequests ? (
-                      <div className="flex items-center justify-center py-8">
+                      <div className="flex items-center justify-center py-8 gap-2">
                         <OrangeLoadingSpinner />
-                        <span className="ml-2 text-muted-foreground">Loading requests...</span>
+                        <span className="text-sm text-muted-foreground">Loading requests...</span>
                       </div>
                     ) : (
                       <div className="space-y-3">
-                        {myRequests.map((req) => (
-                          <div key={req.id} className="p-4 border rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors">
-                            <div className="flex justify-between items-start mb-3">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <Calendar className="h-4 w-4 text-orange-500" />
-                                  <span className="font-semibold">{new Date(req.requestedDate).toLocaleDateString("en-US", { weekday: "short", year: "numeric", month: "short", day: "numeric" })}</span>
+                        {myRequests.map((req) => {
+                          const statusMeta = {
+                            PENDING:  { border: "border-l-amber-400", bg: "bg-amber-50 dark:bg-amber-900/10",  badge: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",  dot: "bg-amber-400",  label: "Pending"  },
+                            APPROVED: { border: "border-l-green-500", bg: "bg-green-50 dark:bg-green-900/10",  badge: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",  dot: "bg-green-500",  label: "Approved" },
+                            REJECTED: { border: "border-l-red-500",   bg: "bg-red-50   dark:bg-red-900/10",    badge: "bg-red-100   text-red-800   dark:bg-red-900/30   dark:text-red-400",    dot: "bg-red-500",    label: "Rejected" },
+                          }[req.status] ?? { border: "border-l-muted", bg: "", badge: "bg-muted text-muted-foreground", dot: "bg-muted-foreground", label: req.status };
+
+                          const approverName = req.approver?.profile
+                            ? `${req.approver.profile.firstName} ${req.approver.profile.lastName}`
+                            : req.approver?.email || "Not assigned";
+
+                          return (
+                            <div key={req.id} className={`rounded-xl border border-l-4 ${statusMeta.border} ${statusMeta.bg} overflow-hidden`}>
+
+                              {/* Header row: date + status */}
+                              <div className="flex items-start justify-between gap-2 px-3 pt-3 pb-2">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <Calendar className="h-4 w-4 text-orange-500 shrink-0" />
+                                  <span className="font-semibold text-sm leading-snug">
+                                    {new Date(req.requestedDate + "T12:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
+                                  </span>
                                 </div>
-                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                  <Clock className="h-3 w-3" />
-                                  <span>{safeTime(req.requestedClockIn, companyTimezone)} - {safeTime(req.requestedClockOut, companyTimezone)}</span>
-                                  <span className="font-medium">({req.estimatedNetHours?.toFixed(2) || "0.00"}h)</span>
-                                </div>
-                              </div>
-                              <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
-                                req.status === "PENDING"  ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400" :
-                                req.status === "APPROVED" ? "bg-green-100  text-green-800  dark:bg-green-900/30  dark:text-green-400"  :
-                                                            "bg-red-100    text-red-800    dark:bg-red-900/30    dark:text-red-400"
-                              }`}>
-                                {req.status === "PENDING" ? "🟡 " : req.status === "APPROVED" ? "✅ " : "❌ "}{req.status}
-                              </span>
-                            </div>
-                            <div className="space-y-2 text-sm">
-                              <div className="flex items-start gap-2">
-                                <AlertTriangle className="h-3 w-3 text-orange-500 mt-0.5 flex-shrink-0" />
-                                <div><span className="font-medium">Reason: </span><span className="text-muted-foreground capitalize">{req.reason?.replace(/_/g, " ") || "Not specified"}</span></div>
-                              </div>
-                              {req.description && (
-                                <div className="flex items-start gap-2">
-                                  <FileText className="h-3 w-3 text-orange-500 mt-0.5 flex-shrink-0" />
-                                  <p className="text-muted-foreground text-xs line-clamp-2">{req.description}</p>
-                                </div>
-                              )}
-                              <div className="flex items-center gap-2 pt-2 border-t">
-                                <User className="h-3 w-3 text-muted-foreground" />
-                                <span className="text-xs text-muted-foreground">
-                                  Approver: {req.approver?.profile ? `${req.approver.profile.firstName} ${req.approver.profile.lastName}` : req.approver?.email || "Not assigned"}
+                                <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold shrink-0 ${statusMeta.badge}`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusMeta.dot}`} />
+                                  {statusMeta.label}
                                 </span>
-                                <span className="text-xs text-muted-foreground ml-auto">Submitted {new Date(req.submittedAt).toLocaleDateString()}</span>
                               </div>
+
+                              {/* Time row */}
+                              <div className="flex items-center gap-1.5 px-3 pb-2 text-sm">
+                                <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                <span className="text-muted-foreground">
+                                  {safeTime(req.requestedClockIn, companyTimezone)} – {safeTime(req.requestedClockOut, companyTimezone)}
+                                </span>
+                                <span className="font-semibold text-foreground">({req.estimatedNetHours?.toFixed(2) || "0.00"}h)</span>
+                              </div>
+
+                              {/* Reason + description */}
+                              <div className="px-3 pb-2 space-y-1.5">
+                                <div className="flex items-center gap-1.5 text-sm flex-wrap">
+                                  <AlertTriangle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+                                  <span className="font-medium">Reason:</span>
+                                  <span className="text-muted-foreground capitalize">{req.reason?.replace(/_/g, " ") || "Not specified"}</span>
+                                </div>
+                                {req.description && (
+                                  <div className="flex items-start gap-1.5">
+                                    <FileText className="h-3.5 w-3.5 text-orange-400 shrink-0 mt-0.5" />
+                                    <p className="text-xs text-muted-foreground line-clamp-2">{req.description}</p>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Footer: approver + submitted date */}
+                              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-3 py-2 border-t border-black/5 dark:border-white/5 text-xs text-muted-foreground">
+                                <div className="flex items-center gap-1.5">
+                                  <User className="h-3 w-3 shrink-0" />
+                                  <span className="truncate max-w-[180px]">{approverName}</span>
+                                </div>
+                                <span className="shrink-0">
+                                  Submitted {new Date(req.submittedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                                </span>
+                              </div>
+
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </CardContent>
@@ -1599,135 +1587,365 @@ export default function PunchLogs() {
           </div>
         </FormDialog>
 
-        {/* Request Punch Log Dialog */}
-        <Dialog open={requestPunchLogsDialog} onOpenChange={setRequestPunchLogsDialog}>
-          <DialogContent className="sm:max-w-lg border-2 dark:border-white/30 max-h-[90vh] overflow-y-auto">
-            <div className="h-1 w-full bg-orange-500 -mt-6 mb-4" />
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <AlarmClockPlus className="h-5 w-5 text-orange-600" />
-                Request Punch Log Entry
-              </DialogTitle>
-              <p className="text-sm text-muted-foreground">Submit a request to create a punch log for a day when you were unable to clock in/out.</p>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium flex items-center gap-2"><Calendar className="h-4 w-4 text-orange-500" />Date <span className="text-orange-500">*</span></label>
-                <Input type="date" value={requestPunchDate} max={getDefaultTo(companyTimezone)}
-                  onChange={(e) => {
-                    const d = e.target.value;
-                    setRequestPunchDate(d);
-                    setRequestErrors((p) => ({ ...p, date: undefined }));
-                    const existing = logs.find((l) => toLocalDateStr(l.timeIn, companyTimezone) === d);
-                    if (existing) setRequestErrors((p) => ({ ...p, date: "A punch log already exists for this date" }));
-                    if (d && defaultHours) { setRequestClockIn(`${d}T09:00`); setRequestClockOut(`${d}T${String(9 + defaultHours).padStart(2, "0")}:00`); }
-                  }}
-                  className={requestErrors.date ? "border-red-500" : ""}
-                />
-                {requestErrors.date && <p className="text-red-500 text-xs flex items-center gap-1"><AlertCircle className="h-3 w-3" />{requestErrors.date}</p>}
+        {/* Request Punch Log — Multi-step Bottom Sheet */}
+        <Sheet
+          open={requestPunchLogsDialog}
+          onOpenChange={(open) => {
+            if (!open) {
+              setRequestPunchLogsDialog(false);
+              setRequestStep(1);
+              setRequestPunchDate(""); setRequestClockIn(""); setRequestClockOut("");
+              setRequestApproverId(""); setRequestReason(""); setRequestDescription("");
+              setRequestErrors({});
+            }
+          }}
+        >
+          <SheetContent side="bottom" className="h-[88vh] rounded-t-2xl p-0 flex flex-col border-t-0 focus:outline-none">
+
+            {/* Orange accent bar */}
+            <div className="h-1.5 w-full bg-orange-500 rounded-t-2xl shrink-0" />
+
+            {/* Drag handle */}
+            <div className="flex justify-center pt-2 pb-1 shrink-0">
+              <div className="w-10 h-1 rounded-full bg-muted-foreground/20" />
+            </div>
+
+            {/* Header */}
+            <div className="px-5 pt-2 pb-3 shrink-0">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-9 h-9 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center shrink-0">
+                  <AlarmClockPlus className="h-4.5 w-4.5 text-orange-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-semibold text-base leading-tight">Request Punch Log Entry</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                    {["Date & Times", "Approver & Reason", "Review & Submit"][requestStep - 1]}
+                  </p>
+                </div>
+                <span className="text-xs font-semibold text-muted-foreground bg-muted px-2 py-1 rounded-full shrink-0">
+                  {requestStep} / 3
+                </span>
               </div>
 
-              {requestPunchDate && !requestErrors.date && (
-                <>
-                  <div className="grid grid-cols-2 gap-4">
+              {/* Step progress bar */}
+              <div className="flex gap-1.5">
+                {[1, 2, 3].map((s) => (
+                  <div
+                    key={s}
+                    className={`h-1.5 flex-1 rounded-full transition-all duration-300 ${
+                      s < requestStep  ? "bg-orange-400" :
+                      s === requestStep ? "bg-orange-500" :
+                      "bg-muted"
+                    }`}
+                  />
+                ))}
+              </div>
+              <div className="flex justify-between mt-1.5 text-[10px] font-medium text-muted-foreground">
+                <span className={requestStep === 1 ? "text-orange-500" : ""}>Date & Times</span>
+                <span className={requestStep === 2 ? "text-orange-500" : ""}>Approver</span>
+                <span className={requestStep === 3 ? "text-orange-500" : ""}>Details</span>
+              </div>
+            </div>
+
+            {/* Scrollable step content */}
+            <ScrollArea className="flex-1 min-h-0">
+              <div className="px-5 pb-6">
+
+                {/* ── Step 1: Date & Times ── */}
+                {requestStep === 1 && (
+                  <div className="space-y-5">
                     <div className="space-y-2">
-                      <label className="text-sm font-medium flex items-center gap-1"><Clock className="h-4 w-4 text-green-500" />Clock In <span className="text-orange-500">*</span></label>
-                      <Input type="datetime-local" value={requestClockIn} onChange={(e) => { setRequestClockIn(e.target.value); setRequestErrors((p) => ({ ...p, clockIn: undefined })); }} className={requestErrors.clockIn ? "border-red-500" : ""} />
-                      {requestErrors.clockIn && <p className="text-red-500 text-xs flex items-center gap-1"><AlertCircle className="h-3 w-3" />{requestErrors.clockIn}</p>}
+                      <label className="text-sm font-semibold flex items-center gap-1.5">
+                        <Calendar className="h-3.5 w-3.5 text-orange-500" />
+                        Date <span className="text-orange-500">*</span>
+                      </label>
+                      <Input
+                        type="date"
+                        value={requestPunchDate}
+                        max={getDefaultTo(companyTimezone)}
+                        onChange={(e) => {
+                          const d = e.target.value;
+                          setRequestPunchDate(d);
+                          setRequestErrors((p) => ({ ...p, date: undefined }));
+                          const existing = logs.find((l) => toLocalDateStr(l.timeIn, companyTimezone) === d);
+                          if (existing) setRequestErrors((p) => ({ ...p, date: "A punch log already exists for this date" }));
+                          if (d && defaultHours) { setRequestClockIn(`${d}T09:00`); setRequestClockOut(`${d}T${String(9 + defaultHours).padStart(2, "0")}:00`); }
+                        }}
+                        className={`h-12 text-base ${requestErrors.date ? "border-red-500" : ""}`}
+                      />
+                      {requestErrors.date && (
+                        <p className="text-red-500 text-xs flex items-center gap-1">
+                          <AlertCircle className="h-3 w-3" />{requestErrors.date}
+                        </p>
+                      )}
                     </div>
+
+                    {requestPunchDate && !requestErrors.date && (
+                      <>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <label className="text-sm font-semibold flex items-center gap-1.5">
+                              <Clock className="h-3.5 w-3.5 text-green-500" />
+                              Clock In <span className="text-orange-500">*</span>
+                            </label>
+                            <Input
+                              type="time"
+                              value={requestClockIn.split("T")[1] || ""}
+                              onChange={(e) => { setRequestClockIn(`${requestPunchDate}T${e.target.value}`); setRequestErrors((p) => ({ ...p, clockIn: undefined })); }}
+                              className={`h-12 text-base ${requestErrors.clockIn ? "border-red-500" : ""}`}
+                            />
+                            {requestErrors.clockIn && (
+                              <p className="text-red-500 text-xs flex items-center gap-1">
+                                <AlertCircle className="h-3 w-3" />{requestErrors.clockIn}
+                              </p>
+                            )}
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-sm font-semibold flex items-center gap-1.5">
+                              <Clock className="h-3.5 w-3.5 text-red-500" />
+                              Clock Out <span className="text-orange-500">*</span>
+                            </label>
+                            <Input
+                              type="time"
+                              value={requestClockOut.split("T")[1] || ""}
+                              onChange={(e) => { setRequestClockOut(`${requestPunchDate}T${e.target.value}`); setRequestErrors((p) => ({ ...p, clockOut: undefined })); }}
+                              className={`h-12 text-base ${requestErrors.clockOut ? "border-red-500" : ""}`}
+                            />
+                            {requestErrors.clockOut && (
+                              <p className="text-red-500 text-xs flex items-center gap-1">
+                                <AlertCircle className="h-3 w-3" />{requestErrors.clockOut}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        {requestClockIn && requestClockOut && !requestErrors.clockIn && !requestErrors.clockOut && (
+                          <div className="flex items-center justify-between p-4 bg-orange-50 dark:bg-orange-900/20 rounded-xl border border-orange-200 dark:border-orange-800">
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                              <Clock className="h-4 w-4 text-orange-500" />
+                              Estimated Net Hours
+                            </div>
+                            <span className="text-xl font-bold text-orange-600">
+                              {toHour(Math.max(0, diffMins(requestClockIn, requestClockOut) - minLunchMins))}h
+                            </span>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* ── Step 2: Approver & Reason ── */}
+                {requestStep === 2 && (
+                  <div className="space-y-5">
                     <div className="space-y-2">
-                      <label className="text-sm font-medium flex items-center gap-1"><Clock className="h-4 w-4 text-red-500" />Clock Out <span className="text-orange-500">*</span></label>
-                      <Input type="datetime-local" value={requestClockOut} onChange={(e) => { setRequestClockOut(e.target.value); setRequestErrors((p) => ({ ...p, clockOut: undefined })); }} className={requestErrors.clockOut ? "border-red-500" : ""} />
-                      {requestErrors.clockOut && <p className="text-red-500 text-xs flex items-center gap-1"><AlertCircle className="h-3 w-3" />{requestErrors.clockOut}</p>}
+                      <label className="text-sm font-semibold flex items-center gap-1.5">
+                        <User className="h-3.5 w-3.5 text-orange-500" />
+                        Approver <span className="text-orange-500">*</span>
+                      </label>
+                      <Select value={requestApproverId} onValueChange={(v) => { setRequestApproverId(v); setRequestErrors((p) => ({ ...p, approverId: undefined })); }}>
+                        <SelectTrigger className={`w-full h-12 text-base ${requestErrors.approverId ? "border-red-500" : ""}`}>
+                          <SelectValue placeholder="Select approver" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-60">
+                          {(supervisors.length > 0 ? supervisors : approvers).map((a) => (
+                            <SelectItem key={a.id} value={a.id}>
+                              <div className="flex items-center gap-2">
+                                <User className="h-3.5 w-3.5 text-muted-foreground" />
+                                <span>{a.name || a.email}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {requestErrors.approverId && (
+                        <p className="text-red-500 text-xs flex items-center gap-1">
+                          <AlertCircle className="h-3 w-3" />{requestErrors.approverId}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold flex items-center gap-1.5">
+                        <AlertTriangle className="h-3.5 w-3.5 text-orange-500" />
+                        Reason <span className="text-orange-500">*</span>
+                      </label>
+                      <Select value={requestReason} onValueChange={(v) => { setRequestReason(v); setRequestErrors((p) => ({ ...p, reason: undefined })); }}>
+                        <SelectTrigger className={`w-full h-12 text-base ${requestErrors.reason ? "border-red-500" : ""}`}>
+                          <SelectValue placeholder="Select reason" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {["forgot_to_clock", "system_malfunction", "network_issues", "emergency", "remote_work", "power_outage", "meeting_offsite", "other"].map((v) => (
+                            <SelectItem key={v} value={v}>
+                              {v.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {requestErrors.reason && (
+                        <p className="text-red-500 text-xs flex items-center gap-1">
+                          <AlertCircle className="h-3 w-3" />{requestErrors.reason}
+                        </p>
+                      )}
                     </div>
                   </div>
+                )}
 
-                  {requestClockIn && requestClockOut && !requestErrors.clockIn && !requestErrors.clockOut && (
-                    <div className="p-3 bg-muted rounded-md border text-sm space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-muted-foreground">Net Work Hours:</span>
-                        <span className="font-bold text-orange-600">{toHour(Math.max(0, diffMins(requestClockIn, requestClockOut) - minLunchMins))}h</span>
+                {/* ── Step 3: Details & Confirm ── */}
+                {requestStep === 3 && (
+                  <div className="space-y-5">
+                    {/* Summary card */}
+                    <div className="rounded-xl border-2 border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-900/20 p-4 space-y-3">
+                      <p className="text-[11px] font-bold text-orange-600 dark:text-orange-400 uppercase tracking-widest">Request Summary</p>
+                      <div className="space-y-2.5 text-sm">
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted-foreground flex items-center gap-1.5"><Calendar className="h-3.5 w-3.5" />Date</span>
+                          <span className="font-semibold">
+                            {requestPunchDate ? new Date(requestPunchDate + "T12:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" }) : "—"}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted-foreground flex items-center gap-1.5"><Clock className="h-3.5 w-3.5 text-green-500" />Clock In</span>
+                          <span className="font-semibold text-green-600">{requestClockIn.split("T")[1] || "—"}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted-foreground flex items-center gap-1.5"><Clock className="h-3.5 w-3.5 text-red-500" />Clock Out</span>
+                          <span className="font-semibold text-red-600">{requestClockOut.split("T")[1] || "—"}</span>
+                        </div>
+                        <div className="flex justify-between items-center border-t pt-2">
+                          <span className="text-muted-foreground">Net Hours</span>
+                          <span className="font-bold text-orange-600 text-base">
+                            {toHour(Math.max(0, diffMins(requestClockIn, requestClockOut) - minLunchMins))}h
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted-foreground flex items-center gap-1.5"><User className="h-3.5 w-3.5" />Approver</span>
+                          <span className="font-semibold truncate max-w-[55%] text-right">
+                            {(supervisors.length > 0 ? supervisors : approvers).find((a) => a.id === requestApproverId)?.name || "—"}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted-foreground flex items-center gap-1.5"><AlertTriangle className="h-3.5 w-3.5" />Reason</span>
+                          <span className="font-semibold capitalize">{requestReason.replace(/_/g, " ") || "—"}</span>
+                        </div>
                       </div>
                     </div>
-                  )}
 
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium flex items-center gap-2"><User className="h-4 w-4 text-orange-500" />Approver <span className="text-orange-500">*</span></label>
-                    <Select value={requestApproverId} onValueChange={(v) => { setRequestApproverId(v); setRequestErrors((p) => ({ ...p, approverId: undefined })); }}>
-                      <SelectTrigger className={requestErrors.approverId ? "border-red-500" : ""}><SelectValue placeholder="Select approver" /></SelectTrigger>
-                      <SelectContent className="max-h-60">
-                        {(supervisors.length > 0 ? supervisors : approvers).map((a) => (
-                          <SelectItem key={a.id} value={a.id}><div className="flex items-center gap-2"><User className="h-3 w-3" /><span>{a.name || a.email}</span></div></SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {requestErrors.approverId && <p className="text-red-500 text-xs flex items-center gap-1"><AlertCircle className="h-3 w-3" />{requestErrors.approverId}</p>}
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-orange-500" />Reason <span className="text-orange-500">*</span></label>
-                    <Select value={requestReason} onValueChange={(v) => { setRequestReason(v); setRequestErrors((p) => ({ ...p, reason: undefined })); }}>
-                      <SelectTrigger className={requestErrors.reason ? "border-red-500" : ""}><SelectValue placeholder="Select reason" /></SelectTrigger>
-                      <SelectContent>
-                        {["forgot_to_clock", "system_malfunction", "network_issues", "emergency", "remote_work", "power_outage", "meeting_offsite", "other"].map((v) => (
-                          <SelectItem key={v} value={v}>{v.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {requestErrors.reason && <p className="text-red-500 text-xs flex items-center gap-1"><AlertCircle className="h-3 w-3" />{requestErrors.reason}</p>}
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium flex items-center gap-2"><FileText className="h-4 w-4 text-orange-500" />Detailed Explanation <span className="text-orange-500">*</span></label>
-                    <Textarea value={requestDescription} onChange={(e) => { setRequestDescription(e.target.value); setRequestErrors((p) => ({ ...p, description: undefined })); }} placeholder="Please explain why you need this entry..." className={`min-h-[100px] resize-none ${requestErrors.description ? "border-red-500" : ""}`} maxLength={500} />
-                    <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>{requestDescription.length}/500</span>
-                      {requestErrors.description && <span className="text-red-500">{requestErrors.description}</span>}
+                    {/* Description */}
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold flex items-center gap-1.5">
+                        <FileText className="h-3.5 w-3.5 text-orange-500" />
+                        Detailed Explanation <span className="text-orange-500">*</span>
+                      </label>
+                      <Textarea
+                        value={requestDescription}
+                        onChange={(e) => { setRequestDescription(e.target.value); setRequestErrors((p) => ({ ...p, description: undefined })); }}
+                        placeholder="Please explain why you need this entry..."
+                        className={`min-h-[120px] resize-none text-base ${requestErrors.description ? "border-red-500" : ""}`}
+                        maxLength={500}
+                      />
+                      <div className="flex justify-between text-xs">
+                        <span className={requestDescription.trim().length < 20 ? "text-amber-500 font-medium" : "text-green-600 font-medium"}>
+                          {requestDescription.length}/500
+                          {requestDescription.trim().length < 20 && requestDescription.length > 0 && (
+                            <span className="ml-1">({20 - requestDescription.trim().length} more needed)</span>
+                          )}
+                        </span>
+                        {requestErrors.description && <span className="text-red-500">{requestErrors.description}</span>}
+                      </div>
                     </div>
                   </div>
-                </>
+                )}
+
+              </div>
+            </ScrollArea>
+
+            {/* Footer navigation */}
+            <div className="px-5 py-4 border-t bg-background shrink-0 flex gap-3">
+              {requestStep > 1 ? (
+                <Button
+                  variant="outline"
+                  className="flex-1 h-12"
+                  onClick={() => setRequestStep((s) => s - 1)}
+                  disabled={requestSubmitting}
+                >
+                  ← Back
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  className="flex-1 h-12"
+                  onClick={() => {
+                    setRequestPunchLogsDialog(false);
+                    setRequestStep(1);
+                    setRequestPunchDate(""); setRequestClockIn(""); setRequestClockOut("");
+                    setRequestApproverId(""); setRequestReason(""); setRequestDescription("");
+                    setRequestErrors({});
+                  }}
+                  disabled={requestSubmitting}
+                >
+                  Cancel
+                </Button>
+              )}
+
+              {requestStep < 3 ? (
+                <Button
+                  className="flex-1 h-12 bg-orange-500 hover:bg-orange-600 text-white font-semibold"
+                  disabled={requestStep === 1 && !!requestErrors.date}
+                  onClick={() => {
+                    const errors = {};
+                    if (requestStep === 1) {
+                      if (!requestPunchDate)  errors.date     = "Please select a date";
+                      if (!requestClockIn)    errors.clockIn  = "Please provide clock-in time";
+                      if (!requestClockOut)   errors.clockOut = "Please provide clock-out time";
+                      if (requestClockIn && requestClockOut && requestClockIn >= requestClockOut) errors.clockIn = "Clock in must be before clock out";
+                    }
+                    if (requestStep === 2) {
+                      if (!requestApproverId) errors.approverId = "Please select an approver";
+                      if (!requestReason)     errors.reason     = "Please select a reason";
+                    }
+                    setRequestErrors(errors);
+                    if (Object.keys(errors).length === 0) setRequestStep((s) => s + 1);
+                  }}
+                >
+                  Next →
+                </Button>
+              ) : (
+                <Button
+                  className="flex-1 h-12 bg-orange-500 hover:bg-orange-600 text-white font-semibold"
+                  disabled={requestSubmitting}
+                  onClick={async () => {
+                    const errors = {};
+                    if (!requestDescription.trim()) errors.description = "Please provide a detailed explanation";
+                    else if (requestDescription.trim().length < 20) errors.description = "Please provide more detail (at least 20 chars)";
+                    setRequestErrors(errors);
+                    if (Object.keys(errors).length > 0) { toast.error("Please fill in all required fields"); return; }
+                    setRequestSubmitting(true);
+                    try {
+                      const res = await fetch(`${API_URL}/api/request-punch-log/submit`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                        body: JSON.stringify({ requestedDate: requestPunchDate, requestedClockIn: requestClockIn, requestedClockOut: requestClockOut, approverId: requestApproverId, reason: requestReason, description: requestDescription, estimatedDuration: diffMins(requestClockIn, requestClockOut), estimatedNetHours: parseFloat(toHour(Math.max(0, diffMins(requestClockIn, requestClockOut) - minLunchMins))) }),
+                      });
+                      const result = await res.json();
+                      if (res.ok) {
+                        toast.success("Punch log request submitted!");
+                        setRequestPunchLogsDialog(false);
+                        setRequestStep(1);
+                        setRequestPunchDate(""); setRequestClockIn(""); setRequestClockOut(""); setRequestApproverId(""); setRequestReason(""); setRequestDescription(""); setRequestErrors({});
+                        fetchMyRequests();
+                      } else { toast.error(result.message || "Failed to submit"); }
+                    } catch { toast.error("Failed to submit. Please try again."); }
+                    finally { setRequestSubmitting(false); }
+                  }}
+                >
+                  {requestSubmitting ? <><OrangeLoadingSpinner /><span className="ml-2">Submitting...</span></> : "Submit Request"}
+                </Button>
               )}
             </div>
-            <DialogFooter className="gap-2 mt-4">
-              <Button variant="outline" onClick={() => { setRequestPunchLogsDialog(false); setRequestPunchDate(""); setRequestClockIn(""); setRequestClockOut(""); setRequestApproverId(""); setRequestReason(""); setRequestDescription(""); setRequestErrors({}); }} disabled={requestSubmitting}>Cancel</Button>
-              <Button
-                onClick={async () => {
-                  const errors = {};
-                  if (!requestPunchDate) errors.date = "Please select a date";
-                  if (!requestClockIn)   errors.clockIn = "Please provide clock-in time";
-                  if (!requestClockOut)  errors.clockOut = "Please provide clock-out time";
-                  if (requestClockIn && requestClockOut && requestClockIn >= requestClockOut) errors.clockIn = "Clock in must be before clock out";
-                  if (!requestApproverId)        errors.approverId = "Please select an approver";
-                  if (!requestReason)            errors.reason = "Please select a reason";
-                  if (!requestDescription.trim()) errors.description = "Please provide a detailed explanation";
-                  else if (requestDescription.trim().length < 20) errors.description = "Please provide more detail (at least 20 chars)";
-                  setRequestErrors(errors);
-                  if (Object.keys(errors).length > 0) { toast.error("Please fill in all required fields"); return; }
-                  setRequestSubmitting(true);
-                  try {
-                    const res = await fetch(`${API_URL}/api/request-punch-log/submit`, {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                      body: JSON.stringify({ requestedDate: requestPunchDate, requestedClockIn, requestedClockOut, approverId: requestApproverId, reason: requestReason, description: requestDescription, estimatedDuration: diffMins(requestClockIn, requestClockOut), estimatedNetHours: parseFloat(toHour(Math.max(0, diffMins(requestClockIn, requestClockOut) - minLunchMins))) }),
-                    });
-                    const result = await res.json();
-                    if (res.ok) {
-                      toast.success("Punch log request submitted!");
-                      setRequestPunchLogsDialog(false);
-                      setRequestPunchDate(""); setRequestClockIn(""); setRequestClockOut(""); setRequestApproverId(""); setRequestReason(""); setRequestDescription(""); setRequestErrors({});
-                      fetchMyRequests();
-                    } else { toast.error(result.message || "Failed to submit"); }
-                  } catch { toast.error("Failed to submit. Please try again."); }
-                  finally { setRequestSubmitting(false); }
-                }}
-                disabled={requestSubmitting || !requestPunchDate || !!requestErrors.date}
-                className="bg-orange-500 hover:bg-orange-600 text-white"
-              >
-                {requestSubmitting ? <><OrangeLoadingSpinner /><span className="ml-2">Submitting...</span></> : "Submit Request"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+
+          </SheetContent>
+        </Sheet>
 
         <ContestDialog
           open={contestDialogOpen}
