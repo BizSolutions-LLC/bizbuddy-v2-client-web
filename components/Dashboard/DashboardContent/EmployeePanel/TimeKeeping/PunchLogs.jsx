@@ -747,10 +747,14 @@ export default function PunchLogs() {
       return sum + ots.filter((ot) => ot.status === "pending").reduce((s, ot) => s + parseFloat(ot.requestedHours || 0), 0);
     }, 0).toFixed(2));
 
-    const threshold = otBasis === "weekly" ? weeklyOtThreshold : cutoffOtThreshold;
-    const pct = Math.min(100, (approvedHours / threshold) * 100);
+    const accumulatedHours = parseFloat(windowLogs.reduce((sum, l) => {
+      return sum + parseFloat(l.netWorkedHours ?? 0);
+    }, 0).toFixed(2));
 
-    return { type: otBasis, threshold, label, approvedHours, pendingHours, pct, window: { start: windowStart, end: windowEnd } };
+    const threshold = otBasis === "weekly" ? weeklyOtThreshold : cutoffOtThreshold;
+    const pct = Math.min(100, (accumulatedHours / threshold) * 100);
+
+    return { type: otBasis, threshold, label, accumulatedHours, approvedHours, pendingHours, pct, window: { start: windowStart, end: windowEnd } };
   }, [logs, otBasis, dailyOtThreshold, weeklyOtThreshold, cutoffOtThreshold, activeCutoffPeriod]);
 
   // ── Auto-fetch active cutoff period once otBasis + departmentId are known ────
@@ -1119,7 +1123,7 @@ export default function PunchLogs() {
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-muted-foreground font-medium">{otConsumptionData.label || "Current window"}</span>
                   <span className="font-mono font-bold">
-                    {otConsumptionData.approvedHours}h <span className="text-muted-foreground font-normal">/ {otConsumptionData.threshold}h</span>
+                    {otConsumptionData.accumulatedHours}h <span className="text-muted-foreground font-normal">/ {otConsumptionData.threshold}h</span>
                   </span>
                 </div>
                 <div className="h-2 w-full bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
@@ -1134,14 +1138,20 @@ export default function PunchLogs() {
                 </div>
                 <div className="flex items-center justify-between text-[11px] text-muted-foreground">
                   <span>
-                    {otConsumptionData.approvedHours === 0
-                      ? "No approved OT in this period"
-                      : `${otConsumptionData.approvedHours}h approved`}
+                    {otConsumptionData.accumulatedHours >= otConsumptionData.threshold
+                      ? otConsumptionData.approvedHours === 0
+                        ? "Threshold met — no approved OT yet"
+                        : `${otConsumptionData.approvedHours}h approved`
+                      : `${otConsumptionData.accumulatedHours}h accumulated`}
                     {otConsumptionData.pendingHours > 0 && (
                       <span className="ml-2 text-amber-600 font-semibold">· {otConsumptionData.pendingHours}h pending</span>
                     )}
                   </span>
-                  <span>{(otConsumptionData.threshold - otConsumptionData.approvedHours).toFixed(2)}h remaining</span>
+                  <span>
+                    {otConsumptionData.accumulatedHours >= otConsumptionData.threshold
+                      ? `${(otConsumptionData.accumulatedHours - otConsumptionData.threshold).toFixed(2)}h over threshold`
+                      : `${(otConsumptionData.threshold - otConsumptionData.accumulatedHours).toFixed(2)}h to threshold`}
+                  </span>
                 </div>
               </div>
             )}
@@ -1302,7 +1312,7 @@ export default function PunchLogs() {
                                 <div className="flex items-center gap-2 min-w-0">
                                   <Calendar className="h-4 w-4 text-orange-500 shrink-0" />
                                   <span className="font-semibold text-sm leading-snug">
-                                    {new Date(req.requestedDate + "T12:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
+                                    {new Date((req.requestedDate?.split("T")[0] ?? "") + "T12:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
                                   </span>
                                 </div>
                                 <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold shrink-0 ${statusMeta.badge}`}>
