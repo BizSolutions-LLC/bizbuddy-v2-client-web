@@ -974,9 +974,14 @@ export default function EmployeesPunchLogs() {
       });
       const j = await res.json();
       if (res.ok) {
-        setCutoffPeriods(
-          (j.data || []).sort((a, b) => new Date(b.periodStart) - new Date(a.periodStart))
-        );
+        const seen = new Set();
+        const unique = (j.data || []).filter((p) => {
+          const key = `${p.periodStart?.slice(0, 10)}|${p.periodEnd?.slice(0, 10)}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        setCutoffPeriods(unique.sort((a, b) => new Date(b.periodStart) - new Date(a.periodStart)));
       }
     } catch { /* silent */ }
   }, [token, API_URL]);
@@ -1357,7 +1362,6 @@ export default function EmployeesPunchLogs() {
     finally { setDeletingLog(false); }
   };
 
-  const labelClass = "my-auto shrink-0 text-sm font-medium text-muted-foreground";
 
   // ═════════════════════════════════════════════════════════════════════════════
   // Render
@@ -1427,36 +1431,58 @@ export default function EmployeesPunchLogs() {
             </div>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-wrap gap-3 items-center">
-            <span className={labelClass}><Eye className="w-4 h-4 mr-1 inline" />Columns:</span>
+        <CardContent className="space-y-5 pt-4">
+          {/* Columns */}
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+              <Eye className="w-3.5 h-3.5" />Columns
+            </p>
             <ColumnSelector options={columnOptions} visible={columnVisibility} setVisible={setColumnVisibility} />
           </div>
-          <div className="flex flex-wrap gap-3 items-center">
-            <span className={labelClass}><Users className="w-4 h-4 mr-1 inline" />Employee:</span>
-            <MultiSelect
-              options={employees.map((e) => {
-                const name = `${e.profile?.firstName || ""} ${e.profile?.lastName || ""}`.trim();
-                return { value: e.id, label: name || e.email.split("@")[0] };
-              })}
-              selected={filters.employeeIds}
-              onChange={(v) => toggleListFilter("employeeIds", v)}
-              allLabel="All employees"
-              width={220}
-            />
-            <span className={labelClass}><Building className="w-4 h-4 mr-1 inline" />Department:</span>
-            <div className="w-full sm:min-w-[180px]">
+
+          {/* Filter grid */}
+          <div className={`grid gap-3 grid-cols-1 sm:grid-cols-2 ${isDayCare ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
+            {/* Employee */}
+            <div className="space-y-1.5">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5" />Employee
+              </p>
+              <MultiSelect
+                options={employees.map((e) => {
+                  const name = `${e.profile?.firstName || ""} ${e.profile?.lastName || ""}`.trim();
+                  return { value: e.id, label: name || e.email.split("@")[0] };
+                })}
+                selected={filters.employeeIds}
+                onChange={(v) => toggleListFilter("employeeIds", v)}
+                allLabel="All employees"
+                width={0}
+                className="w-full"
+                searchable
+                sortable
+              />
+            </div>
+
+            {/* Department */}
+            <div className="space-y-1.5">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                <Building className="w-3.5 h-3.5" />Department
+              </p>
               <Select value={filters.departmentId} onValueChange={(v) => setFilters({ ...filters, departmentId: v })}>
-                <SelectTrigger><SelectValue placeholder="All departments" /></SelectTrigger>
+                <SelectTrigger className="w-full"><SelectValue placeholder="All departments" /></SelectTrigger>
                 <SelectContent className="max-h-60">
                   <SelectItem value="all">All departments</SelectItem>
                   {departments.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
-            <div className="w-full sm:min-w-[140px]">
+
+            {/* Status */}
+            <div className="space-y-1.5">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                <Timer className="w-3.5 h-3.5" />Status
+              </p>
               <Select value={filters.status} onValueChange={(v) => setFilters({ ...filters, status: v })}>
-                <SelectTrigger><SelectValue placeholder="All statuses" /></SelectTrigger>
+                <SelectTrigger className="w-full"><SelectValue placeholder="All statuses" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All statuses</SelectItem>
                   <SelectItem value="active">Active</SelectItem>
@@ -1464,10 +1490,15 @@ export default function EmployeesPunchLogs() {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Punch Type — DayCare only */}
             {isDayCare && (
-              <div className="w-full sm:min-w-[170px]">
+              <div className="space-y-1.5">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                  <Tag className="w-3.5 h-3.5" />Punch Type
+                </p>
                 <Select value={filters.punchType} onValueChange={(v) => setFilters({ ...filters, punchType: v })}>
-                  <SelectTrigger><SelectValue placeholder="All types" /></SelectTrigger>
+                  <SelectTrigger className="w-full"><SelectValue placeholder="All types" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All types</SelectItem>
                     <SelectItem value="REGULAR">Regular</SelectItem>
@@ -1480,51 +1511,65 @@ export default function EmployeesPunchLogs() {
               </div>
             )}
           </div>
-          <div className="flex flex-wrap gap-3 items-center">
-            <span className={labelClass}><Calendar className="w-4 h-4 mr-1 inline" />Date Range:</span>
-            {cutoffPeriods.length > 0 && (
-              <Select value={selectedCutoffId} onValueChange={handleCutoffSelect}>
-                <SelectTrigger className="h-9 min-w-[180px] w-auto">
-                  <SelectValue placeholder="Custom range" />
-                </SelectTrigger>
-                <SelectContent className="max-h-60">
-                  <SelectItem value="all">Custom range</SelectItem>
-                  {cutoffPeriods.map((p) => {
-                    const fmt = (iso) => {
-                      if (!iso) return "—";
-                      const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
-                      return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                    };
-                    return (
-                      <SelectItem key={p.id} value={p.id}>
-                        {fmt(p.periodStart)} – {fmt(p.periodEnd)}{p.status ? ` (${p.status})` : ""}
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
-            )}
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">From:</span>
-              <Input type="date" value={pendingDates.from} onChange={(e) => { setPendingDates((prev) => ({ ...prev, from: e.target.value })); setSelectedCutoffId("all"); }} className="h-9 w-auto" />
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">To:</span>
-              <Input type="date" value={pendingDates.to} onChange={(e) => { setPendingDates((prev) => ({ ...prev, to: e.target.value })); setSelectedCutoffId("all"); }} className="h-9 w-auto" />
-            </div>
-            <Button size="sm" onClick={applyDates}
-              className={datesAreDirty ? "bg-orange-500 hover:bg-orange-600 text-white" : "bg-primary hover:bg-primary/90 text-primary-foreground"}>
-              Apply
-            </Button>
-            {datesAreDirty && (
-              <span className="text-xs text-orange-500 font-medium">Unsaved date range</span>
-            )}
-            {anyFilterActive && (
-              <Button variant="outline" size="sm" onClick={clearAllFilters}
-                className="border-orange-500/30 text-orange-700 hover:bg-orange-500/10">
-                Clear All Filters
+
+          {/* Date range */}
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+              <Calendar className="w-3.5 h-3.5" />Date Range
+            </p>
+            <div className="flex flex-wrap gap-2 items-center">
+              {(() => {
+                const selectablePeriods = cutoffPeriods.filter(
+                  (p) => (p.periodStart?.slice(0, 10) ?? "") <= getDefaultTo()
+                );
+                if (!selectablePeriods.length) return null;
+                const fmt = (iso) => {
+                  if (!iso) return "—";
+                  const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
+                  return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                };
+                return (
+                  <Select value={selectedCutoffId} onValueChange={handleCutoffSelect}>
+                    <SelectTrigger className="h-9 w-full sm:w-auto sm:min-w-[190px]">
+                      <SelectValue placeholder="Custom range" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-60">
+                      <SelectItem value="all">Custom range</SelectItem>
+                      {selectablePeriods.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {fmt(p.periodStart)} – {fmt(p.periodEnd)}{p.status ? ` (${p.status})` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                );
+              })()}
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm text-muted-foreground shrink-0">From</span>
+                <Input type="date" value={pendingDates.from} max={getDefaultTo()}
+                  onChange={(e) => { setPendingDates((prev) => ({ ...prev, from: e.target.value })); setSelectedCutoffId("all"); }}
+                  className="h-9 w-full sm:w-auto" />
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm text-muted-foreground shrink-0">To</span>
+                <Input type="date" value={pendingDates.to} max={getDefaultTo()}
+                  onChange={(e) => { setPendingDates((prev) => ({ ...prev, to: e.target.value })); setSelectedCutoffId("all"); }}
+                  className="h-9 w-full sm:w-auto" />
+              </div>
+              <Button size="sm" onClick={applyDates}
+                className={datesAreDirty ? "bg-orange-500 hover:bg-orange-600 text-white" : "bg-primary hover:bg-primary/90 text-primary-foreground"}>
+                Apply
               </Button>
-            )}
+              {datesAreDirty && (
+                <span className="text-xs text-orange-500 font-medium">Unsaved date range</span>
+              )}
+              {anyFilterActive && (
+                <Button variant="outline" size="sm" onClick={clearAllFilters}
+                  className="border-orange-500/30 text-orange-700 hover:bg-orange-500/10">
+                  Clear All Filters
+                </Button>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>

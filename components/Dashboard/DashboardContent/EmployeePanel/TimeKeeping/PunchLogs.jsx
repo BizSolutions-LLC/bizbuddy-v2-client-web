@@ -728,14 +728,16 @@ export default function PunchLogs() {
       windowEnd   = new Date(activeCutoffPeriod.periodEnd);
       label = `${safeDate(activeCutoffPeriod.periodStart, companyTimezone)} – ${safeDate(activeCutoffPeriod.periodEnd, companyTimezone)}`;
     } else {
-      return { type: otBasis, threshold: cutoffOtThreshold, label: "No active cutoff period", approvedHours: 0, pendingHours: 0, pct: 0, window: null };
+      label = "No active cutoff period";
     }
 
-    const windowLogs = logs.filter((l) => {
-      if (!l.timeIn) return false;
-      const d = new Date(l.timeIn);
-      return d >= windowStart && d <= windowEnd;
-    });
+    const windowLogs = windowStart && windowEnd
+      ? logs.filter((l) => {
+          if (!l.timeIn) return false;
+          const d = new Date(l.timeIn);
+          return d >= windowStart && d <= windowEnd;
+        })
+      : logs;
 
     const approvedHours = parseFloat(windowLogs.reduce((sum, l) => {
       const ots = Array.isArray(l.overtime) ? l.overtime : [];
