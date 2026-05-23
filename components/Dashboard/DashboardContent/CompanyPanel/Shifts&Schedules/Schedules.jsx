@@ -21,6 +21,7 @@ import {
   Info,
   Loader2,
   X,
+  LayoutList,
 } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
@@ -35,6 +36,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
+import SchedulesCalendarView from "./SchedulesCalendarView";
 
 export default function ModernCompanySchedules() {
   const { token, role } = useAuthStore();
@@ -90,6 +92,8 @@ export default function ModernCompanySchedules() {
     targetIds: [],  // multi-select employee IDs for individual type (create)
     targetId: "",   // single ID for department type
   });
+
+  const [viewMode, setViewMode] = useState("list"); // "list" | "calendar"
 
   const dayOptions = [
     { value: 1, label: "Mon", color: "bg-blue-500" },
@@ -439,20 +443,48 @@ export default function ModernCompanySchedules() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={handleRefresh} disabled={refreshing} className="gap-2">
-              <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
-            <Button
-              onClick={() => setShowCreateModal(true)}
-              className="bg-orange-500 hover:bg-orange-600 text-white gap-2"
-            >
-              <Plus className="h-4 w-4" />
-              Create Schedule
-            </Button>
+            {/* View toggle */}
+            <div className="flex border rounded-md overflow-hidden">
+              <Button
+                size="sm"
+                variant={viewMode === "list" ? "default" : "ghost"}
+                className={`rounded-none h-9 ${viewMode === "list" ? "bg-orange-500 hover:bg-orange-600 text-white" : ""}`}
+                onClick={() => setViewMode("list")}
+              >
+                <LayoutList className="h-4 w-4 mr-1.5" />
+                List
+              </Button>
+              <Button
+                size="sm"
+                variant={viewMode === "calendar" ? "default" : "ghost"}
+                className={`rounded-none h-9 ${viewMode === "calendar" ? "bg-orange-500 hover:bg-orange-600 text-white" : ""}`}
+                onClick={() => setViewMode("calendar")}
+              >
+                <CalendarDays className="h-4 w-4 mr-1.5" />
+                Calendar
+              </Button>
+            </div>
+
+            {/* List-only actions */}
+            {viewMode === "list" && (
+              <>
+                <Button variant="outline" onClick={handleRefresh} disabled={refreshing} className="gap-2">
+                  <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+                  Refresh
+                </Button>
+                <Button
+                  onClick={() => setShowCreateModal(true)}
+                  className="bg-orange-500 hover:bg-orange-600 text-white gap-2"
+                >
+                  <Plus className="h-4 w-4" />
+                  Create Schedule
+                </Button>
+              </>
+            )}
           </div>
         </div>
 
+        {viewMode === "list" && (<>
         {/* Stats Cards */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card>
@@ -709,6 +741,27 @@ export default function ModernCompanySchedules() {
             </div>
           </CardContent>
         </Card>
+
+        </>)}
+
+        {viewMode === "calendar" && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CalendarDays className="h-5 w-5 text-orange-500" />
+                Calendar View
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <SchedulesCalendarView
+                employees={employees}
+                shifts={shifts}
+                token={token}
+                API_URL={API_URL}
+              />
+            </CardContent>
+          </Card>
+        )}
 
         {/* Create / Edit Modal */}
         <Dialog open={showCreateModal || showEditModal} onOpenChange={(open) => {
