@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft,
+  Car,
   ChevronRight,
   CircleDot,
   Lock,
@@ -317,11 +318,12 @@ const FilterBar = ({ tabs, activeTab, onTab, search, onSearch, chips, onChip }) 
 /** Tag pill with tooltip */
 const TagPill = ({ cls, label, tooltip }) => {
   const styles = {
-    snap:  "bg-emerald-50 text-emerald-700 border border-emerald-200",
-    late:  "bg-red-50    text-red-600    border border-red-200",
-    flag:  "bg-amber-50  text-amber-700  border border-amber-200",
-    ot:    "bg-violet-50 text-violet-700 border border-violet-200",
-    auto:  "bg-sky-50    text-sky-700    border border-sky-200",
+    snap:     "bg-emerald-50 text-emerald-700 border border-emerald-200",
+    late:     "bg-red-50    text-red-600    border border-red-200",
+    flag:     "bg-amber-50  text-amber-700  border border-amber-200",
+    ot:       "bg-violet-50 text-violet-700 border border-violet-200",
+    auto:     "bg-sky-50    text-sky-700    border border-sky-200",
+    tooEarly: "bg-orange-50 text-orange-700 border border-orange-200",
   };
   return (
     <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full
@@ -717,6 +719,13 @@ const DriverSegmentRow = ({ seg, onApprove, onApproveOT, onApproveSchedule, onAp
         </div>
       </td>
       <td className="px-3 py-2.5 align-top">
+        {seg.segmentWindow && (
+          <div className="mb-1.5">
+            <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 border border-violet-200 font-mono">
+              Segment window: {seg.segmentWindow}
+            </span>
+          </div>
+        )}
         {seg.isApproving ? (
           <div className="flex items-center gap-1.5 text-neutral-400 text-[12px] mb-1.5">
             <Loader2 className="w-3.5 h-3.5 animate-spin" /> Confirming…
@@ -768,28 +777,39 @@ const DriverSegmentRow = ({ seg, onApprove, onApproveOT, onApproveSchedule, onAp
 };
 
 /** Driver day group — header row + one DriverSegmentRow per segment */
-const DriverGroupRow = ({ group, onApprove, onApproveOT, onApproveSchedule, onApproveRaw, onExclude, onReset }) => (
-  <>
-    <tr className="bg-violet-50/40 dark:bg-violet-900/10 border-b border-violet-100 dark:border-violet-900/20">
-      <td className="px-4 py-2 w-20 align-middle">
-        <span className="font-mono text-[11px] font-medium text-neutral-400">{group.date}</span>
-      </td>
-      <td colSpan={3} className="px-3 py-2 align-middle">
-        <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-violet-600">
-          <Timer className="w-3 h-3" /> Driver Day — {group.segments.length} segments
-        </span>
-      </td>
-      <td className="px-3 py-2 text-right align-middle">
-        <span className="font-mono text-sm font-extrabold text-neutral-600 dark:text-neutral-300">
-          {parseFloat(group.hours).toFixed(2).replace(/\.?0+$/, "")}h total
-        </span>
-      </td>
-    </tr>
-    {group.segments.map((seg) => (
-      <DriverSegmentRow key={seg.id} seg={seg} onApprove={onApprove} onApproveOT={onApproveOT} onApproveSchedule={onApproveSchedule} onApproveRaw={onApproveRaw} onExclude={onExclude} onReset={onReset} />
-    ))}
-  </>
-);
+const DriverGroupRow = ({ group, onApprove, onApproveOT, onApproveSchedule, onApproveRaw, onExclude, onReset, companyTimezone }) => {
+  const rawIn  = group.segments[0]?.rawTimeIn;
+  const rawOut = group.segments[0]?.rawTimeOut;
+  return (
+    <>
+      <tr className="bg-violet-50/40 dark:bg-violet-900/10 border-b border-violet-100 dark:border-violet-900/20">
+        <td className="px-4 py-2 w-20 align-middle">
+          <span className="font-mono text-[11px] font-medium text-neutral-400">{group.date}</span>
+        </td>
+        <td colSpan={3} className="px-3 py-2 align-middle">
+          <div className="flex items-center gap-3">
+            <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-violet-600">
+              <Timer className="w-3 h-3" /> Driver Day — {group.segments.length} segments
+            </span>
+            {rawIn && (
+              <span className="font-mono text-[10px] text-neutral-400">
+                {formatDateTime(rawIn, companyTimezone)} → {rawOut ? formatDateTime(rawOut, companyTimezone) : "Not clocked out"}
+              </span>
+            )}
+          </div>
+        </td>
+        <td className="px-3 py-2 text-right align-middle">
+          <span className="font-mono text-sm font-extrabold text-neutral-600 dark:text-neutral-300">
+            {parseFloat(group.hours).toFixed(2).replace(/\.?0+$/, "")}h total
+          </span>
+        </td>
+      </tr>
+      {group.segments.map((seg) => (
+        <DriverSegmentRow key={seg.id} seg={seg} onApprove={onApprove} onApproveOT={onApproveOT} onApproveSchedule={onApproveSchedule} onApproveRaw={onApproveRaw} onExclude={onExclude} onReset={onReset} />
+      ))}
+    </>
+  );
+};
 
 /** Multi-shift day group for regular punches */
 const PunchGroupRow = ({ group, onApprove, onApproveOT, onApproveSchedule, onApproveRaw, onEdit, onExclude, onConflict, onReset }) => (
@@ -929,7 +949,10 @@ const EmployeeCard = ({ emp, onApprove, onApproveOT, onApproveSchedule, onApprov
 
         {/* Info */}
         <div className="flex-1 min-w-0">
-          <div className="font-bold text-sm text-neutral-800 dark:text-neutral-200 truncate">{emp.name}</div>
+          <div className="flex items-center gap-1.5">
+            <span className="font-bold text-sm text-neutral-800 dark:text-neutral-200 truncate">{emp.name}</span>
+            {emp.isDriver && <Car className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />}
+          </div>
           <div className="text-xs text-neutral-400 truncate">{emp.email}</div>
         </div>
 
@@ -1019,6 +1042,7 @@ const EmployeeCard = ({ emp, onApprove, onApproveOT, onApproveSchedule, onApprov
                             onApproveRaw={onApproveRaw}
                             onExclude={onExclude}
                             onReset={onReset}
+                            companyTimezone={companyTimezone}
                           />
                         ) : rec.type === "punch_group" ? (
                           <PunchGroupRow
@@ -1209,6 +1233,7 @@ export default function CutoffReview({ cutoffId }) {
             records:   [],
             hasOT:     false,
             hasBulk:   false,
+            isDriver:  false,
           };
         }
 
@@ -1216,6 +1241,7 @@ export default function CutoffReview({ cutoffId }) {
         const details = buildDetails(approval, tz, isBNCLocal);
         emp.records.push(details);
         if (details.hasOT) emp.hasOT = true;
+        if (details.segmentType !== null) emp.isDriver = true;
         if (
           details.actions?.some((a) => ["approve", "approve-schedule", "approve-raw"].includes(a)) &&
           !["conflict", "unscheduled"].includes(details.type)
@@ -1376,13 +1402,25 @@ export default function CutoffReview({ cutoffId }) {
     if (isConflict)      type = "conflict";
     else if (isUnscheduled) type = "unscheduled";
 
-    // Build detail HTML
-    const inTime  = approval.segmentType !== null
-      ? formatDateTime(approval.segmentStart, tz)
-      : (tl.timeIn  ? formatDateTime(tl.timeIn,  tz) : "—");
-    const outTime = approval.segmentType !== null
-      ? formatDateTime(approval.segmentEnd, tz)
-      : (tl.timeOut ? formatDateTime(tl.timeOut, tz) : "Not clocked out");
+    // Build detail HTML — for driver/aide segments, show status-aware times:
+    // pending/excluded → segmentStart/segmentEnd (each segment has its own window; raw punch
+    //   is identical across all 3 segments so it's shown once in the day header instead).
+    // approved → approvedClockIn/approvedClockOut (cleaned times set by the server on approval).
+    // segmentStart/segmentEnd are also stored as segmentWindow for the reference strip.
+    let inTime, outTime;
+    if (approval.segmentType !== null) {
+      if (approval.status === "approved") {
+        inTime  = approval.approvedClockIn  ? formatDateTime(approval.approvedClockIn,  tz) : "—";
+        outTime = approval.approvedClockOut ? formatDateTime(approval.approvedClockOut, tz) : "—";
+      } else {
+        // pending / excluded — show the segment window (unique per segment)
+        inTime  = approval.segmentStart ? formatDateTime(approval.segmentStart, tz) : "—";
+        outTime = approval.segmentEnd   ? formatDateTime(approval.segmentEnd,   tz) : "—";
+      }
+    } else {
+      inTime  = tl.timeIn  ? formatDateTime(tl.timeIn,  tz) : "—";
+      outTime = tl.timeOut ? formatDateTime(tl.timeOut, tz) : "Not clocked out";
+    }
     let detail = `<strong>In: ${inTime}</strong> &rarr; <strong>Out: ${outTime}</strong>`;
     if (isConflict && approval.leaveRecord) {
       detail = `<strong>Punch:</strong> ${inTime} &rarr; ${outTime} &nbsp;|&nbsp; <strong>Leave:</strong> ${approval.leaveRecord.leaveType} (Approved)`;
@@ -1397,6 +1435,7 @@ export default function CutoffReview({ cutoffId }) {
     const scheduledHrs    = schedule?.scheduledHours || null;
 
     const tags = [];
+    if (tl.isTooEarlyPunch) tags.push({ cls: "tooEarly", label: "Too Early" });
     if (isLate)      tags.push({ cls: "late", label: `${calc.lateMinutes}min late` });
     if (withinGrace) tags.push({ cls: "snap", label: "Within grace — snaps to schedule" });
     if (leftEarly) {
@@ -1418,9 +1457,9 @@ export default function CutoffReview({ cutoffId }) {
     if (tl.autoClockOut)  tags.push({ cls: "auto", label: "Auto clock-out triggered" });
     if (approval.isDuplicate) tags.push({ cls: "flag", label: "Possible duplicate" });
 
-    // Actions — B&C uses four-button model; DayCare keeps legacy single-approve.
-    // Driver/Aide segments (segmentType !== null) skip the shift picker — their
-    // segment times are already authoritative; use raw or edit only.
+    // Actions — both BNC and DayCare use the four-button model.
+    // BNC segments skip the shift picker (segment times are authoritative).
+    // DayCare (segments and regular punches) also skip the picker — schedule is already known.
     const actions = [];
     if (isConflict) {
       actions.push("honor-punch", "honor-leave");
@@ -1428,10 +1467,12 @@ export default function CutoffReview({ cutoffId }) {
       actions.push("approve-raw", "edit", "exclude");
     } else if (isBNC) {
       actions.push("approve-schedule", "approve-raw", "edit", "exclude");
+    } else if (isSegment) {
+      // DayCare driver/aide segments — four-button model
+      actions.push("approve-schedule", "approve-raw", "edit", "exclude");
     } else {
-      actions.push("approve");
-      if (hasOT || calc.potentialOT) actions.push("approve-ot");
-      actions.push("edit", "exclude");
+      // DayCare regular punch — same four-button model; no OT button (handled server-side)
+      actions.push("approve-schedule", "approve-raw", "edit", "exclude");
     }
 
     const payableHours = payroll.payableRegularHours || calc.payableHours || 0;
@@ -1467,6 +1508,9 @@ export default function CutoffReview({ cutoffId }) {
       hasOT,
       timeIn:         inTime,
       timeOut:        outTime,
+      segmentWindow:  approval.segmentType !== null && approval.segmentStart && approval.segmentEnd
+        ? `${formatDateTime(approval.segmentStart, tz)} – ${formatDateTime(approval.segmentEnd, tz)}`
+        : null,
       pendingLeave:      approval.pendingLeave || null,
       noScheduleRemark,
       localStatus: approval.status === "approved" ? "approved" : approval.status === "excluded" ? "excluded" : null,
@@ -1786,6 +1830,14 @@ export default function CutoffReview({ cutoffId }) {
   }, [token, cutoffId, findRecord, isBNC, refreshOTBlocks, companyTimezone]);
 
   const handleApproveSchedule = useCallback((rec) => {
+    // DayCare (any punch type) — no shift picker needed; schedule is already known server-side.
+    // BNC segments also bypass the picker; their segment window is authoritative.
+    // Sends { action: "approve", approvalMode: "schedule" } with no shiftId in both cases.
+    if (!isBNC || rec.segmentType !== null) {
+      doApprove(rec.id, { approvalMode: "schedule" });
+      return;
+    }
+    // BNC regular punches — shift picker required (admin selects which shift to snap to)
     const shifts = rec.availableShifts || [];
     if (shifts.length === 0) {
       toast.warning("No shift assigned for this date — use Approve Raw Time instead.");
