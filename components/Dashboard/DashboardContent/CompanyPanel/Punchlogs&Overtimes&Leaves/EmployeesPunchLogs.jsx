@@ -1654,15 +1654,15 @@ export default function EmployeesPunchLogs() {
                                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                                     <div className="space-y-1">
                                       <div className="text-xs text-muted-foreground flex items-center gap-1"><Calendar className="h-3 w-3" />Date</div>
-                                      <div className="font-medium">{new Date(req.requestedDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</div>
+                                      <div className="font-medium">{safeDate(req.requestedDate, companyTimezone)}</div>
                                     </div>
                                     <div className="space-y-1">
                                       <div className="text-xs text-muted-foreground flex items-center gap-1"><Clock className="h-3 w-3" />Time In</div>
-                                      <div className="font-medium font-mono text-xs">{safeTime(req.requestedClockIn)}</div>
+                                      <div className="font-medium font-mono text-xs">{safeTime(req.requestedClockIn, companyTimezone)}</div>
                                     </div>
                                     <div className="space-y-1">
                                       <div className="text-xs text-muted-foreground flex items-center gap-1"><Clock className="h-3 w-3" />Time Out</div>
-                                      <div className="font-medium font-mono text-xs">{safeTime(req.requestedClockOut)}</div>
+                                      <div className="font-medium font-mono text-xs">{safeTime(req.requestedClockOut, companyTimezone)}</div>
                                     </div>
                                     <div className="space-y-1">
                                       <div className="text-xs text-muted-foreground flex items-center gap-1"><Timer className="h-3 w-3" />Duration</div>
@@ -1875,7 +1875,18 @@ export default function EmployeesPunchLogs() {
                             );
 
                           case "dateTimeIn":
-                            return <TableCell key="dateTimeIn" className="text-center"><DualTimeDisplay datetime={t.timeIn} userTz={userTimezone} companyTz={companyTimezone} /></TableCell>;
+                            return (
+                              <TableCell key="dateTimeIn" className="text-center">
+                                <div className="flex flex-col items-center gap-1">
+                                  <DualTimeDisplay datetime={t.timeIn} userTz={userTimezone} companyTz={companyTimezone} />
+                                  {t.isTooEarlyPunch && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                                      Too Early
+                                    </span>
+                                  )}
+                                </div>
+                              </TableCell>
+                            );
                           case "dateTimeOut":
                             return <TableCell key="dateTimeOut" className="text-center"><DualTimeDisplay datetime={t.timeOut} userTz={userTimezone} companyTz={companyTimezone} /></TableCell>;
                           case "duration":

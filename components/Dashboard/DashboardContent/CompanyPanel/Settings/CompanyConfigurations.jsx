@@ -8,7 +8,7 @@ import {
   Building2, Loader2, Save, Clock, User, CheckSquare, AlertCircle,
   Info, Trash2, Plus, Settings, Users, Calendar, TrendingUp,
   Edit3, Award, Timer, RefreshCw, Globe, Coffee, ChevronDown, X,
-  Zap, Check, BookOpen,
+  Zap, Check, BookOpen, AlarmClock,
 } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
@@ -1308,9 +1308,9 @@ function DayCareSettingsCard({ loading, draft, setDraft }) {
       </CardHeader>
       <CardContent className="space-y-4">
         {loading ? (
-          <div className="grid sm:grid-cols-2 gap-4"><Skeleton className="h-16" /><Skeleton className="h-16" /></div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4"><Skeleton className="h-16" /><Skeleton className="h-16" /><Skeleton className="h-16" /></div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             <NumberField
               label="Driver-Aide Threshold (minutes)"
               value={draft?.driverAideThresholdMinutes ?? 45}
@@ -1326,6 +1326,14 @@ function DayCareSettingsCard({ loading, draft, setDraft }) {
               step="5"
               icon={Zap}
               helpText="Minutes before/after a shift boundary where a driver's punch is auto-assigned and snapped to the scheduled time — no prompt shown"
+            />
+            <NumberField
+              label="Early Clock-In Grace (minutes)"
+              value={draft?.earlyClockInGraceMinutes}
+              onChange={(v) => setDraft((o) => ({ ...o, earlyClockInGraceMinutes: v }))}
+              step="5"
+              icon={AlarmClock}
+              helpText="Employees who clock in more than this many minutes before their shift start will have their actual time kept as-is and be flagged as Too Early. Leave blank to always snap early arrivals to shift start."
             />
           </div>
         )}

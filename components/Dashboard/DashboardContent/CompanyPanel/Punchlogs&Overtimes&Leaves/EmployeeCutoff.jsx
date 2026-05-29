@@ -351,8 +351,9 @@ export default function EmployeeCutoff() {
   const [manualForm, setManualForm] = useState(initManualForm());
 
   // ── Table filter state ──
-  const [searchPeriod, setSearchPeriod] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [searchPeriod,    setSearchPeriod]    = useState("");
+  const [statusFilter,    setStatusFilter]    = useState("all");
+  const [showCurrentOnly, setShowCurrentOnly] = useState(true);
 
   // ─────────────────────────────────────────────────────────────────────
   // DATA FETCHING
@@ -607,19 +608,31 @@ export default function EmployeeCutoff() {
     return counts;
   }, [cutoffPeriods, departments]);
 
-  const filteredPeriods = useMemo(
-    () =>
-      cutoffPeriods.filter((p) => {
-        const deptName = getDepartmentName(p.departmentId).toLowerCase();
-        const matchSearch =
-          !searchPeriod ||
-          deptName.includes(searchPeriod.toLowerCase()) ||
-          p.frequency.toLowerCase().includes(searchPeriod.toLowerCase());
-        const matchStatus = statusFilter === "all" || p.status === statusFilter;
-        return matchSearch && matchStatus;
-      }),
-    [cutoffPeriods, searchPeriod, statusFilter, getDepartmentName]
-  );
+  const filteredPeriods = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return cutoffPeriods.filter((p) => {
+      const deptName = getDepartmentName(p.departmentId).toLowerCase();
+      const matchSearch =
+        !searchPeriod ||
+        deptName.includes(searchPeriod.toLowerCase()) ||
+        p.frequency.toLowerCase().includes(searchPeriod.toLowerCase());
+      const matchStatus = statusFilter === "all" || p.status === statusFilter;
+
+      // Current-period toggle: only show periods that contain today
+      const matchDate = (() => {
+        if (!showCurrentOnly) return true;
+        const [sy, sm, sd] = p.periodStart.slice(0, 10).split("-").map(Number);
+        const [ey, em, ed] = p.periodEnd.slice(0, 10).split("-").map(Number);
+        const start = new Date(sy, sm - 1, sd);
+        const end   = new Date(ey, em - 1, ed);
+        return today >= start && today <= end;
+      })();
+
+      return matchSearch && matchStatus && matchDate;
+    });
+  }, [cutoffPeriods, searchPeriod, statusFilter, showCurrentOnly, getDepartmentName]);
 
   // Upcoming periods for the selected dept config panel
   const upcomingForSelectedDept = useMemo(
@@ -807,7 +820,31 @@ export default function EmployeeCutoff() {
             <CardTitle className="flex items-center gap-2 text-base">
               <LayoutList className="w-4 h-4 text-neutral-500" /> Cutoff Periods
             </CardTitle>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Current / All toggle */}
+              <div className="inline-flex items-center rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 p-0.5 gap-0.5">
+                <button
+                  onClick={() => setShowCurrentOnly(true)}
+                  className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+                    showCurrentOnly
+                      ? "bg-orange-500 text-white shadow-sm"
+                      : "text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
+                  }`}
+                >
+                  Current Period
+                </button>
+                <button
+                  onClick={() => setShowCurrentOnly(false)}
+                  className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+                    !showCurrentOnly
+                      ? "bg-orange-500 text-white shadow-sm"
+                      : "text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
+                  }`}
+                >
+                  All
+                </button>
+              </div>
+
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400" />
                 <Input
@@ -840,7 +877,11 @@ export default function EmployeeCutoff() {
             <div className="text-center py-16">
               <Calendar className="w-14 h-14 mx-auto text-neutral-200 mb-4" />
               <p className="font-semibold text-neutral-500">No cutoff periods found</p>
-              <p className="text-sm text-neutral-400 mt-1">Try adjusting your filters or create a new period</p>
+              <p className="text-sm text-neutral-400 mt-1">
+                {showCurrentOnly
+                  ? "No period covers today's date. Switch to \"All\" to see all periods."
+                  : "Try adjusting your filters or create a new period."}
+              </p>
             </div>
           ) : (
             <div className="overflow-x-auto">
