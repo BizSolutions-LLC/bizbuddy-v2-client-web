@@ -350,6 +350,7 @@ export default function PunchLogs() {
   const [requestSubmitting,      setRequestSubmitting]      = useState(false);
   const [requestErrors,          setRequestErrors]          = useState({});
   const [requestStep,            setRequestStep]            = useState(1);
+  const [isCheckingConflict,     setIsCheckingConflict]     = useState(false);
 
   const columnOptions = useMemo(() => [
     { value: "date",      label: "Date"       },
@@ -1297,61 +1298,63 @@ export default function PunchLogs() {
                       <div className="space-y-3">
                         {myRequests.map((req) => {
                           const statusMeta = {
-                            PENDING:  { border: "border-l-amber-400", bg: "bg-amber-50 dark:bg-amber-900/10",  badge: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",  dot: "bg-amber-400",  label: "Pending"  },
-                            APPROVED: { border: "border-l-green-500", bg: "bg-green-50 dark:bg-green-900/10",  badge: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",  dot: "bg-green-500",  label: "Approved" },
-                            REJECTED: { border: "border-l-red-500",   bg: "bg-red-50   dark:bg-red-900/10",    badge: "bg-red-100   text-red-800   dark:bg-red-900/30   dark:text-red-400",    dot: "bg-red-500",    label: "Rejected" },
-                          }[req.status] ?? { border: "border-l-muted", bg: "", badge: "bg-muted text-muted-foreground", dot: "bg-muted-foreground", label: req.status };
+                            PENDING:  { border: "border-l-amber-400", bg: "bg-amber-50/70 dark:bg-amber-900/10",  badge: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",  Icon: Clock,       iconColor: "text-amber-500",  label: "Pending"  },
+                            APPROVED: { border: "border-l-green-500", bg: "bg-green-50/70 dark:bg-green-900/10",  badge: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",  Icon: CheckCircle, iconColor: "text-green-500",  label: "Approved" },
+                            REJECTED: { border: "border-l-red-500",   bg: "bg-red-50/70   dark:bg-red-900/10",    badge: "bg-red-100   text-red-800   dark:bg-red-900/30   dark:text-red-400",    Icon: XCircle,     iconColor: "text-red-500",    label: "Rejected" },
+                          }[req.status] ?? { border: "border-l-muted", bg: "", badge: "bg-muted text-muted-foreground", Icon: Clock, iconColor: "text-muted-foreground", label: req.status };
 
                           const approverName = req.approver?.profile
                             ? `${req.approver.profile.firstName} ${req.approver.profile.lastName}`
                             : req.approver?.email || "Not assigned";
 
-                          return (
-                            <div key={req.id} className={`rounded-xl border border-l-4 ${statusMeta.border} ${statusMeta.bg} overflow-hidden`}>
+                          const { Icon: StatusIcon, iconColor } = statusMeta;
 
-                              {/* Header row: date + status */}
-                              <div className="flex items-start justify-between gap-2 px-3 pt-3 pb-2">
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <Calendar className="h-4 w-4 text-orange-500 shrink-0" />
-                                  <span className="font-semibold text-sm leading-snug">
-                                    {new Date((req.requestedDate?.split("T")[0] ?? "") + "T12:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
+                          return (
+                            <div key={req.id} className={`rounded-xl border border-l-4 ${statusMeta.border} overflow-hidden`}>
+
+                              {/* Card body */}
+                              <div className={`px-4 pt-3 pb-3 space-y-2.5 ${statusMeta.bg}`}>
+
+                                {/* Row 1: Date + status badge */}
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <StatusIcon className={`h-4 w-4 shrink-0 ${iconColor}`} />
+                                    <span className="font-semibold text-sm leading-tight">
+                                      {new Date((req.requestedDate?.split("T")[0] ?? "") + "T12:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
+                                    </span>
+                                  </div>
+                                  <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold shrink-0 ${statusMeta.badge}`}>
+                                    {statusMeta.label}
                                   </span>
                                 </div>
-                                <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold shrink-0 ${statusMeta.badge}`}>
-                                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusMeta.dot}`} />
-                                  {statusMeta.label}
-                                </span>
-                              </div>
 
-                              {/* Time row */}
-                              <div className="flex items-center gap-1.5 px-3 pb-2 text-sm">
-                                <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                                <span className="text-muted-foreground">
-                                  {safeTime(req.requestedClockIn, companyTimezone)} – {safeTime(req.requestedClockOut, companyTimezone)}
-                                </span>
-                                <span className="font-semibold text-foreground">({req.estimatedNetHours?.toFixed(2) || "0.00"}h)</span>
-                              </div>
-
-                              {/* Reason + description */}
-                              <div className="px-3 pb-2 space-y-1.5">
-                                <div className="flex items-center gap-1.5 text-sm flex-wrap">
-                                  <AlertTriangle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
-                                  <span className="font-medium">Reason:</span>
-                                  <span className="text-muted-foreground capitalize">{req.reason?.replace(/_/g, " ") || "Not specified"}</span>
-                                </div>
-                                {req.description && (
-                                  <div className="flex items-start gap-1.5">
-                                    <FileText className="h-3.5 w-3.5 text-orange-400 shrink-0 mt-0.5" />
-                                    <p className="text-xs text-muted-foreground line-clamp-2">{req.description}</p>
+                                {/* Row 2: Time range + net hours pill */}
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                                    <Clock className="h-3.5 w-3.5 shrink-0" />
+                                    <span>{safeTime(req.requestedClockIn, companyTimezone)} – {safeTime(req.requestedClockOut, companyTimezone)}</span>
                                   </div>
-                                )}
+                                  <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-orange-500 text-white shrink-0">
+                                    {req.estimatedNetHours?.toFixed(2) || "0.00"}h
+                                  </span>
+                                </div>
+
+                                {/* Row 3: Reason chip + description */}
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-xs px-2.5 py-0.5 rounded-full bg-black/5 dark:bg-white/10 text-muted-foreground font-medium capitalize shrink-0">
+                                    {req.reason?.replace(/_/g, " ") || "Not specified"}
+                                  </span>
+                                  {req.description && (
+                                    <p className="text-xs text-muted-foreground line-clamp-1 min-w-0">{req.description}</p>
+                                  )}
+                                </div>
                               </div>
 
                               {/* Footer: approver + submitted date */}
-                              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-3 py-2 border-t border-black/5 dark:border-white/5 text-xs text-muted-foreground">
+                              <div className="flex items-center justify-between px-4 py-2 bg-background border-t border-black/5 dark:border-white/5 text-[11px] text-muted-foreground">
                                 <div className="flex items-center gap-1.5">
                                   <User className="h-3 w-3 shrink-0" />
-                                  <span className="truncate max-w-[180px]">{approverName}</span>
+                                  <span className="truncate max-w-[160px]">{approverName}</span>
                                 </div>
                                 <span className="shrink-0">
                                   Submitted {new Date(req.submittedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
@@ -1678,9 +1681,7 @@ export default function PunchLogs() {
                         onChange={(e) => {
                           const d = e.target.value;
                           setRequestPunchDate(d);
-                          setRequestErrors((p) => ({ ...p, date: undefined }));
-                          const existing = logs.find((l) => toLocalDateStr(l.timeIn, companyTimezone) === d);
-                          if (existing) setRequestErrors((p) => ({ ...p, date: "A punch log already exists for this date" }));
+                          setRequestErrors((p) => ({ ...p, date: undefined, conflict: undefined }));
                           if (d && defaultHours) { setRequestClockIn(`${d}T09:00`); setRequestClockOut(`${d}T${String(9 + defaultHours).padStart(2, "0")}:00`); }
                         }}
                         className={`h-12 text-base ${requestErrors.date ? "border-red-500" : ""}`}
@@ -1703,7 +1704,7 @@ export default function PunchLogs() {
                             <Input
                               type="time"
                               value={requestClockIn.split("T")[1] || ""}
-                              onChange={(e) => { setRequestClockIn(`${requestPunchDate}T${e.target.value}`); setRequestErrors((p) => ({ ...p, clockIn: undefined })); }}
+                              onChange={(e) => { setRequestClockIn(`${requestPunchDate}T${e.target.value}`); setRequestErrors((p) => ({ ...p, clockIn: undefined, conflict: undefined })); }}
                               className={`h-12 text-base ${requestErrors.clockIn ? "border-red-500" : ""}`}
                             />
                             {requestErrors.clockIn && (
@@ -1720,7 +1721,7 @@ export default function PunchLogs() {
                             <Input
                               type="time"
                               value={requestClockOut.split("T")[1] || ""}
-                              onChange={(e) => { setRequestClockOut(`${requestPunchDate}T${e.target.value}`); setRequestErrors((p) => ({ ...p, clockOut: undefined })); }}
+                              onChange={(e) => { setRequestClockOut(`${requestPunchDate}T${e.target.value}`); setRequestErrors((p) => ({ ...p, clockOut: undefined, conflict: undefined })); }}
                               className={`h-12 text-base ${requestErrors.clockOut ? "border-red-500" : ""}`}
                             />
                             {requestErrors.clockOut && (
@@ -1741,6 +1742,11 @@ export default function PunchLogs() {
                               {toHour(Math.max(0, diffMins(requestClockIn, requestClockOut) - minLunchMins))}h
                             </span>
                           </div>
+                        )}
+                        {requestErrors.conflict && (
+                          <p className="text-red-500 text-xs flex items-center gap-1 pt-1">
+                            <AlertCircle className="h-3 w-3 shrink-0" />{requestErrors.conflict}
+                          </p>
                         )}
                       </>
                     )}
@@ -1903,8 +1909,8 @@ export default function PunchLogs() {
               {requestStep < 3 ? (
                 <Button
                   className="flex-1 h-12 bg-orange-500 hover:bg-orange-600 text-white font-semibold"
-                  disabled={requestStep === 1 && !!requestErrors.date}
-                  onClick={() => {
+                  disabled={(requestStep === 1 && !!requestErrors.date) || isCheckingConflict}
+                  onClick={async () => {
                     const errors = {};
                     if (requestStep === 1) {
                       if (!requestPunchDate)  errors.date     = "Please select a date";
@@ -1917,10 +1923,35 @@ export default function PunchLogs() {
                       if (!requestReason)     errors.reason     = "Please select a reason";
                     }
                     setRequestErrors(errors);
-                    if (Object.keys(errors).length === 0) setRequestStep((s) => s + 1);
+                    if (Object.keys(errors).length > 0) return;
+
+                    if (requestStep === 1) {
+                      setIsCheckingConflict(true);
+                      try {
+                        const res = await fetch(`${API_URL}/api/request-punch-log/check-conflict`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                          body: JSON.stringify({ requestedClockIn: requestClockIn, requestedClockOut: requestClockOut }),
+                        });
+                        const j = await res.json();
+                        if (!res.ok) { setRequestErrors((p) => ({ ...p, conflict: j.message || "Could not verify availability. Please try again." })); return; }
+                        if (j.hasConflict) {
+                          const fmt = (iso) => iso ? safeTime(iso, companyTimezone) : "ongoing";
+                          setRequestErrors((p) => ({ ...p, conflict: `Your selected time overlaps with an existing punch log (${fmt(j.conflictingTimeIn)} – ${fmt(j.conflictingTimeOut)}). Please adjust the times.` }));
+                          return;
+                        }
+                      } catch {
+                        setRequestErrors((p) => ({ ...p, conflict: "Could not verify availability. Please try again." }));
+                        return;
+                      } finally {
+                        setIsCheckingConflict(false);
+                      }
+                    }
+
+                    setRequestStep((s) => s + 1);
                   }}
                 >
-                  Next →
+                  {isCheckingConflict ? <><OrangeLoadingSpinner /><span className="ml-2">Checking...</span></> : "Next →"}
                 </Button>
               ) : (
                 <Button
@@ -1946,6 +1977,9 @@ export default function PunchLogs() {
                         setRequestStep(1);
                         setRequestPunchDate(""); setRequestClockIn(""); setRequestClockOut(""); setRequestApproverId(""); setRequestReason(""); setRequestDescription(""); setRequestErrors({});
                         fetchMyRequests();
+                      } else if (res.status === 409) {
+                        setRequestStep(1);
+                        setRequestErrors({ conflict: result.message || "A conflict was detected. Please choose different times." });
                       } else { toast.error(result.message || "Failed to submit"); }
                     } catch { toast.error("Failed to submit. Please try again."); }
                     finally { setRequestSubmitting(false); }
