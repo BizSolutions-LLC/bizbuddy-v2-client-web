@@ -1704,7 +1704,22 @@ export default function PunchLogs() {
                             <Input
                               type="time"
                               value={requestClockIn.split("T")[1] || ""}
-                              onChange={(e) => { setRequestClockIn(`${requestPunchDate}T${e.target.value}`); setRequestErrors((p) => ({ ...p, clockIn: undefined, conflict: undefined })); }}
+                              onChange={(e) => {
+                                const inTime = e.target.value;
+                                setRequestClockIn(`${requestPunchDate}T${inTime}`);
+                                if (requestClockOut) {
+                                  const outTime = requestClockOut.split("T")[1] || "";
+                                  const isCrossMidnight = outTime && inTime && outTime < inTime;
+                                  let outDate = requestPunchDate;
+                                  if (isCrossMidnight) {
+                                    const d = new Date(`${requestPunchDate}T12:00`);
+                                    d.setDate(d.getDate() + 1);
+                                    outDate = d.toLocaleDateString("en-CA");
+                                  }
+                                  setRequestClockOut(`${outDate}T${outTime}`);
+                                }
+                                setRequestErrors((p) => ({ ...p, clockIn: undefined, conflict: undefined }));
+                              }}
                               className={`h-12 text-base ${requestErrors.clockIn ? "border-red-500" : ""}`}
                             />
                             {requestErrors.clockIn && (
@@ -1721,9 +1736,27 @@ export default function PunchLogs() {
                             <Input
                               type="time"
                               value={requestClockOut.split("T")[1] || ""}
-                              onChange={(e) => { setRequestClockOut(`${requestPunchDate}T${e.target.value}`); setRequestErrors((p) => ({ ...p, clockOut: undefined, conflict: undefined })); }}
+                              onChange={(e) => {
+                                const outTime = e.target.value;
+                                const inTime = requestClockIn.split("T")[1] || "";
+                                const isCrossMidnight = outTime && inTime && outTime < inTime;
+                                let outDate = requestPunchDate;
+                                if (isCrossMidnight) {
+                                  const d = new Date(`${requestPunchDate}T12:00`);
+                                  d.setDate(d.getDate() + 1);
+                                  outDate = d.toLocaleDateString("en-CA");
+                                }
+                                setRequestClockOut(`${outDate}T${outTime}`);
+                                setRequestErrors((p) => ({ ...p, clockOut: undefined, conflict: undefined }));
+                              }}
                               className={`h-12 text-base ${requestErrors.clockOut ? "border-red-500" : ""}`}
                             />
+                            {requestClockOut.split("T")[0] > requestPunchDate && (
+                              <p className="text-amber-600 dark:text-amber-400 text-xs font-semibold flex items-center gap-1">
+                                <span className="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 font-bold">+1</span>
+                                Clock-out on the next day
+                              </p>
+                            )}
                             {requestErrors.clockOut && (
                               <p className="text-red-500 text-xs flex items-center gap-1">
                                 <AlertCircle className="h-3 w-3" />{requestErrors.clockOut}
@@ -1828,7 +1861,12 @@ export default function PunchLogs() {
                         </div>
                         <div className="flex justify-between items-center">
                           <span className="text-muted-foreground flex items-center gap-1.5"><Clock className="h-3.5 w-3.5 text-red-500" />Clock Out</span>
-                          <span className="font-semibold text-red-600">{requestClockOut.split("T")[1] || "—"}</span>
+                          <span className="font-semibold text-red-600 flex items-center gap-1.5">
+                            {requestClockOut.split("T")[1] || "—"}
+                            {requestClockOut.split("T")[0] > requestPunchDate && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">+1 day</span>
+                            )}
+                          </span>
                         </div>
                         <div className="flex justify-between items-center border-t pt-2">
                           <span className="text-muted-foreground">Net Hours</span>
