@@ -1053,7 +1053,9 @@ export default function EmployeesPunchLogs() {
         const enriched = (tlJ.data || []).map((t) => {
           // ── Break display strings (UI only) ───────────────────────────────
           const coffeeMinsStr = coffeeMinutes(t.coffeeBreaks);
-          const lunchMinsStr  = lunchMinutesStr(t.lunchBreak);
+          const lunchMinsStr  = (!t.lunchBreak?.start && (t.lunchDeductionMinutes ?? 0) > 0)
+            ? (t.lunchDeductionMinutes / 60).toFixed(2)
+            : lunchMinutesStr(t.lunchBreak);
 
           // ── Timezone-aware date key ────────────────────────────────────────
           const dateKey = toLocalDateStr(t.timeIn, companyTimezone) ?? "";
@@ -1916,7 +1918,7 @@ export default function EmployeesPunchLogs() {
                             );
                           }
                           case "lunch": {
-                            const lunchAuto = t.autoLunchApplied || t.lunchBreak?.auto;
+                            const lunchAuto = t.autoLunchApplied || t.lunchBreak?.auto || (!t.lunchBreak?.start && (t.lunchDeductionMinutes ?? 0) > 0);
                             const lunchDeductible = t.lunchBreak?.deductible ?? true;
                             const lunchWindow = (lunchAuto && t.lunchBreak?.start && t.lunchBreak?.end)
                               ? `${safeTime(t.lunchBreak.start, companyTimezone)} – ${safeTime(t.lunchBreak.end, companyTimezone)}`
@@ -2162,7 +2164,7 @@ export default function EmployeesPunchLogs() {
                                             <span className="font-medium flex flex-col items-end gap-0.5">
                                               <span className="flex items-center gap-1">
                                                 {t.lunchMins}h
-                                                {(t.autoLunchApplied || t.lunchBreak?.auto) && <AutoBreakBadge deductible={t.lunchBreak?.deductible ?? true} />}
+                                                {(t.autoLunchApplied || t.lunchBreak?.auto || (!t.lunchBreak?.start && (t.lunchDeductionMinutes ?? 0) > 0)) && <AutoBreakBadge deductible={t.lunchBreak?.deductible ?? true} />}
                                               </span>
                                               {(t.autoLunchApplied || t.lunchBreak?.auto) && t.lunchBreak?.start && t.lunchBreak?.end && (
                                                 <span className="text-[10px] font-mono text-muted-foreground">
