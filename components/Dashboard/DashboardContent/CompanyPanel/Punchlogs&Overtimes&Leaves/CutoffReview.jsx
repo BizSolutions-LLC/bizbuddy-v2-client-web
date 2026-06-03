@@ -2057,6 +2057,55 @@ export default function CutoffReview({ cutoffId }) {
   return (
     <div className="flex flex-col min-h-screen bg-neutral-50 dark:bg-neutral-950">
 
+      {/* ── Sync overlay — blocks all interaction while sync + re-fetch is in flight ── */}
+      <AnimatePresence>
+        {syncing && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-900/50 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.92, opacity: 0, y: 8 }}
+              animate={{ scale: 1,    opacity: 1, y: 0 }}
+              exit={{    scale: 0.92, opacity: 0, y: 8 }}
+              transition={{ duration: 0.22, delay: 0.06 }}
+              className="bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-neutral-200 dark:border-neutral-700 px-8 py-8 max-w-sm w-full mx-4 flex flex-col items-center gap-5 text-center"
+            >
+              {/* Pulsing icon ring */}
+              <div className="relative w-16 h-16 flex items-center justify-center">
+                <span className="absolute inset-0 rounded-full bg-blue-400/30 animate-ping" />
+                <span className="absolute inset-1.5 rounded-full bg-blue-100 dark:bg-blue-900/40" />
+                <RefreshCw className="relative w-7 h-7 text-blue-600 dark:text-blue-400 animate-spin" />
+              </div>
+
+              {/* Copy */}
+              <div className="space-y-1.5">
+                <h3 className="text-base font-bold text-neutral-900 dark:text-neutral-100">Syncing Records</h3>
+                <p className="text-sm text-neutral-500 dark:text-neutral-400 leading-relaxed">
+                  Scanning for new employees and punch records added after this cutoff was created.
+                </p>
+              </div>
+
+              {/* Indeterminate progress bar */}
+              <div className="w-full h-1 bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
+                <motion.div
+                  className="h-full w-1/2 bg-blue-500 rounded-full"
+                  animate={{ x: ["-100%", "200%"] }}
+                  transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
+                />
+              </div>
+
+              <p className="text-xs text-neutral-400 dark:text-neutral-500">
+                Please wait — this may take a moment
+              </p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Sticky Header */}
       <PageHeader
         cutoff={cutoff}
