@@ -1848,7 +1848,7 @@ export default function EmployeesPunchLogs() {
                                     </TooltipProvider>
                                   )}
                                   {/* G-6: Auto clock-out icon */}
-                                  {t.isAutoClockOut && (
+                                  {t.isAutoClockOut && t.cutoffApproval?.status !== "approved" && (
                                     <TooltipProvider delayDuration={200}>
                                       <Tooltip>
                                         <TooltipTrigger asChild>
@@ -1981,9 +1981,9 @@ export default function EmployeesPunchLogs() {
                               </TableCell>
                             );
                           case "late":
-                            return <TableCell key="late" className="text-center text-sm">{parseFloat(t.lateHours) > 0 ? <TimeDisplayWithTooltip time={t.lateHours} type="late" className="text-red-600 font-medium" /> : <span className="text-muted-foreground">—</span>}</TableCell>;
+                            return <TableCell key="late" className="text-center text-sm">{t.cutoffApproval?.status !== "approved" && parseFloat(t.lateHours) > 0 ? <TimeDisplayWithTooltip time={t.lateHours} type="late" className="text-red-600 font-medium" /> : <span className="text-muted-foreground">—</span>}</TableCell>;
                           case "undertime":
-                            return <TableCell key="undertime" className="text-center text-sm">{parseFloat(t.undertimeHours) > 0 ? <TimeDisplayWithTooltip time={t.undertimeHours} type="late" className="text-amber-600 font-medium" /> : <span className="text-muted-foreground">—</span>}</TableCell>;
+                            return <TableCell key="undertime" className="text-center text-sm">{t.cutoffApproval?.status !== "approved" && parseFloat(t.undertimeHours) > 0 ? <TimeDisplayWithTooltip time={t.undertimeHours} type="late" className="text-amber-600 font-medium" /> : <span className="text-muted-foreground">—</span>}</TableCell>;
                           case "deviceIn":
                             return <TableCell key="deviceIn" className="text-center"><DeviceDisplay device={t.fullDevIn} /></TableCell>;
                           case "deviceOut":
@@ -2091,7 +2091,7 @@ export default function EmployeesPunchLogs() {
                             className={`border-b transition-all cursor-pointer ${
                               isExpanded
                                 ? "bg-muted/30 hover:bg-muted/40"
-                                : t.isAutoClockOut
+                                : t.isAutoClockOut && t.cutoffApproval?.status !== "approved"
                                 ? "bg-purple-50/40 dark:bg-purple-950/10 hover:bg-purple-50/60 border-l-2 border-l-purple-400"
                                 : t.isD4Flag
                                 ? "bg-red-50/50 dark:bg-red-950/10 hover:bg-red-50/70 dark:hover:bg-red-950/20 border-l-2 border-l-red-400"
@@ -2175,7 +2175,7 @@ export default function EmployeesPunchLogs() {
                                           </div>
                                           <div className="flex justify-between">
                                             <span className="text-muted-foreground">Late Hours:</span>
-                                            <span className="font-medium">{parseFloat(t.lateHours) > 0 ? `${t.lateHours}h` : "—"}</span>
+                                            <span className="font-medium">{t.cutoffApproval?.status !== "approved" && parseFloat(t.lateHours) > 0 ? `${t.lateHours}h` : "—"}</span>
                                           </div>
                                           <div className="flex justify-between">
                                             <span className="text-muted-foreground">Period Hours:</span>
@@ -2287,7 +2287,7 @@ export default function EmployeesPunchLogs() {
                                       )}
 
                                       {/* G-6 auto clock-out warning */}
-                                      {t.isAutoClockOut && (
+                                      {t.isAutoClockOut && t.cutoffApproval?.status !== "approved" && (
                                         <div className="mt-2 p-2 bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800 rounded-lg flex items-start gap-2">
                                           <Timer className="h-3.5 w-3.5 text-purple-500 mt-0.5 flex-shrink-0" />
                                           <p className="text-xs text-purple-700 dark:text-purple-400">
