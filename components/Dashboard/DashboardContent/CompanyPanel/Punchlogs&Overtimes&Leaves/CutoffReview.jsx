@@ -1436,9 +1436,9 @@ export default function CutoffReview({ cutoffId }) {
 
     const tags = [];
     if (tl.isTooEarlyPunch) tags.push({ cls: "tooEarly", label: "Too Early" });
-    if (isLate)      tags.push({ cls: "late", label: `${calc.lateMinutes}min late` });
+    if (isLate && !tl.isApproved)      tags.push({ cls: "late", label: `${calc.lateMinutes}min late` });
     if (withinGrace) tags.push({ cls: "snap", label: "Within grace — snaps to schedule" });
-    if (leftEarly) {
+    if (leftEarly && !tl.isApproved) {
       const earlyHours = (calc.earlyMinutes / 60).toFixed(1);
       const lines = [`Left ${earlyHours}h (${calc.earlyMinutes} min) before the scheduled shift end.`];
       if (shiftStartStr && shiftEndStr) {
@@ -1454,7 +1454,7 @@ export default function CutoffReview({ cutoffId }) {
     if (!isBNC && hasOT) tags.push({ cls: "ot", label: `+${calc.overtimeHours}h OT` });
     if (calc.willSnapIn)  tags.push({ cls: "snap", label: "Clock-in will snap" });
     if (calc.willSnapOut) tags.push({ cls: "snap", label: "Clock-out will snap" });
-    if (tl.autoClockOut)  tags.push({ cls: "auto", label: "Auto clock-out triggered" });
+    if (tl.autoClockOut && !tl.isApproved)  tags.push({ cls: "auto", label: "Auto clock-out triggered" });
     if (approval.isDuplicate) tags.push({ cls: "flag", label: "Possible duplicate" });
 
     // Actions — both BNC and DayCare use the four-button model.
