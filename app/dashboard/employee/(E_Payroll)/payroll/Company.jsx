@@ -62,7 +62,16 @@ const Company = () => {
 
       if (result.success && result.data) {
         setCompanyInfo(result.data.company);
-        setPayrollConfig(result.data.payrollConfig);
+        setPayrollConfig((prev) => ({
+          ...prev,
+          ...result.data.payrollConfig,
+          payFrequency: result.data.payrollConfig?.payFrequency ?? prev.payFrequency,
+          cutoffStartDay: result.data.payrollConfig?.cutoffStartDay ?? prev.cutoffStartDay,
+          cutoffEndDay: result.data.payrollConfig?.cutoffEndDay ?? prev.cutoffEndDay,
+          paymentDay: result.data.payrollConfig?.paymentDay ?? prev.paymentDay,
+          ptoEnabled: result.data.payrollConfig?.ptoEnabled ?? prev.ptoEnabled,
+          ptoLabel: result.data.payrollConfig?.ptoLabel ?? prev.ptoLabel,
+        }));
         setEarningTypes(result.data.earningTypes);
         setDeductionTypes(result.data.deductionTypes);
         toast.success('Company settings loaded');
@@ -293,7 +302,7 @@ const Company = () => {
             <div className="grid grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Pay Frequency</label>
-                <select value={payrollConfig.payFrequency} onChange={(e) => setPayrollConfig(prev => ({ ...prev, payFrequency: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500">
+                <select value={payrollConfig.payFrequency ?? 'biweekly'} onChange={(e) => setPayrollConfig(prev => ({ ...prev, payFrequency: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500">
                   <option value="weekly">Weekly</option>
                   <option value="biweekly">Bi-Weekly</option>
                   <option value="semimonthly">Semi-Monthly</option>
@@ -302,11 +311,11 @@ const Company = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Cutoff Start Day</label>
-                <input type="number" value={payrollConfig.cutoffStartDay} onChange={(e) => setPayrollConfig(prev => ({ ...prev, cutoffStartDay: parseInt(e.target.value) }))} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500" />
+                <input type="number" value={payrollConfig.cutoffStartDay ?? ''} onChange={(e) => setPayrollConfig(prev => ({ ...prev, cutoffStartDay: parseInt(e.target.value, 10) || 1 }))} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Payment Day</label>
-                <input type="number" value={payrollConfig.paymentDay} onChange={(e) => setPayrollConfig(prev => ({ ...prev, paymentDay: parseInt(e.target.value) }))} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500" />
+                <input type="number" value={payrollConfig.paymentDay ?? ''} onChange={(e) => setPayrollConfig(prev => ({ ...prev, paymentDay: parseInt(e.target.value, 10) || 1 }))} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500" />
               </div>
             </div>
 
@@ -505,7 +514,7 @@ const Company = () => {
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900 font-mono">{earning.code}</td>
                     <td className="px-6 py-4">
-                      <input type="text" value={earning.label} onChange={(e) => setEarningTypes(prev => prev.map(et => et.id === earning.id ? { ...et, label: e.target.value } : et))} onBlur={() => handleUpdateEarning(earning.id, { label: earning.label })} className="w-full px-3 py-2 border border-gray-300 rounded-md" />
+                      <input type="text" value={earning.label ?? ''} onChange={(e) => setEarningTypes(prev => prev.map(et => et.id === earning.id ? { ...et, label: e.target.value } : et))} onBlur={() => handleUpdateEarning(earning.id, { label: earning.label })} className="w-full px-3 py-2 border border-gray-300 rounded-md" />
                     </td>
                     <td className="px-6 py-4 text-sm">
                       <span className={earning.isTaxable ? 'text-green-600 font-semibold' : 'text-gray-400'}>
@@ -548,7 +557,7 @@ const Company = () => {
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900 font-mono">{deduction.code}</td>
                     <td className="px-6 py-4">
-                      <input type="text" value={deduction.label} onChange={(e) => setDeductionTypes(prev => prev.map(dt => dt.id === deduction.id ? { ...dt, label: e.target.value } : dt))} onBlur={() => handleUpdateDeduction(deduction.id, { label: deduction.label })} className="w-full px-3 py-2 border border-gray-300 rounded-md" />
+                      <input type="text" value={deduction.label ?? ''} onChange={(e) => setDeductionTypes(prev => prev.map(dt => dt.id === deduction.id ? { ...dt, label: e.target.value } : dt))} onBlur={() => handleUpdateDeduction(deduction.id, { label: deduction.label })} className="w-full px-3 py-2 border border-gray-300 rounded-md" />
                     </td>
                     <td className="px-6 py-4 text-sm">
                       <span className={deduction.isPreTax ? 'text-green-600 font-semibold' : 'text-gray-400'}>

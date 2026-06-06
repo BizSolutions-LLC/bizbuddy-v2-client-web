@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { toast, Toaster } from 'sonner';
 import Reports from './Reports';
 import Employee from './Employee';
+import EmployeeSheet from './EmployeeSheet';
 import Company from './Company';
 import useAuthStore from "@/store/useAuthStore";
 
@@ -95,8 +96,9 @@ const Payroll = () => {
       const result = await response.json();
   
       if (response.ok && result.data) {
-        setSuggestedCheckNumber(result.data.suggestedCheckNumber);
-        setCheckNumber(result.data.suggestedCheckNumber);
+        const nextCheck = String(result.data.suggestedCheckNumber ?? '');
+        setSuggestedCheckNumber(nextCheck);
+        setCheckNumber(nextCheck);
         
         if (result.data.lastCheckStart) {
           toast.info(`Last payroll used checks ${result.data.lastCheckStart}-${parseInt(result.data.lastCheckStart) + result.data.lastEmployeeCount - 1}`);
@@ -170,8 +172,8 @@ const Payroll = () => {
           const earnings = {};
           etData.forEach((et) => {
             if (et.calculationType === 'flat') {
-              if (et.code === 'salary' && emp.payrollDetails.payType === 'salary') {
-                earnings[et.id] = emp.payrollDetails.payRate.toString();
+              if (et.code === 'salary' && emp.payrollDetails?.payType === 'salary') {
+                earnings[et.id] = emp.payrollDetails.payRate?.toString() ?? '';
               } else {
                 earnings[et.id] = '';
               }
@@ -636,8 +638,8 @@ const Payroll = () => {
     employees.forEach((emp) => {
       const earnings = {};
       earningTypes.forEach((et) => {
-        if (et.calculationType === 'flat' && et.code === 'salary' && emp.payrollDetails.payType === 'salary') {
-          earnings[et.id] = emp.payrollDetails.payRate.toString();
+        if (et.calculationType === 'flat' && et.code === 'salary' && emp.payrollDetails?.payType === 'salary') {
+          earnings[et.id] = emp.payrollDetails.payRate?.toString() ?? '';
         } else {
           earnings[et.id] = '';
         }
@@ -757,7 +759,8 @@ const Payroll = () => {
       }
     }
 
-    return empPayroll.earnings[earningType.id] || '';
+    const stored = empPayroll.earnings[earningType.id];
+    return stored === undefined || stored === null ? '' : String(stored);
   };
 
   const isColumnDisabled = (employee, earningType) => {
@@ -2538,6 +2541,7 @@ const Payroll = () => {
 
   const tabs = [
     { id: 'create-paycheck', label: 'Create Paycheck' },
+    { id: 'employee-sheet', label: 'Employee Sheet' },
     { id: 'reports', label: 'Reports', badge: unviewedCount },
     { id: 'employee', label: 'Employee' },
     { id: 'company', label: 'Company' },
@@ -2547,6 +2551,8 @@ const Payroll = () => {
     switch (activeTab) {
       case 'create-paycheck':
         return renderCreatePaycheckTab();
+      case 'employee-sheet':
+        return <EmployeeSheet />;
       case 'reports':
         return <Reports />;
       case 'employee':

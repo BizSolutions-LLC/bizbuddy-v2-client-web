@@ -2,6 +2,8 @@
 import React, { useState } from 'react';
 import { toast, Toaster } from 'sonner';
 import useAuthStore from "@/store/useAuthStore";
+import MockPayrollBanner from "@/components/common/MockPayrollBanner";
+import { isMockPayrollId, withMockPayrollReports } from "@/lib/mockPayrollData";
 import * as XLSX from 'xlsx';
 
 const Reports = () => {
@@ -18,6 +20,7 @@ const Reports = () => {
   const [loading, setLoading] = useState(false);
   const [selectedReport, setSelectedReport] = useState(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [usingMockData, setUsingMockData] = useState(false);
 
 
   const formatCurrency = (num) => {
@@ -124,6 +127,10 @@ const Reports = () => {
   };
 
   const handleViewPayslip = async (payrollRunId, employeeId) => {
+    if (isMockPayrollId(payrollRunId)) {
+      toast.info("PDF preview is not available for demo payroll runs.");
+      return;
+    }
     try {
       const response = await fetch(
         `${API_URL}/api/payroll-system/generate-payslip-pdf/${payrollRunId}/${employeeId}`, // ✅ Admin route with employeeId
@@ -147,6 +154,10 @@ const Reports = () => {
   };
 
   const handleDownloadPayslip = async (payrollRunId, employeeId) => {
+    if (isMockPayrollId(payrollRunId)) {
+      toast.info("PDF download is not available for demo payroll runs.");
+      return;
+    }
     try {
       toast.info('Generating payslip PDF...');
   
@@ -192,6 +203,10 @@ const Reports = () => {
   };
 
   const handlePrintCheck = async (payrollRunId, employeeId) => {
+    if (isMockPayrollId(payrollRunId)) {
+      toast.info("Check printing is not available for demo payroll runs.");
+      return;
+    }
     try {
       toast.info('Generating check for printing...');
   
@@ -244,7 +259,10 @@ const Reports = () => {
       const result = await response.json();
 
       if (response.ok) {
-        setPayrollReports(result.data.reports);
+        const apiReports = result.data.reports || [];
+        const merged = withMockPayrollReports(apiReports);
+        setPayrollReports(merged);
+        setUsingMockData(apiReports.length === 0 && merged.length > 0);
       } else {
         toast.error(result.message || 'Failed to fetch reports');
       }
@@ -361,8 +379,9 @@ const Reports = () => {
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => handleViewPayslip(selectedReport.id, emp.employeeId)}
-                          className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                          title="View PDF Payslip"
+                          disabled={selectedReport.isMock}
+                          className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          title={selectedReport.isMock ? "Not available for demo data" : "View PDF Payslip"}
                         >
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -372,8 +391,9 @@ const Reports = () => {
                         
                         <button
                           onClick={() => handleDownloadPayslip(selectedReport.id, emp.employeeId)}
-                          className="p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                          title="Download PDF Payslip"
+                          disabled={selectedReport.isMock}
+                          className="p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          title={selectedReport.isMock ? "Not available for demo data" : "Download PDF Payslip"}
                         >
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -381,8 +401,9 @@ const Reports = () => {
                         </button>
                         <button
                           onClick={() => handlePrintCheck(selectedReport.id, emp.employeeId)}
-                          className="p-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                          title="Print Check"
+                          disabled={selectedReport.isMock}
+                          className="p-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          title={selectedReport.isMock ? "Not available for demo data" : "Print Check"}
                         >
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
@@ -505,6 +526,10 @@ const Reports = () => {
             EXPORT EXCEL
           </button>
         </div>
+      </div>
+
+      <div className="px-6 pt-4">
+        <MockPayrollBanner showingMock={usingMockData} />
       </div>
 
       {/* Reports List or Empty State */}

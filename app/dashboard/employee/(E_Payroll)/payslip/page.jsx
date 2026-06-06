@@ -7,6 +7,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast, Toaster } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
+import MockPayrollBanner from "@/components/common/MockPayrollBanner";
+import { isMockPayrollId, withMockPayslips } from "@/lib/mockPayrollData";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
@@ -14,6 +16,7 @@ export default function PayslipPage() {
   const { token } = useAuthStore();
   const [payslips, setPayslips] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [usingMockData, setUsingMockData] = useState(false);
 
   useEffect(() => {
     if (token) {
@@ -31,7 +34,10 @@ export default function PayslipPage() {
       const result = await response.json();
 
       if (response.ok) {
-        setPayslips(result.data.payslips || []);
+        const apiPayslips = result.data.payslips || [];
+        const merged = withMockPayslips(apiPayslips);
+        setPayslips(merged);
+        setUsingMockData(apiPayslips.length === 0 && merged.length > 0);
       } else {
         toast.error(result.message || 'Failed to fetch payslips');
       }
@@ -44,6 +50,10 @@ export default function PayslipPage() {
   };
 
   const handleDownloadPayslip = async (payrollRunId) => {
+    if (isMockPayrollId(payrollRunId)) {
+      toast.info("PDF download is not available for demo payslips.");
+      return;
+    }
     try {
       toast.info('Generating payslip PDF...');
   
@@ -83,6 +93,10 @@ export default function PayslipPage() {
   };
   
   const handleViewPayslip = async (payrollRunId) => {
+    if (isMockPayrollId(payrollRunId)) {
+      toast.info("PDF preview is not available for demo payslips.");
+      return;
+    }
     try {
       const response = await fetch(
         `${API_URL}/api/payroll-system/my-payslip/${payrollRunId}`,
@@ -134,6 +148,8 @@ export default function PayslipPage() {
             </div>
           </motion.div>
 
+          <MockPayrollBanner showingMock={usingMockData} />
+
           {/* Loading State */}
           {loading ? (
             <div className="flex items-center justify-center py-12">
@@ -177,9 +193,15 @@ export default function PayslipPage() {
                               <h3 className="font-bold text-lg text-gray-900">
                                 {new Date(payslip.periodStart).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
                               </h3>
-                              <Badge className="bg-green-100 text-green-700 hover:bg-green-200 text-xs">
-                                Paid
-                              </Badge>
+                              {payslip.isMock ? (
+                                <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-200 text-xs">
+                                  Demo
+                                </Badge>
+                              ) : (
+                                <Badge className="bg-green-100 text-green-700 hover:bg-green-200 text-xs">
+                                  Paid
+                                </Badge>
+                              )}
                             </div>
                             
                             <div className="flex items-center gap-4 text-sm text-gray-600">
@@ -226,7 +248,8 @@ export default function PayslipPage() {
                         <div className="flex items-center gap-2 flex-shrink-0">
                           <button
                             onClick={() => handleViewPayslip(payslip.payrollRunId)}
-                            className="px-5 py-2.5 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                            disabled={payslip.isMock}
+                            className="px-5 py-2.5 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <FileText className="h-4 w-4" />
                             View
@@ -234,7 +257,8 @@ export default function PayslipPage() {
                           
                           <button
                             onClick={() => handleDownloadPayslip(payslip.payrollRunId)}
-                            className="px-5 py-2.5 bg-orange-600 text-white font-semibold rounded-lg hover:bg-orange-700 transition-colors flex items-center gap-2"
+                            disabled={payslip.isMock}
+                            className="px-5 py-2.5 bg-orange-600 text-white font-semibold rounded-lg hover:bg-orange-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <Download className="h-4 w-4" />
                             Download

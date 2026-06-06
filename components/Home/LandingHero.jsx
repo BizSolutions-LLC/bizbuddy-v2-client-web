@@ -18,13 +18,14 @@ export default function LandingHero() {
   };
 
   return (
-    <section className="md:py-12 py-7 mx-4 shadow-xl flex flex-col md:flex-row items-center justify-around max-w-7xl bg-gradient-to-r from-orange-400 to-red-600 rounded-xl overflow-hidden relative">
+    <section className="relative mx-auto w-full max-w-7xl overflow-hidden rounded-xl bg-gradient-to-r from-orange-400 to-red-600 px-4 py-7 shadow-xl md:px-8 md:py-12">
       <motion.div
         initial={{ opacity: 0, x: -50 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.8, ease: "easeOut" }}
-        className="w-full md:w-1/2 p-5 flex flex-col justify-center items-start md:space-y-4 space-y-2"
+        className="grid w-full grid-cols-1 items-center gap-8 md:grid-cols-2 md:gap-10 lg:gap-14"
       >
+      <div className="flex flex-col items-center justify-center space-y-2 text-center md:items-start md:text-left md:space-y-4">
         <div className="space-y-2 font-medium">
           <motion.p
             initial={{ opacity: 0, y: 20 }}
@@ -74,14 +75,14 @@ export default function LandingHero() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 1.2, duration: 0.6 }}
-          className="flex md:gap-4 gap-2 items-center"
+          className="flex w-full max-w-sm flex-wrap items-center justify-center gap-2 sm:max-w-none sm:gap-4 md:justify-start"
         >
           <Image
             src="/download-app-store.png"
             alt="download app store"
             width={160}
             height={48}
-            className="w-44 sm:w-48 hover:scale-105 transition-transform cursor-pointer"
+            className="w-[calc(50%-0.25rem)] sm:w-44 md:w-48 max-w-[11rem] h-auto hover:scale-105 transition-transform cursor-pointer"
             onClick={() => handleOpenQrModal("app")}
           />
           <Image
@@ -89,16 +90,16 @@ export default function LandingHero() {
             alt="download google play"
             width={160}
             height={48}
-            className="w-44 sm:w-48 hover:scale-105 transition-transform cursor-pointer"
+            className="w-[calc(50%-0.25rem)] sm:w-44 md:w-48 max-w-[11rem] h-auto hover:scale-105 transition-transform cursor-pointer"
             onClick={() => handleOpenQrModal("play")}
           />
         </motion.div>
-      </motion.div>
+      </div>
       <motion.div
         initial={{ opacity: 0, x: 50 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.8, ease: "easeOut", delay: 0.4 }}
-        className="w-full md:w-1/2 flex justify-center items-center md:mt-0 mt-10"
+        className="flex w-full items-center justify-center"
       >
         <motion.div
           initial={{ y: 20 }}
@@ -108,15 +109,17 @@ export default function LandingHero() {
             duration: 4,
             ease: "easeInOut",
           }}
+          className="w-full max-w-md lg:max-w-xl"
         >
           <Image
             src="/landing-hero-image.png"
             alt="Devices"
             width={700}
             height={700}
-            className="w-[150%] h-auto object-contain"
+            className="h-auto w-full object-contain"
           />
         </motion.div>
+      </motion.div>
       </motion.div>
       <AnimatePresence>
         {qrModalType && (

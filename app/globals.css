@@ -12,6 +12,136 @@ body {
   }
 }
 
+/* Landing CTAs — outside @layer so rules beat Tailwind preflight & third-party ad CSS */
+.landing-cta-wrap {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+}
+
+.landing-cta-wrap .landing-cta-submit {
+  display: block !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-height: 2.75rem;
+  box-sizing: border-box !important;
+  margin: 0;
+  padding: 0.75rem 1.25rem;
+  border: none !important;
+  border-radius: 0.75rem;
+  background-color: #f97316 !important;
+  background-image: none !important;
+  color: #ffffff !important;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.5;
+  text-align: center;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.landing-cta-wrap .landing-cta-submit:hover:not(:disabled) {
+  background-color: #ea580c !important;
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+}
+
+.landing-cta-wrap .landing-cta-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.landing-cta-wrap .landing-cta-icon {
+  display: inline-block;
+  vertical-align: middle;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-left: 0.5rem;
+}
+
+/* Key feature tabs — full-width stack on mobile, row on sm+ */
+.landing-tab-btn {
+  display: block !important;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box !important;
+  margin: 0;
+  padding: 0.625rem 1rem;
+  border: none !important;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.5;
+  text-align: center;
+  cursor: pointer;
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  background-color: #f5f5f5 !important;
+  background-image: none !important;
+  color: #404040 !important;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+@media (min-width: 640px) {
+  .landing-tab-btn {
+    display: inline-block !important;
+    width: auto;
+    font-size: 0.75rem;
+    white-space: nowrap;
+  }
+}
+
+.dark .landing-tab-btn {
+  background-color: #262626 !important;
+  color: #e5e5e5 !important;
+}
+
+.landing-tab-btn:hover {
+  background-color: #f97316 !important;
+  color: #ffffff !important;
+}
+
+.landing-tab-btn-active {
+  background-color: #f97316 !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+}
+
+.landing-tab-btn svg {
+  display: inline-block;
+  vertical-align: middle;
+  width: 1rem;
+  height: 1rem;
+  margin-right: 0.375rem;
+}
+
+/* Key Features tabs — icon + label in one row */
+.key-feature-tab {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 0.5rem;
+  box-sizing: border-box !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-height: 2.75rem;
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  border: none !important;
+  cursor: pointer;
+}
+
+@media (min-width: 640px) {
+  .key-feature-tab {
+    width: auto !important;
+    max-width: none !important;
+  }
+}
+
 @layer base {
   :root {
     --background: 0 0% 100%;
