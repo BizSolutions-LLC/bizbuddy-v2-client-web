@@ -1308,7 +1308,7 @@ function DayCareSettingsCard({ loading, draft, setDraft }) {
       </CardHeader>
       <CardContent className="space-y-4">
         {loading ? (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4"><Skeleton className="h-16" /><Skeleton className="h-16" /><Skeleton className="h-16" /></div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4"><Skeleton className="h-16" /><Skeleton className="h-16" /><Skeleton className="h-16" /><Skeleton className="h-16" /></div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             <NumberField
@@ -1334,6 +1334,14 @@ function DayCareSettingsCard({ loading, draft, setDraft }) {
               step="5"
               icon={AlarmClock}
               helpText="Employees who clock in more than this many minutes before their shift start will have their actual time kept as-is and be flagged as Too Early. Leave blank to always snap early arrivals to shift start."
+            />
+            <NumberField
+              label="Early Clock-Out Grace (minutes)"
+              value={draft?.earlyClockOutGraceMinutes ?? 20}
+              onChange={(v) => setDraft((o) => ({ ...o, earlyClockOutGraceMinutes: v }))}
+              step="5"
+              icon={AlarmClock}
+              helpText="Driver/Aide and Driver PM employees who clock out within this window before their scheduled PM shift end will have their clock-out snapped to the shift end time. Does not apply to regular employees."
             />
           </div>
         )}

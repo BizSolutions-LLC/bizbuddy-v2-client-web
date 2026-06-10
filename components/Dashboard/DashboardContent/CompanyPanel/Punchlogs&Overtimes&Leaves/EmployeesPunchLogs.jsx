@@ -741,11 +741,12 @@ export default function EmployeesPunchLogs() {
   const [currentUserEmail, setCurrentUserEmail] = useState("");
   const [currentUserRole,  setCurrentUserRole]  = useState("");
 
-  const [loading,      setLoading]      = useState(false);
-  const [refreshing,   setRefreshing]   = useState(false);
-  const [exporting,    setExporting]    = useState(false);
-  const [pdfExporting, setPdfExporting] = useState(false);
-  const [expandedRow,  setExpandedRow]  = useState(null);
+  const [loading,       setLoading]       = useState(false);
+  const [refreshing,    setRefreshing]    = useState(false);
+  const [exporting,     setExporting]     = useState(false);
+  const [gridExporting, setGridExporting] = useState(false);
+  const [pdfExporting,  setPdfExporting]  = useState(false);
+  const [expandedRow,   setExpandedRow]   = useState(null);
 
   const [totalRows, setTotalRows] = useState(0);
 
@@ -1239,7 +1240,7 @@ export default function EmployeesPunchLogs() {
       const result = await exportEmployeePunchLogsCSV({
         data: displayed, visibleColumns: columnVisibility,
         columnMap: columnMapForExport, filters, userTimezone, companyTimezone, isDayCare,
-        bncOtBlocks, bncDailyOtThreshold,
+        bncOtBlocks, bncDailyOtThreshold, employeeNameMap,
       });
       if (result.success) toast.success(result.filename);
     } catch (e) { toast.error(`Export failed: ${e.message}`); }
@@ -1254,7 +1255,7 @@ export default function EmployeesPunchLogs() {
       const result = await exportEmployeePunchLogsPDF({
         data: displayed, visibleColumns: columnVisibility,
         columnMap: columnMapForExport, filters, userTimezone, companyTimezone, isDayCare,
-        bncOtBlocks, bncDailyOtThreshold,
+        bncOtBlocks, bncDailyOtThreshold, employeeNameMap,
       });
       if (result.success) toast.success(result.filename);
     } catch (e) { toast.error(`Export failed: ${e.message}`); }
@@ -1263,14 +1264,14 @@ export default function EmployeesPunchLogs() {
 
   const exportGridCSV = async () => {
     if (!displayed.length) { toast.error("No data to export"); return; }
-    setExporting(true);
+    setGridExporting(true);
     try {
       // displayed already contains all enriched records (no pagination) — use directly
       const { exportEmployeePunchLogsCSV_v2 } = await import("@/lib/exports/employeePunchLogs");
-      const result = await exportEmployeePunchLogsCSV_v2({ data: displayed, companyTimezone });
+      const result = await exportEmployeePunchLogsCSV_v2({ data: displayed, companyTimezone, employeeNameMap });
       if (result.success) toast.success(result.filename);
     } catch (e) { toast.error(`Grid export failed: ${e.message}`); }
-    finally { setExporting(false); }
+    finally { setGridExporting(false); }
   };
 
   const refreshAll = async () => {
@@ -1393,7 +1394,7 @@ export default function EmployeesPunchLogs() {
           <IconBtn icon={RefreshCw} tooltip="Refresh data"   spinning={refreshing}   onClick={refreshAll} />
           <IconBtn icon={Download}        tooltip="Export CSV (Detail)"    spinning={exporting}    onClick={exportCSV}      disabled={exporting    || !displayed.length} />
           <IconBtn icon={FileText}        tooltip="Export PDF"             spinning={pdfExporting} onClick={exportPDF}      disabled={pdfExporting || !displayed.length} />
-          <IconBtn icon={LayoutTemplate}  tooltip="Export Grid CSV (Payroll)" spinning={exporting} onClick={exportGridCSV}  disabled={exporting || !displayed.length} />
+          <IconBtn icon={LayoutTemplate}  tooltip="Export Grid CSV (Payroll)" spinning={gridExporting} onClick={exportGridCSV}  disabled={gridExporting || !displayed.length} />
           <IconBtn
             icon={BookOpen}
             tooltip="Punch Log Rules Guide"
