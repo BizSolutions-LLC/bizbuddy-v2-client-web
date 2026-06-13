@@ -723,6 +723,7 @@ export default function EmployeesPunchLogs() {
   const [bncDailyOtThreshold, setBncDailyOtThreshold] = useState(8);
   const [cutoffPeriods,    setCutoffPeriods]    = useState([]);
   const [selectedCutoffId, setSelectedCutoffId] = useState("all");
+  const [approvedLeaves,   setApprovedLeaves]   = useState([]);
 
   const [timelogs,       setTimelogs]       = useState([]);
   const [departments,    setDepartments]    = useState([]);
@@ -987,6 +988,17 @@ export default function EmployeesPunchLogs() {
     } catch { /* silent */ }
   }, [token, API_URL]);
 
+  const fetchApprovedLeaves = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/api/leaves`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const j = await res.json();
+      if (res.ok) setApprovedLeaves((j.data || []).filter((l) => l.status === "approved"));
+    } catch { /* silent */ }
+  }, [token, API_URL]);
+
   const handleCutoffSelect = (value) => {
     setSelectedCutoffId(value);
     if (value === "all") return;
@@ -1176,8 +1188,8 @@ export default function EmployeesPunchLogs() {
   );
 
   useEffect(() => {
-    if (token) { bootstrap(); fetchPendingRequests(); fetchCutoffPeriods(); }
-  }, [token, bootstrap, fetchPendingRequests, fetchCutoffPeriods]);
+    if (token) { bootstrap(); fetchPendingRequests(); fetchCutoffPeriods(); fetchApprovedLeaves(); }
+  }, [token, bootstrap, fetchPendingRequests, fetchCutoffPeriods, fetchApprovedLeaves]);
 
   useEffect(() => {
     if (!token) return;
@@ -1268,7 +1280,11 @@ export default function EmployeesPunchLogs() {
     try {
       // displayed already contains all enriched records (no pagination) — use directly
       const { exportEmployeePunchLogsCSV_v2 } = await import("@/lib/exports/employeePunchLogs");
-      const result = await exportEmployeePunchLogsCSV_v2({ data: displayed, companyTimezone, employeeNameMap });
+      const result = await exportEmployeePunchLogsCSV_v2({
+        data: displayed, companyTimezone, employeeNameMap,
+        approvedLeaves, defaultShiftHours: defaultHours,
+        fromDate: filters.from, toDate: filters.to,
+      });
       if (result.success) toast.success(result.filename);
     } catch (e) { toast.error(`Grid export failed: ${e.message}`); }
     finally { setGridExporting(false); }
