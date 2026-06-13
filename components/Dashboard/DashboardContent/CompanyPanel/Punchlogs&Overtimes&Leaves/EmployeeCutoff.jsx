@@ -391,21 +391,13 @@ export default function EmployeeCutoff() {
   const fetchCutoffPeriods = useCallback(async () => {
     try {
       setIsLoading(true);
-      const base = `${process.env.NEXT_PUBLIC_API_URL}/api/cutoff-periods`;
-      const url =
-        selectedDepartment === "all" || selectedDepartment === "none"
-          ? base
-          : `${base}?departmentId=${selectedDepartment}`;
-
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/cutoff-periods`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (!res.ok) throw new Error("Failed to fetch");
 
       const data = await res.json();
-      let periods = data.data || [];
-
-      if (selectedDepartment === "none") {
-        periods = periods.filter((p) => !p.departmentId);
-      }
+      const periods = data.data || [];
 
       setCutoffPeriods(periods);
       setStats({
@@ -420,7 +412,7 @@ export default function EmployeeCutoff() {
     } finally {
       setIsLoading(false);
     }
-  }, [token, selectedDepartment]);
+  }, [token]);
 
   useEffect(() => {
     fetchDepartments();
@@ -613,6 +605,11 @@ export default function EmployeeCutoff() {
     today.setHours(0, 0, 0, 0);
 
     return cutoffPeriods.filter((p) => {
+      const matchDept =
+        selectedDepartment === "all" ? true :
+        selectedDepartment === "none" ? !p.departmentId :
+        p.departmentId === selectedDepartment;
+
       const deptName = getDepartmentName(p.departmentId).toLowerCase();
       const matchSearch =
         !searchPeriod ||
@@ -630,9 +627,9 @@ export default function EmployeeCutoff() {
         return today >= start && today <= end;
       })();
 
-      return matchSearch && matchStatus && matchDate;
+      return matchDept && matchSearch && matchStatus && matchDate;
     });
-  }, [cutoffPeriods, searchPeriod, statusFilter, showCurrentOnly, getDepartmentName]);
+  }, [cutoffPeriods, selectedDepartment, searchPeriod, statusFilter, showCurrentOnly, getDepartmentName]);
 
   // Upcoming periods for the selected dept config panel
   const upcomingForSelectedDept = useMemo(
@@ -755,8 +752,8 @@ export default function EmployeeCutoff() {
                     )}
                   </button>
                   {pending > 0 && (
-                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-extrabold flex items-center justify-center border-2 border-white dark:border-neutral-900">
-                      {pending > 9 ? "9+" : pending}
+                    <span className="absolute -top-1 -right-1 min-w-[1.125rem] h-[1.125rem] px-1 rounded-full bg-red-500 text-white text-[9px] font-extrabold flex items-center justify-center border-2 border-white dark:border-neutral-900">
+                      {pending}
                     </span>
                   )}
                 </div>
@@ -896,13 +893,17 @@ export default function EmployeeCutoff() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredPeriods.map((period, i) => (
+                  {filteredPeriods.map((period, i) => {
+                    const today0 = new Date(); today0.setHours(0, 0, 0, 0);
+                    const [sy, sm, sd] = period.periodStart.slice(0, 10).split("-").map(Number);
+                    const isFuture = new Date(sy, sm - 1, sd) > today0;
+                    return (
                     <motion.tr
                       key={period.id}
                       initial={{ opacity: 0, x: -12 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: i * 0.04 }}
-                      className="border-b last:border-b-0 hover:bg-neutral-50 dark:hover:bg-neutral-800/40 transition-colors"
+                      className={`border-b last:border-b-0 transition-colors ${isFuture ? "opacity-40 bg-neutral-50/50 dark:bg-neutral-900/20" : "hover:bg-neutral-50 dark:hover:bg-neutral-800/40"}`}
                     >
                       {/* Department */}
                       <td className="px-4 py-3">
@@ -959,6 +960,7 @@ export default function EmployeeCutoff() {
                             size="sm"
                             variant="outline"
                             className="gap-1.5 text-xs"
+                            disabled={isFuture}
                             onClick={() =>
                               router.push(
                                 `/dashboard/company/cutoff-periods/${period.id}/review`
@@ -1006,7 +1008,8 @@ export default function EmployeeCutoff() {
                         </div>
                       </td>
                     </motion.tr>
-                  ))}
+                  );
+                  })}
                 </tbody>
               </table>
             </div>
