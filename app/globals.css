@@ -91,6 +91,10 @@ body {
   body {
     @apply bg-background text-foreground;
   }
+  button {
+    -webkit-appearance: none;
+    appearance: none;
+  }
 }
 
 
