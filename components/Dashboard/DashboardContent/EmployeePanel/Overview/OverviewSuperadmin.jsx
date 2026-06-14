@@ -200,26 +200,28 @@ export default function OverviewSuperadmin() {
                 <ChevronDown className="h-4 w-4 text-gray-400 ml-2" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
+            <PopoverContent className="w-[min(320px,calc(100vw-2rem))] p-0" align="start">
               <div className="flex flex-col">
                 {/* Preset Options */}
-                <div className="p-2 border-b border-gray-200 dark:border-gray-800">
+                <div className="hidden sm:block p-2 border-b border-gray-200 dark:border-gray-800">
                   <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-2 py-1.5">
                     Quick Select
                   </p>
-                  {DATE_PRESETS.filter(p => p.value !== 'custom').map((preset) => (
-                    <Button
-                      key={preset.value}
-                      variant="ghost"
-                      className={cn(
-                        "w-full justify-start font-normal",
-                        selectedPeriod === preset.value && "bg-gray-100 dark:bg-gray-800 font-medium"
-                      )}
-                      onClick={() => handlePeriodChange(preset.value)}
-                    >
-                      {preset.label}
-                    </Button>
-                  ))}
+                  <div className="hidden sm:block">
+                    {DATE_PRESETS.filter(p => p.value !== 'custom').map((preset) => (
+                      <Button
+                        key={preset.value}
+                        variant="ghost"
+                        className={cn(
+                          "w-full justify-start font-normal",
+                          selectedPeriod === preset.value && "bg-gray-100 dark:bg-gray-800 font-medium"
+                        )}
+                        onClick={() => handlePeriodChange(preset.value)}
+                      >
+                        {preset.label}
+                      </Button>
+                    ))}
+                  </div>
                 </div>
 
                 {/* Custom Date Range */}
@@ -231,7 +233,7 @@ export default function OverviewSuperadmin() {
                     mode="range"
                     selected={customDateRange}
                     onSelect={setCustomDateRange}
-                    numberOfMonths={2}
+                    numberOfMonths={1}
                     disabled={(date) => date > new Date() || date < new Date("2020-01-01")}
                     className="rounded-md"
                   />
