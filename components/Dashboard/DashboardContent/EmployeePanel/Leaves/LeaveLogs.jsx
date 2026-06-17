@@ -1,12 +1,14 @@
-// Employee Leave Requests - Modern DataTable Version with Dashboard
+// Employee Leave Requests — inline table + side panel
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   Calendar,
+  CalendarPlus,
+  CalendarDays,
+  CalendarX,
   CheckCircle2,
   XCircle,
-  Eye,
   FileText,
   TrendingUp,
   Clock,
@@ -19,21 +21,28 @@ import {
   Heart,
   Umbrella,
   Baby,
-  DollarSign,
+  ShieldCheck,
+  ChevronsLeft,
+  ChevronsRight,
+  ChevronUp,
+  ChevronDown,
+  ArrowUpDown,
+  Search,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
 import socketService from "@/lib/socketService";
-import DataTable from "@/components/common/DataTable";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Progress } from "@/components/ui/progress";
-import { DateTimePicker } from "@/components/DateTimePicker";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
@@ -42,999 +51,901 @@ const toLocalDate = (dateStr) => {
   return new Date(y, m - 1, d);
 };
 
-const statusConfig = {
-  pending: {
-    label: "Pending Approval",
-    color: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
-    icon: Clock,
-  },
-  pending_secondary: {
-    label: "Pending Final Approval",
-    color: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
-    icon: Clock,
-  },
-  approved: {
-    label: "Approved",
-    color: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
-    icon: CheckCircle2,
-  },
-  rejected: {
-    label: "Rejected",
-    color: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
-    icon: XCircle,
-  },
-  cancelled: {
-    label: "Cancelled",
-    color: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400",
-    icon: XCircle,
-  },
+const fmtDate = (dateStr) =>
+  toLocalDate(dateStr).toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+
+const fmtSubmitted = (isoStr) =>
+  new Date(isoStr).toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+
+const fmtShiftTime = (t) => {
+  if (!t) return "—";
+  try {
+    return new Date(t).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
+  } catch {
+    return t;
+  }
 };
 
-// Leave type icons mapping
-const leaveTypeIcons = {
-  "Sick Leave": Heart,
-  "Personal Leave": User,
-  "Vacation Leave": Umbrella,
+const daysBetween = (s, e) =>
+  Math.floor((toLocalDate(e) - toLocalDate(s)) / 864e5) + 1;
+
+const STATUS_CFG = {
+  pending:           { bg: "#faeeda", color: "#633806", label: "Pending",       Icon: Clock },
+  pending_secondary: { bg: "#EEEDFE", color: "#3C3489", label: "Pending final", Icon: Clock },
+  approved:          { bg: "#eaf3de", color: "#3b6d11", label: "Approved",      Icon: CheckCircle2 },
+  rejected:          { bg: "#fcebeb", color: "#791f1f", label: "Rejected",      Icon: XCircle },
+  cancelled:         { bg: "#f5f5f3", color: "#888",    label: "Cancelled",     Icon: XCircle },
+};
+
+const LEAVE_ICONS = {
+  "Sick Leave":      Heart,
+  "Personal Leave":  User,
+  "Vacation Leave":  Umbrella,
   "Maternity Leave": Baby,
   "Paternity Leave": Baby,
   "Emergency Leave": AlertCircle,
 };
 
-const StatusBadge = ({ status }) => {
-  const config = statusConfig[status];
-  if (!config) return status;
-  
-  const Icon = config.icon;
+function StatusPill({ status }) {
+  const cfg = STATUS_CFG[status] ?? STATUS_CFG.pending;
   return (
-    <Badge variant="secondary" className={`${config.color} border-0`}>
-      <Icon className="h-3 w-3 mr-1" />
-      {config.label}
-    </Badge>
+    <span style={{ background: cfg.bg, color: cfg.color, padding: "3px 8px", borderRadius: 20, fontSize: 11, fontWeight: 500, display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
+      <cfg.Icon size={11} />
+      {cfg.label}
+    </span>
   );
-};
+}
+
+function PayPill({ isPaid }) {
+  return isPaid ? (
+    <span style={{ background: "#eaf3de", color: "#3b6d11", padding: "3px 8px", borderRadius: 20, fontSize: 11, fontWeight: 500 }}>Paid</span>
+  ) : (
+    <span style={{ background: "#f5f5f3", color: "#888", padding: "3px 8px", borderRadius: 20, fontSize: 11, fontWeight: 500, border: "0.5px solid #d0d0d0" }}>Unpaid</span>
+  );
+}
+
+const BOX     = { background: "#fff", border: "0.5px solid #e5e5e5", borderRadius: 12 };
+const SEC_LBL = { fontSize: 10, fontWeight: 500, letterSpacing: "0.06em", textTransform: "uppercase", color: "#bbb", marginBottom: 8, marginTop: 14 };
+const FIELD_LABEL = { fontSize: 11, fontWeight: 500, color: "#888", display: "flex", alignItems: "center", gap: 4 };
+const INPUT_BASE  = { width: "100%", fontSize: 12, fontFamily: "inherit", borderRadius: 8, background: "#fff", color: "#1a1a1a", padding: "0 10px", height: 34 };
+const PER_PAGE = 10;
 
 export default function EmployeeLeaveRequests() {
-  const { token, user } = useAuthStore();
-  const [leaves, setLeaves] = useState([]);
+  const { token } = useAuthStore();
+
+  // ── Data ──────────────────────────────────────────────────────────────────
+  const [leaves,  setLeaves]  = useState([]);
   const [loading, setLoading] = useState(false);
-  const [balances, setBalances] = useState([]);
-  const [loadingBalances, setLoadingBalances] = useState(false);
-  
-  // Dialog states
-  const [detailDialog, setDetailDialog] = useState({ open: false, request: null });
-  const [modalOpen, setModalOpen] = useState(false);
-  
-  // Form states
-  const [policies, setPolicies] = useState([]);
-  const [leaveType, setLeaveType] = useState("");
-  const [approverId, setApproverId] = useState("");
-  const [reason, setReason] = useState("");
-  const [start, setStart] = useState("");
-  const [end, setEnd] = useState("");
-  const [isPaid, setIsPaid] = useState(true);
-  const [balance, setBalance] = useState(null);
-  const [shiftHours, setShiftHours] = useState(8);
-  const [approvers, setApprovers] = useState([]);
-  const [progress, setProgress] = useState(0);
-  const [errors, setErrors] = useState({});
-  const [submitting, setSubmitting] = useState(false);
-  
-  // Loading states for form data
-  const [loadingPolicies, setLoadingPolicies] = useState(false);
+
+  // ── Table UI ──────────────────────────────────────────────────────────────
+  const [search,      setSearch]      = useState("");
+  const [activeTab,   setActiveTab]   = useState("all");
+  const [sortKey,     setSortKey]     = useState("createdAt");
+  const [sortDir,     setSortDir]     = useState(-1);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [selectedRow, setSelectedRow] = useState(null);
+
+  // ── Form modal ────────────────────────────────────────────────────────────
+  const [modalOpen,        setModalOpen]        = useState(false);
+  const [policies,         setPolicies]         = useState([]);
+  const [loadingPolicies,  setLoadingPolicies]  = useState(false);
+  const [leaveType,        setLeaveType]        = useState("");
+  const [approverId,       setApproverId]       = useState("");
+  const [reason,           setReason]           = useState("");
+  const [startDate,        setStartDate]        = useState("");
+  const [startTime,        setStartTime]        = useState("08:00");
+  const [endDate,          setEndDate]          = useState("");
+  const [endTime,          setEndTime]          = useState("17:00");
+  const [approvers,        setApprovers]        = useState([]);
   const [loadingApprovers, setLoadingApprovers] = useState(false);
+  const [affectedSchedules,   setAffectedSchedules]   = useState([]);
+  const [loadingSchedules,    setLoadingSchedules]     = useState(false);
+  const [errors,           setErrors]           = useState({});
+  const [submitting,       setSubmitting]       = useState(false);
+  const scheduleTimerRef = useRef(null);
 
-  // Calculate stats
+  // ── Derived / computed ────────────────────────────────────────────────────
+  const selectedPolicy = useMemo(
+    () => policies.find(p => p.leaveType === leaveType) ?? null,
+    [leaveType, policies]
+  );
+  const derivedIsPaid = selectedPolicy?.isPaid ?? true;
+
+  const duration = useMemo(() => {
+    if (!startDate || !endDate) return null;
+    const d = Math.round((new Date(endDate) - new Date(startDate)) / 864e5) + 1;
+    return d > 0 ? d : null;
+  }, [startDate, endDate]);
+
+  const affectedShiftIds = useMemo(
+    () => affectedSchedules.map(s => s.userShiftId),
+    [affectedSchedules]
+  );
+
+  const totalAffectedHours = useMemo(
+    () => affectedSchedules.reduce((sum, s) => sum + (Number(s.scheduledHours) || 0), 0),
+    [affectedSchedules]
+  );
+
+  // ── Stats ─────────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
-    const total = leaves.length;
-    const pending = leaves.filter(r => r.status === "pending").length;
-    const pendingSecondary = leaves.filter(r => r.status === "pending_secondary").length;
-    const approved = leaves.filter(r => r.status === "approved").length;
-    const rejected = leaves.filter(r => r.status === "rejected").length;
-    const totalDays = leaves
-      .filter(r => r.status === "approved")
-      .reduce((sum, r) => {
-        if (r.startDate && r.endDate) {
-          const start = new Date(r.startDate);
-          const end = new Date(r.endDate);
-          const diffTime = Math.abs(end - start);
-          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-          return sum + diffDays;
-        }
-        return sum;
-      }, 0);
-
-    return { total, pending, pendingSecondary, approved, rejected, totalDays };
+    const total      = leaves.length;
+    const pending    = leaves.filter(r => r.status === "pending").length;
+    const pendingSec = leaves.filter(r => r.status === "pending_secondary").length;
+    const approved   = leaves.filter(r => r.status === "approved").length;
+    const rejected   = leaves.filter(r => r.status === "rejected").length;
+    const totalDays  = leaves
+      .filter(r => r.status === "approved" && r.startDate && r.endDate)
+      .reduce((s, r) => s + daysBetween(r.startDate, r.endDate), 0);
+    return { total, pending, pendingSec, approved, rejected, totalDays };
   }, [leaves]);
 
-  // Status tabs for the table
-  const statusTabs = useMemo(() => [
-    { label: "All", value: "all", count: stats.total },
-    { label: "Pending", value: "pending", count: stats.pending },
-    { label: "Pending Final", value: "pending_secondary", count: stats.pendingSecondary },
-    { label: "Approved", value: "approved", count: stats.approved },
-    { label: "Rejected", value: "rejected", count: stats.rejected },
-  ], [leaves, stats]);
-
-  // Table columns
-  const columns = [
-    {
-      key: "leaveType",
-      label: "Leave Type",
-      render: (type) => {
-        const Icon = leaveTypeIcons[type] || Calendar;
-        return (
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-orange-100 dark:bg-orange-900/30 rounded-full flex items-center justify-center">
-              <Icon className="h-4 w-4 text-orange-600 dark:text-orange-400" />
-            </div>
-            <span className="font-medium">{type}</span>
-          </div>
-        );
-      },
-    },
-    {
-      key: "dateRange",
-      label: "Date Range",
-      render: (_, row) => (
-        <div className="text-sm">
-          <div className="font-medium">{toLocalDate(row.startDate).toLocaleDateString()}</div>
-          <div className="text-xs text-muted-foreground">
-            to {toLocalDate(row.endDate).toLocaleDateString()}
-          </div>
-          <div className="text-xs text-orange-600 font-medium">
-            {(() => {
-              const start = toLocalDate(row.startDate);
-              const end = toLocalDate(row.endDate);
-              const diffTime = end - start;
-              const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1;
-              return `${diffDays} day${diffDays === 1 ? '' : 's'}`;
-            })()}
-          </div>
-        </div>
-      ),
-      sortable: true,
-    },
-    {
-      key: "status",
-      label: "Status",
-      render: (status) => <StatusBadge status={status} />,
-      sortable: true,
-    },
-    {
-      key: "isPaid",
-      label: "Pay Type",
-      render: (isPaid) => isPaid === undefined ? (
-        <span className="text-xs text-muted-foreground">—</span>
-      ) : (
-        <Badge variant="secondary" className={isPaid
-          ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-0"
-          : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 border-0"
-        }>
-          <DollarSign className="h-3 w-3 mr-1" />
-          {isPaid ? "Paid" : "Unpaid"}
-        </Badge>
-      ),
-    },
-    {
-      key: "approver",
-      label: "Approver",
-      render: (_, row) => (
-        <div className="text-sm">
-          {row.approver?.name || row.approver?.email || "Not assigned"}
-        </div>
-      ),
-    },
-    {
-      key: "leaveReason",
-      label: "Reason",
-      render: (reason) => (
-        <div className="max-w-32 truncate text-sm text-muted-foreground">
-          {reason || "No reason provided"}
-        </div>
-      ),
-    },
-    {
-      key: "createdAt",
-      label: "Submitted",
-      render: (date) => (
-        <div className="text-sm text-muted-foreground">
-          {new Date(date).toLocaleDateString()}
-        </div>
-      ),
-      sortable: true,
-    },
+  const TABS = [
+    { label: "All",           value: "all",               count: stats.total },
+    { label: "Pending",       value: "pending",           count: stats.pending },
+    { label: "Pending final", value: "pending_secondary", count: stats.pendingSec },
+    { label: "Approved",      value: "approved",          count: stats.approved },
+    { label: "Rejected",      value: "rejected",          count: stats.rejected },
   ];
 
-  // Table actions
-  const actions = [
-    {
-      label: "View Details",
-      icon: Eye,
-      onClick: (request) => setDetailDialog({ open: true, request }),
-    },
-  ];
+  // ── Table processing ──────────────────────────────────────────────────────
+  const filtered = useMemo(() => {
+    let list = leaves;
+    if (activeTab !== "all") list = list.filter(r => r.status === activeTab);
+    if (search) {
+      const q = search.toLowerCase();
+      list = list.filter(r =>
+        (r.leaveType   ?? "").toLowerCase().includes(q) ||
+        (r.leaveReason ?? "").toLowerCase().includes(q) ||
+        (r.status      ?? "").toLowerCase().includes(q) ||
+        (r.approver?.name ?? "").toLowerCase().includes(q)
+      );
+    }
+    return [...list].sort((a, b) => {
+      const av = a[sortKey] ?? "", bv = b[sortKey] ?? "";
+      return av > bv ? sortDir : av < bv ? -sortDir : 0;
+    });
+  }, [leaves, activeTab, search, sortKey, sortDir]);
 
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  const paginated  = filtered.slice((currentPage - 1) * PER_PAGE, currentPage * PER_PAGE);
+
+  useEffect(() => { setCurrentPage(1); setSelectedRow(null); }, [activeTab, search]);
+
+  function toggleSort(key) {
+    if (sortKey === key) setSortDir(d => d * -1);
+    else { setSortKey(key); setSortDir(-1); }
+    setCurrentPage(1);
+  }
+
+  function SortIcon({ col }) {
+    if (sortKey !== col) return <ArrowUpDown size={11} style={{ marginLeft: 2, opacity: 0.4 }} />;
+    return sortDir === 1
+      ? <ChevronUp   size={11} style={{ marginLeft: 2, color: "#f97316" }} />
+      : <ChevronDown size={11} style={{ marginLeft: 2, color: "#f97316" }} />;
+  }
+
+  function goPage(p)      { setCurrentPage(p); setSelectedRow(null); }
+  function selectRow(row) { setSelectedRow(prev => prev?.id === row.id ? null : row); }
+
+  // ── Fetchers ──────────────────────────────────────────────────────────────
   const fetchLeaves = useCallback(async () => {
     if (!token) return;
     setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/api/leaves/my`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await response.json();
-      
-      if (!response.ok) throw new Error(data.message || "Failed to fetch leave requests");
-      
-      setLeaves(data.data || []);
-    } catch (error) {
-      toast.error(error.message || "Failed to fetch leave requests");
+      const res  = await fetch(`${API_URL}/api/leaves/my`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message ?? "Failed to fetch leave requests");
+      setLeaves(data.data ?? []);
+    } catch (e) {
+      toast.error(e.message ?? "Failed to fetch leave requests");
     } finally {
       setLoading(false);
     }
   }, [token]);
 
-  const fetchBalances = useCallback(async () => {
+  // Single policies fetch — provides both form options AND balance cards
+  const fetchPolicies = useCallback(async () => {
     if (!token) return;
-    setLoadingBalances(true);
+    setLoadingPolicies(true);
     try {
-      // Fetch both balances and policies
-      const [balancesRes, policiesRes] = await Promise.all([
-        fetch(`${API_URL}/api/leaves/balances`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        fetch(`${API_URL}/api/leaves/policies`, {
-          headers: { Authorization: `Bearer ${token}` },
-          cache: "no-store",
-        }),
-      ]);
-
-      const balancesData = await balancesRes.json();
-      const policiesData = await policiesRes.json();
-      
-      if (!balancesRes.ok) throw new Error(balancesData.message || "Failed to fetch leave balances");
-      
-      // Parse the data
-      const balancesList = Array.isArray(balancesData.data) ? balancesData.data : [];
-      const policiesList = Array.isArray(policiesData.data) ? policiesData.data : [];
-      
-      // Create a map of policies by leave type for quick lookup
-      const policiesMap = {};
-      policiesList.forEach(policy => {
-        // Try different possible field names for credits
-        const credits = Number(policy.credits) || 
-                       Number(policy.totalCredits) || 
-                       Number(policy.creditHours) || 
-                       Number(policy.annualCredits) ||
-                       Number(policy.maxCredits) ||
-                       Number(policy.allowedCredits) ||
-                       Number(policy.defaultCredits) ||
-                       0;
-        policiesMap[policy.leaveType] = credits;
-      });
-      
-      // Merge balances with policy credits
-      const parsedBalances = balancesList.map(bal => {
-        const currentBalance = Number(bal.balanceHours) || 0;
-        let totalCredits = policiesMap[bal.leaveType] || 0;
-        
-        // If totalCredits is 0 but currentBalance exists, use currentBalance as totalCredits
-        // This handles the case where balance hours represent the full allocation
-        if (totalCredits === 0 && currentBalance > 0) {
-          totalCredits = currentBalance;
-        }
-        
-        return {
-          leaveType: bal.leaveType || '',
-          currentBalance: currentBalance,
-          totalCredits: totalCredits,
-          shiftHours: Number(bal.shiftHours) || 8,
-        };
-      });
-      
-      setBalances(parsedBalances);
-    } catch (error) {
-      console.error("Failed to fetch leave balances:", error);
-      toast.error("Failed to load leave balances");
+      const res  = await fetch(`${API_URL}/api/leaves/policies`, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message ?? "Failed to fetch policies");
+      setPolicies(Array.isArray(data.data) ? data.data : []);
+    } catch {
+      toast.error("Failed to load leave policies");
     } finally {
-      setLoadingBalances(false);
+      setLoadingPolicies(false);
     }
   }, [token]);
 
-  // Fetch policies, and approvers when modal opens
+  // Load approvers when modal opens; policies are already loaded from mount
   useEffect(() => {
     if (!token || !modalOpen) return;
-    
-    const fetchModalData = async () => {
+    const load = async () => {
+      setLoadingApprovers(true);
       try {
-        // Set loading states
-        setLoadingPolicies(true);
-        setLoadingApprovers(true);
-
-        const [policiesRes, approversRes] = await Promise.all([
-          fetch(`${API_URL}/api/leaves/policies`, { 
-            headers: { Authorization: `Bearer ${token}` },
-            cache: "no-store"
-          }),
-          fetch(`${API_URL}/api/leaves/approvers`, { 
-            headers: { Authorization: `Bearer ${token}` } 
-          }),
-        ]);
-
-        // Handle policies
-        setLoadingPolicies(false);
-        if (policiesRes.ok) {
-          const policiesData = await policiesRes.json();
-          const policiesList = Array.isArray(policiesData.data) ? policiesData.data : [];
-          setPolicies(policiesList);
-          const companyShift = policiesList[0]?.defaultShiftHours != null 
-            ? policiesList[0].defaultShiftHours 
-            : 8;
-          setShiftHours(companyShift);
-        } else {
-          toast.error("Failed to load leave policies");
-        }
-
-        // Handle approvers
-        setLoadingApprovers(false);
-        if (approversRes.ok) {
-          const approversData = await approversRes.json();
-          const approversList = Array.isArray(approversData.data) ? approversData.data : [];
-          setApprovers(approversList.map(a => ({
-            ...a,
-            label: a.email || a.username || `User ${a.id}`,
-          })));
+        const res  = await fetch(`${API_URL}/api/leaves/approvers`, { headers: { Authorization: `Bearer ${token}` } });
+        const data = await res.json();
+        if (res.ok) {
+          setApprovers(
+            (Array.isArray(data.data) ? data.data : []).map(a => ({
+              ...a,
+              label: a.email ?? a.username ?? `User ${a.id}`,
+            }))
+          );
         } else {
           toast.error("Failed to load approvers");
         }
-      } catch (error) {
-        setLoadingPolicies(false);
+      } catch {
+        toast.error("Failed to load approvers");
+      } finally {
         setLoadingApprovers(false);
-        toast.error("Failed to load form data");
       }
     };
+    // Re-fetch policies for fresh balanceHours when modal opens
+    fetchPolicies();
+    load();
+  }, [token, modalOpen, fetchPolicies]);
 
-    fetchModalData();
-  }, [token, modalOpen]);
-
-  // Calculate form progress and validation
+  // Fetch affected schedules when both dates are valid (debounced 500ms)
   useEffect(() => {
-    const fields = [leaveType, approverId, start, end];
-    const completedFields = fields.filter(Boolean).length;
-    const progressValue = Math.round((completedFields / fields.length) * 100);
-    setProgress(progressValue);
+    if (scheduleTimerRef.current) clearTimeout(scheduleTimerRef.current);
 
-    // Find balance for selected leave type
-    if (leaveType && balances.length > 0) {
-      const bal = balances.find(b => b.leaveType === leaveType);
-      setBalance(bal?.currentBalance || 0);
-    }
-  }, [leaveType, approverId, start, end, balances]);
-
-  const resetForm = () => {
-    setLeaveType("");
-    setApproverId("");
-    setReason("");
-    setStart("");
-    setEnd("");
-    setIsPaid(true);
-    setBalance(null);
-    setProgress(0);
-    setErrors({});
-  };
-
-  const handleSubmit = async () => {
-    setErrors({});
-    const newErrors = {};
-
-    if (!leaveType) newErrors.leaveType = "Leave type is required";
-    if (!approverId) newErrors.approverId = "Approver is required";
-    if (!start) newErrors.start = "Start date is required";
-    if (!end) newErrors.end = "End date is required";
-
-    if (start && end && new Date(start) > new Date(end)) {
-      newErrors.end = "End date must be after start date";
-    }
-
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors);
+    if (!token || !startDate || !endDate || new Date(startDate) > new Date(endDate)) {
+      setAffectedSchedules([]);
+      setLoadingSchedules(false);
       return;
     }
 
+    setLoadingSchedules(true);
+    scheduleTimerRef.current = setTimeout(async () => {
+      try {
+        const res  = await fetch(
+          `${API_URL}/api/leaves/affected-schedules?startDate=${startDate}&endDate=${endDate}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        const data = await res.json();
+        setAffectedSchedules(Array.isArray(data.data) ? data.data : []);
+      } catch {
+        setAffectedSchedules([]);
+      } finally {
+        setLoadingSchedules(false);
+      }
+    }, 500);
+
+    return () => { if (scheduleTimerRef.current) clearTimeout(scheduleTimerRef.current); };
+  }, [token, startDate, endDate]);
+
+  useEffect(() => { fetchLeaves(); fetchPolicies(); }, [fetchLeaves, fetchPolicies]);
+
+  useEffect(() => {
+    const h = () => fetchPolicies();
+    socketService.on("leaveBalanceUpdated", h);
+    return () => socketService.off("leaveBalanceUpdated", h);
+  }, [fetchPolicies]);
+
+  function resetForm() {
+    setLeaveType(""); setApproverId(""); setReason("");
+    setStartDate(""); setStartTime("08:00");
+    setEndDate("");   setEndTime("17:00");
+    setAffectedSchedules([]); setLoadingSchedules(false);
+    setErrors({});
+    if (scheduleTimerRef.current) clearTimeout(scheduleTimerRef.current);
+  }
+
+  async function handleSubmit() {
+    const errs = {};
+    if (!leaveType)  errs.leaveType  = "Leave type is required";
+    if (!approverId) errs.approverId = "Approver is required";
+    if (!startDate)  errs.startDate  = "Start date is required";
+    if (!endDate)    errs.endDate    = "End date is required";
+    if (startDate && endDate && new Date(startDate) > new Date(endDate))
+      errs.endDate = "End date must be after start date";
+    if (Object.keys(errs).length) { setErrors(errs); return; }
+
+    const fromDate = new Date(`${startDate}T${startTime || "08:00"}:00`).toISOString();
+    const toDate   = new Date(`${endDate}T${endTime   || "17:00"}:00`).toISOString();
+
     setSubmitting(true);
     try {
-      const response = await fetch(`${API_URL}/api/leaves/submit`, {
+      const res = await fetch(`${API_URL}/api/leaves/submit`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           type: leaveType,
           approverId,
           leaveReason: reason,
-          fromDate: start,
-          toDate: end,
-          isPaid,
+          fromDate,
+          toDate,
+          isPaid: derivedIsPaid,
+          affectedShiftIds,
         }),
       });
-
-      const data = await response.json();
-
-      if (!response.ok) throw new Error(data.message || "Failed to submit leave request");
-
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message ?? "Failed to submit");
       toast.success("Leave request submitted successfully!");
-      setModalOpen(false);
-      resetForm();
-      fetchLeaves();
-      fetchBalances(); // Refresh balances after submitting
-    } catch (error) {
-      toast.error(error.message || "Failed to submit leave request");
+      setModalOpen(false); resetForm(); fetchLeaves(); fetchPolicies();
+    } catch (e) {
+      toast.error(e.message ?? "Failed to submit leave request");
     } finally {
       setSubmitting(false);
     }
-  };
+  }
 
-  useEffect(() => {
-    fetchLeaves();
-    fetchBalances();
-  }, [fetchLeaves, fetchBalances]);
-
-  // ── Socket: re-fetch balances when leave is fully approved ───────────────
-  useEffect(() => {
-    const handler = () => fetchBalances();
-    socketService.on("leaveBalanceUpdated", handler);
-    return () => socketService.off("leaveBalanceUpdated", handler);
-  }, [fetchBalances]);
-
-  // Calculate balance info for selected leave type
-  const creditsForType = useMemo(() => {
-    if (!leaveType || !policies.length) return null;
-    const policy = policies.find(p => p.leaveType === leaveType);
-    return policy?.credits || null;
-  }, [leaveType, policies]);
-
-  const requested = useMemo(() => {
-    if (!start || !end) return 0;
-    const diffTime = Math.abs(new Date(end) - new Date(start));
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-    return diffDays * shiftHours;
-  }, [start, end, shiftHours]);
-
-  const exceeds = balance != null && creditsForType != null && requested > balance;
-
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="p-6 space-y-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: 20 }}>
+
+      {/* PAGE HEADER */}
+      <div style={{ ...BOX, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "14px 16px" }}>
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Leave Requests</h1>
-          <p className="text-muted-foreground">Submit and track your leave requests</p>
+          <div style={{ fontSize: 22, fontWeight: 500, display: "flex", alignItems: "center", gap: 8 }}>
+            <Calendar size={20} color="#f97316" />
+            Leave requests
+          </div>
+          <div style={{ fontSize: 13, color: "#888", marginTop: 3 }}>Submit and track your leave requests</div>
         </div>
-        <Button onClick={() => setModalOpen(true)} className="bg-orange-500 hover:bg-orange-600 text-white self-start sm:self-auto">
-          <Plus className="h-4 w-4 mr-2" />
-          New Request
+        <Button
+          onClick={() => setModalOpen(true)}
+          className="h-8 text-xs rounded-lg bg-orange-500 hover:bg-orange-600 text-white px-3 gap-1.5"
+        >
+          <Plus className="h-3.5 w-3.5" /> New request
         </Button>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Total Requests</CardTitle>
-              <FileText className="h-4 w-4 text-muted-foreground" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.total}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Pending</CardTitle>
-              <Clock className="h-4 w-4 text-amber-600" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-amber-600">{stats.pending}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Approved</CardTitle>
-              <CheckCircle2 className="h-4 w-4 text-green-600" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">{stats.approved}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Days Taken</CardTitle>
-              <TrendingUp className="h-4 w-4 text-orange-600" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-orange-600">{stats.totalDays}</div>
-          </CardContent>
-        </Card>
+      {/* METRIC CARDS */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {[
+          { label: "Total requests", value: stats.total,    icon: <FileText     size={13} color="#f97316" />, sub: "across date range",   valColor: undefined },
+          { label: "Pending",        value: stats.pending,  icon: <Clock        size={13} color="#633806" />, sub: "awaiting review",     valColor: "#633806" },
+          { label: "Approved",       value: stats.approved, icon: <CheckCircle2 size={13} color="#3b6d11" />, sub: "confirmed requests",  valColor: "#3b6d11" },
+          { label: "Days taken",     value: stats.totalDays,icon: <TrendingUp   size={13} color="#3C3489" />, sub: "from approved leave", valColor: "#3C3489" },
+        ].map(c => (
+          <div key={c.label} style={{ ...BOX, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 4 }}>
+            <div style={{ fontSize: 11, color: "#888", display: "flex", alignItems: "center", gap: 5 }}>{c.icon} {c.label}</div>
+            <div style={{ fontSize: 22, fontWeight: 500, lineHeight: 1, color: c.valColor ?? "#1a1a1a" }}>{c.value}</div>
+            <div style={{ fontSize: 11, color: "#bbb", marginTop: 1 }}>{c.sub}</div>
+          </div>
+        ))}
       </div>
 
-      {/* Leave Balances Dashboard */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Briefcase className="h-5 w-5 text-orange-600" />
-              <CardTitle>Leave Balances</CardTitle>
-            </div>
-            {loadingBalances && <Loader2 className="h-4 w-4 animate-spin text-orange-500" />}
+      {/* LEAVE BALANCES — driven by policies.balanceHours */}
+      <div style={BOX}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "12px 16px", borderBottom: "0.5px solid #e5e5e5", fontSize: 14, fontWeight: 500 }}>
+          <Briefcase size={15} color="#f97316" />
+          Leave balances
+          {loadingPolicies && <Loader2 size={13} className="animate-spin" style={{ color: "#f97316", marginLeft: "auto" }} />}
+        </div>
+        {!loadingPolicies && policies.length === 0 ? (
+          <div style={{ padding: "24px 16px", textAlign: "center", color: "#888", fontSize: 13 }}>
+            No leave balances available. Contact your HR department.
           </div>
-        </CardHeader>
-        <CardContent>
-          {loadingBalances ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-orange-500" />
-            </div>
-          ) : balances.length === 0 ? (
-            <div className="text-center py-12">
-              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-orange-100 dark:bg-orange-900/30 mb-4">
-                <Briefcase className="h-8 w-8 text-orange-600 dark:text-orange-400" />
-              </div>
-              <h3 className="text-lg font-semibold mb-2">No Leave Balances Available</h3>
-              <p className="text-muted-foreground mb-4 max-w-md mx-auto">
-                Your leave balances have not been configured yet. Please contact your supervisor or HR department to set up your leave entitlements.
-              </p>
-              <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                <AlertCircle className="h-4 w-4" />
-                <span>Need help? Reach out to your supervisor</span>
-              </div>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {balances.map((bal, index) => {
-                const Icon = leaveTypeIcons[bal.leaveType] || Calendar;
-                
-                // Safely parse numeric values
-                const totalCredits = Number(bal.totalCredits) || 0;
-                const currentBalance = Number(bal.currentBalance) || 0;
-                const hasNoCredits = totalCredits === 0;
-                
-                // Calculate usage safely
-                const usedHours = hasNoCredits ? 0 : totalCredits - currentBalance;
-                const usedPercentage = hasNoCredits ? 0 : (usedHours / totalCredits) * 100;
-                const isLow = usedPercentage > 75;
-                
-                return (
-                  <Card key={bal.leaveType || index} className="border-2 hover:border-orange-200 dark:hover:border-orange-800 transition-colors">
-                    <CardHeader className="pb-3">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                          hasNoCredits
-                            ? 'bg-gray-100 dark:bg-gray-900/30'
-                            : isLow 
-                              ? 'bg-red-100 dark:bg-red-900/30' 
-                              : 'bg-orange-100 dark:bg-orange-900/30'
-                        }`}>
-                          <Icon className={`h-5 w-5 ${
-                            hasNoCredits
-                              ? 'text-gray-600 dark:text-gray-400'
-                              : isLow 
-                                ? 'text-red-600 dark:text-red-400' 
-                                : 'text-orange-600 dark:text-orange-400'
-                          }`} />
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2" style={{ padding: "12px 16px" }}>
+            {policies.map((p, i) => {
+              const Icon = LEAVE_ICONS[p.leaveType] ?? Calendar;
+              return (
+                <div key={i} style={{ background: "#fafaf9", border: "0.5px solid #e5e5e5", borderRadius: 8, padding: "10px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <Icon size={15} color="#f97316" />
+                    <span style={{ fontSize: 12, fontWeight: 500 }}>{p.leaveType}</span>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 18, fontWeight: 500, color: "#f97316", lineHeight: 1 }}>{Number(p.balanceHours) || 0}h</div>
+                    <div style={{ fontSize: 11, color: "#bbb", marginTop: 1 }}>available</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* HISTORY TABLE */}
+      <div style={BOX}>
+
+        {/* Toolbar */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "0.5px solid #e5e5e5" }}>
+          <div style={{ fontSize: 14, fontWeight: 500, display: "flex", alignItems: "center", gap: 7 }}>
+            <FileText size={15} color="#f97316" />
+            Leave requests history
+          </div>
+          <div style={{ fontSize: 12, color: "#888" }}>{paginated.length} shown</div>
+        </div>
+
+        {/* Search */}
+        <div style={{ padding: "10px 16px", borderBottom: "0.5px solid #e5e5e5" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, height: 32, border: "0.5px solid #d0d0d0", borderRadius: 8, padding: "0 10px", background: "#fff", maxWidth: 320 }}>
+            <Search size={13} color="#bbb" />
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search by leave type, reason, or status…"
+              style={{ border: "none", outline: "none", fontSize: 12, color: "#1a1a1a", background: "transparent", width: "100%" }}
+            />
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div style={{ display: "flex", padding: "0 16px", borderBottom: "0.5px solid #e5e5e5", overflowX: "auto" }}>
+          {TABS.map(t => {
+            const active = activeTab === t.value;
+            return (
+              <button
+                key={t.value}
+                onClick={() => setActiveTab(t.value)}
+                style={{ display: "flex", alignItems: "center", gap: 5, padding: "8px 10px", fontSize: 12, fontWeight: 500, cursor: "pointer", color: active ? "#f97316" : "#888", background: "none", border: "none", borderBottom: active ? "2px solid #f97316" : "2px solid transparent", whiteSpace: "nowrap", marginBottom: -0.5 }}
+              >
+                {t.label}
+                <span style={{ fontSize: 11, borderRadius: 20, padding: "1px 6px", fontWeight: 400, background: active ? "#faeeda" : "#f5f5f3", color: active ? "#633806" : "#888" }}>
+                  {t.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Table + Side panel */}
+        <div style={{ display: "flex" }}>
+          <div style={{ flex: 1, overflowX: "auto", minWidth: 0 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  {[
+                    { label: "Leave type", key: "leaveType", w: "auto", align: "left"   },
+                    { label: "Date range", key: "startDate", w: "auto", align: "left"   },
+                    { label: "Status",     key: "status",    w: "1%",   align: "center" },
+                    { label: "Submitted",  key: "createdAt", w: "1%",   align: "right"  },
+                  ].map(col => (
+                    <th
+                      key={col.key}
+                      onClick={() => toggleSort(col.key)}
+                      style={{ width: col.w, fontSize: 11, fontWeight: 500, color: "#888", textAlign: col.align, padding: "8px 12px", borderBottom: "0.5px solid #e5e5e5", background: "#fafaf9", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
+                    >
+                      {col.label} <SortIcon col={col.key} />
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan={4} style={{ padding: "48px 16px", textAlign: "center" }}>
+                      <Loader2 size={24} className="animate-spin mx-auto" style={{ color: "#f97316" }} />
+                    </td>
+                  </tr>
+                ) : paginated.length === 0 ? (
+                  <tr>
+                    <td colSpan={4}>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "48px 16px", gap: 8 }}>
+                        <div style={{ width: 34, height: 34, borderRadius: "50%", background: "#f5f5f3", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <Search size={16} color="#bbb" />
                         </div>
-                        <div className="flex-1">
-                          <CardTitle className="text-sm font-medium line-clamp-1">
-                            {bal.leaveType || 'Unknown Leave Type'}
-                          </CardTitle>
-                        </div>
+                        <div style={{ fontSize: 13, color: "#888" }}>No records found</div>
                       </div>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      {currentBalance === 0 && totalCredits === 0 ? (
-                        <div className="text-center py-4">
-                          <div className="text-sm text-muted-foreground mb-3">
-                            No credits allocated
+                    </td>
+                  </tr>
+                ) : paginated.map(row => {
+                  const Icon     = LEAVE_ICONS[row.leaveType] ?? Calendar;
+                  const days     = row.startDate && row.endDate ? daysBetween(row.startDate, row.endDate) : null;
+                  const selected = selectedRow?.id === row.id;
+                  return (
+                    <tr
+                      key={row.id}
+                      onClick={() => selectRow(row)}
+                      style={{ borderBottom: "0.5px solid #e5e5e5", cursor: "pointer", background: selected ? "#fff7f0" : undefined, borderLeft: selected ? "2px solid #f97316" : "2px solid transparent" }}
+                    >
+                      <td style={{ padding: "10px 12px", verticalAlign: "middle" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                          <div style={{ width: 26, height: 26, borderRadius: "50%", background: "#f5f5f3", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#f97316" }}>
+                            <Icon size={13} />
                           </div>
-                          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-md p-3">
-                            <div className="flex items-start gap-2 text-xs text-amber-800 dark:text-amber-300">
-                              <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                              <p className="text-left">
-                                This leave type has not been configured for your account. Please contact your supervisor or HR to set up your entitlement.
-                              </p>
-                            </div>
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 500 }}>{row.leaveType}</div>
+                            <div style={{ marginTop: 3 }}><PayPill isPaid={row.isPaid} /></div>
                           </div>
                         </div>
-                      ) : totalCredits === 0 || totalCredits === currentBalance ? (
-                        // Show available balance only when we don't have total credits info
-                        <>
-                          <div className="text-center py-2">
-                            <div className="text-4xl font-bold text-orange-600">
-                              {currentBalance.toFixed(0)}
-                            </div>
-                            <div className="text-sm text-muted-foreground mt-1">hours available</div>
-                          </div>
-                          
-                          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md p-3 mt-3">
-                            <div className="flex items-start gap-2 text-xs text-blue-800 dark:text-blue-300">
-                              <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                              <p className="text-left">
-                                You have {currentBalance.toFixed(0)} hours available for this leave type.
-                              </p>
-                            </div>
-                          </div>
-                        </>
-                      ) : (
-                        // Show full breakdown when we have both values
-                        <>
-                          <div className="flex items-baseline justify-between">
-                            <div>
-                              <div className={`text-3xl font-bold ${
-                                isLow ? 'text-red-600' : 'text-orange-600'
-                              }`}>
-                                {currentBalance.toFixed(0)}
-                              </div>
-                              <div className="text-xs text-muted-foreground">hours available</div>
-                            </div>
-                            <div className="text-right">
-                              <div className="text-sm font-medium text-muted-foreground">
-                                of {totalCredits.toFixed(0)}h
-                              </div>
-                            </div>
-                          </div>
-                          
-                          <div className="space-y-1.5">
-                            <div className="flex items-center justify-between text-xs">
-                              <span className="text-muted-foreground">Used</span>
-                              <span className="font-medium">{usedPercentage.toFixed(0)}%</span>
-                            </div>
-                            <Progress 
-                              value={usedPercentage} 
-                              className={`h-2 ${
-                                isLow 
-                                  ? '[&>div]:bg-red-500 bg-red-100 dark:bg-red-900/30' 
-                                  : '[&>div]:bg-orange-500 bg-orange-100 dark:bg-orange-900/30'
-                              }`} 
-                            />
-                          </div>
-
-                          <div className="pt-2 border-t text-xs text-muted-foreground">
-                            <div className="flex justify-between">
-                              <span>Used:</span>
-                              <span className="font-medium">{usedHours.toFixed(0)}h</span>
-                            </div>
-                          </div>
-                        </>
-                      )}
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Main Table */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Calendar className="h-5 w-5 text-orange-600" />
-            <CardTitle>Leave Requests History</CardTitle>
+                      </td>
+                      <td style={{ padding: "10px 12px", verticalAlign: "middle" }}>
+                        {row.startDate ? (
+                          <>
+                            <div style={{ fontSize: 13, fontWeight: 500 }}>{fmtDate(row.startDate)}</div>
+                            <div style={{ fontSize: 11, color: "#bbb", marginTop: 2 }}>to {fmtDate(row.endDate)}</div>
+                            {days && <div style={{ fontSize: 11, color: "#f97316", marginTop: 2 }}>{days} day{days === 1 ? "" : "s"}</div>}
+                          </>
+                        ) : "—"}
+                      </td>
+                      <td style={{ padding: "10px 12px", verticalAlign: "middle", textAlign: "center" }}>
+                        <StatusPill status={row.status} />
+                      </td>
+                      <td style={{ padding: "10px 12px", verticalAlign: "middle", textAlign: "right" }}>
+                        <span style={{ fontSize: 12, color: "#888" }}>
+                          {row.createdAt ? fmtSubmitted(row.createdAt) : "—"}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-        </CardHeader>
-        <CardContent className="p-6">
-          <DataTable
-            data={leaves}
-            columns={columns}
-            loading={loading}
-            onRefresh={fetchLeaves}
-            actions={actions}
-            searchPlaceholder="Search by leave type, reason, or status..."
-            statusTabs={statusTabs}
-            onRowClick={(request) => setDetailDialog({ open: true, request })}
-            pageSize={10}
-          />
-        </CardContent>
-      </Card>
 
-      {/* Detail Dialog */}
-      <Dialog open={detailDialog.open} onOpenChange={(open) => !open && setDetailDialog({ open: false, request: null })}>
-        <DialogContent className="sm:max-w-lg">
-          <div className="h-1 w-full bg-orange-500 -mt-6 mb-4" />
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Calendar className="h-5 w-5 text-orange-600" />
-              Leave Request Details
-            </DialogTitle>
-          </DialogHeader>
-
-          {detailDialog.request && (
-            <div className="space-y-6">
-              {/* Status and Leave Type */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <StatusBadge status={detailDialog.request.status} />
-                  {detailDialog.request.isPaid !== undefined && (
-                    <Badge variant="secondary" className={
-                      detailDialog.request.isPaid
-                        ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-0"
-                        : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 border-0"
-                    }>
-                      <DollarSign className="h-3 w-3 mr-1" />
-                      {detailDialog.request.isPaid ? "Paid" : "Unpaid"}
-                    </Badge>
-                  )}
+          {/* SIDE PANEL */}
+          {selectedRow && (
+            <div style={{ width: 272, minWidth: 272, borderLeft: "0.5px solid #e5e5e5", display: "flex", flexDirection: "column" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", borderBottom: "0.5px solid #e5e5e5" }}>
+                <span style={{ fontWeight: 500, fontSize: 13 }}>Request details</span>
+                <button onClick={() => setSelectedRow(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#aaa", display: "flex", alignItems: "center", padding: 2, borderRadius: 8 }}>
+                  <X size={15} />
+                </button>
+              </div>
+              <div style={{ padding: 14, flex: 1, overflowY: "auto" }}>
+                <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 5 }}>{selectedRow.leaveType}</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 2 }}>
+                  <StatusPill status={selectedRow.status} />
+                  <PayPill isPaid={selectedRow.isPaid} />
                 </div>
-                <div className="text-right">
-                  <div className="text-lg font-bold">{detailDialog.request.leaveType}</div>
-                  <div className="text-sm text-muted-foreground">Leave Type</div>
+
+                <div style={SEC_LBL}>Leave period</div>
+                {[
+                  ["From", selectedRow.startDate ? fmtDate(selectedRow.startDate) : "—"],
+                  ["To",   selectedRow.endDate   ? fmtDate(selectedRow.endDate)   : "—"],
+                ].map(([k, v]) => (
+                  <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6, gap: 8 }}>
+                    <span style={{ fontSize: 12, color: "#888", flexShrink: 0 }}>{k}</span>
+                    <span style={{ fontSize: 12, fontWeight: 500, textAlign: "right" }}>{v}</span>
+                  </div>
+                ))}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6, gap: 8 }}>
+                  <span style={{ fontSize: 12, color: "#888", flexShrink: 0 }}>Duration</span>
+                  <span style={{ fontSize: 12, fontWeight: 500, textAlign: "right", color: "#f97316" }}>
+                    {selectedRow.startDate && selectedRow.endDate
+                      ? (() => { const d = daysBetween(selectedRow.startDate, selectedRow.endDate); return `${d} day${d === 1 ? "" : "s"}`; })()
+                      : "—"}
+                  </span>
+                </div>
+
+                <div style={SEC_LBL}>Approver</div>
+                {[
+                  ["Name",  selectedRow.approver?.name ?? selectedRow.approver?.email ?? "Not assigned"],
+                  ["Email", selectedRow.approver?.email ?? "—"],
+                ].map(([k, v]) => (
+                  <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6, gap: 8 }}>
+                    <span style={{ fontSize: 12, color: "#888", flexShrink: 0 }}>{k}</span>
+                    <span style={{ fontSize: k === "Email" ? 11 : 12, fontWeight: 500, textAlign: "right" }}>{v}</span>
+                  </div>
+                ))}
+
+                <div style={SEC_LBL}>Request info</div>
+                {[
+                  ["Pay type",  selectedRow.isPaid ? "Paid" : "Unpaid"],
+                  ["Submitted", selectedRow.createdAt ? fmtSubmitted(selectedRow.createdAt) : "—"],
+                ].map(([k, v]) => (
+                  <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6, gap: 8 }}>
+                    <span style={{ fontSize: 12, color: "#888", flexShrink: 0 }}>{k}</span>
+                    <span style={{ fontSize: 12, fontWeight: 500, textAlign: "right" }}>{v}</span>
+                  </div>
+                ))}
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 6 }}>
+                  <span style={{ fontSize: 12, color: "#888" }}>Reason</span>
+                  <div style={{ background: "#fafaf9", border: "0.5px solid #e5e5e5", borderRadius: 8, padding: "8px 10px", fontSize: 12, color: "#888" }}>
+                    {selectedRow.leaveReason ?? "No reason provided"}
+                  </div>
+                </div>
+
+                {selectedRow.approverComments && selectedRow.status === "rejected" && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 8 }}>
+                    <span style={{ fontSize: 12, color: "#791f1f" }}>Rejection comment</span>
+                    <div style={{ background: "#fcebeb", border: "0.5px solid #f09595", borderRadius: 8, padding: "8px 10px", fontSize: 12, color: "#791f1f" }}>
+                      {selectedRow.approverComments}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ height: 0.5, background: "#e5e5e5", margin: "8px 0" }} />
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                  <span style={{ fontSize: 11, color: "#bbb", flexShrink: 0 }}>Request ID</span>
+                  <span style={{ fontSize: 11, fontFamily: "ui-monospace, monospace", color: "#888", textAlign: "right", wordBreak: "break-all" }}>
+                    {selectedRow.id}
+                  </span>
                 </div>
               </div>
-
-              {/* Date Range */}
-              <div className="bg-orange-50 dark:bg-orange-900/20 p-4 rounded-lg border border-orange-200 dark:border-orange-800">
-                <div className="flex items-center gap-2 mb-3">
-                  <Calendar className="h-4 w-4 text-orange-600" />
-                  <div className="font-medium text-orange-700 dark:text-orange-300">Leave Period</div>
-                </div>
-                <div className="grid grid-cols-1 gap-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Start Date:</span>
-                    <span className="font-medium">{toLocalDate(detailDialog.request.startDate).toLocaleDateString()}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">End Date:</span>
-                    <span className="font-medium">{toLocalDate(detailDialog.request.endDate).toLocaleDateString()}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Duration:</span>
-                    <span className="font-medium text-orange-600">
-                      {(() => {
-                        const start = new Date(detailDialog.request.startDate);
-                        const end = new Date(detailDialog.request.endDate);
-                        start.setHours(0, 0, 0, 0);
-                        end.setHours(0, 0, 0, 0);
-                        const diffTime = end - start;
-                        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1;
-                        return `${diffDays} day${diffDays === 1 ? '' : 's'}`;
-                      })()}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Request Info */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <div className="text-sm text-muted-foreground">Request ID</div>
-                  <div className="font-mono text-xs">{detailDialog.request.id}</div>
-                </div>
-                <div>
-                  <div className="text-sm text-muted-foreground">Approver</div>
-                  <div className="font-medium">{detailDialog.request.approver?.name || detailDialog.request.approver?.email || "Not assigned"}</div>
-                </div>
-                <div>
-                  <div className="text-sm text-muted-foreground">Submitted</div>
-                  <div className="font-medium">{new Date(detailDialog.request.createdAt).toLocaleDateString()} {new Date(detailDialog.request.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
-                </div>
-                <div>
-                  <div className="text-sm text-muted-foreground">Last Updated</div>
-                  <div className="font-medium">{new Date(detailDialog.request.updatedAt).toLocaleDateString()} {new Date(detailDialog.request.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
-                </div>
-              </div>
-
-              {/* Reason */}
-              {detailDialog.request.leaveReason && (
-                <div className="space-y-2">
-                  <div className="text-sm text-muted-foreground">Reason for Leave</div>
-                  <div className="bg-muted p-3 rounded-md text-sm">
-                    {detailDialog.request.leaveReason}
-                  </div>
-                </div>
-              )}
-
-              {/* Approver Comments */}
-              {detailDialog.request.approverComments && (
-                <div className="space-y-2">
-                  <div className="text-sm text-muted-foreground">
-                    {detailDialog.request.status === "approved" ? "Approval" : "Rejection"} Comments
-                  </div>
-                  <div className={`p-3 rounded-md text-sm border ${
-                    detailDialog.request.status === "approved"
-                      ? "bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800"
-                      : "bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800"
-                  }`}>
-                    {detailDialog.request.approverComments}
-                  </div>
-                </div>
-              )}
             </div>
           )}
+        </div>
 
-          <DialogFooter>
-            <Button onClick={() => setDetailDialog({ open: false, request: null })}>
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        {/* Pagination footer */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", borderTop: "0.5px solid #e5e5e5", background: "#fafaf9", flexWrap: "wrap", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+            <button disabled={currentPage === 1} onClick={() => goPage(1)} style={{ border: "0.5px solid #e5e5e5", background: "#fff", color: "#888", borderRadius: 8, padding: "4px 9px", fontSize: 12, cursor: currentPage === 1 ? "default" : "pointer", display: "flex", alignItems: "center", gap: 3, opacity: currentPage === 1 ? 0.4 : 1, fontFamily: "inherit" }}>
+              <ChevronsLeft size={12} /> First
+            </button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+              <button key={p} onClick={() => goPage(p)} style={{ border: `0.5px solid ${currentPage === p ? "#f97316" : "#e5e5e5"}`, background: currentPage === p ? "#f97316" : "#fff", color: currentPage === p ? "#fff" : "#888", borderRadius: 8, padding: "4px 9px", fontSize: 12, cursor: "pointer", fontWeight: currentPage === p ? 500 : 400, fontFamily: "inherit" }}>
+                {p}
+              </button>
+            ))}
+            <button disabled={currentPage === totalPages} onClick={() => goPage(totalPages)} style={{ border: "0.5px solid #e5e5e5", background: "#fff", color: "#888", borderRadius: 8, padding: "4px 9px", fontSize: 12, cursor: currentPage === totalPages ? "default" : "pointer", display: "flex", alignItems: "center", gap: 3, opacity: currentPage === totalPages ? 0.4 : 1, fontFamily: "inherit" }}>
+              Last <ChevronsRight size={12} />
+            </button>
+          </div>
+          <span style={{ fontSize: 12, color: "#888" }}>
+            Page {currentPage} of {totalPages} · {filtered.length} records
+          </span>
+        </div>
+      </div>
 
-      {/* New Request Modal */}
-      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <div className="h-1 w-full bg-orange-500 -mt-6 mb-4" />
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-xl">
-              <Send className="h-5 w-5 text-orange-500" />
-              New Leave Request
-            </DialogTitle>
-          </DialogHeader>
+      {/* NEW REQUEST MODAL */}
+      <Dialog open={modalOpen} onOpenChange={open => { if (!open) { setModalOpen(false); resetForm(); } else setModalOpen(true); }}>
+        <DialogContent className="sm:max-w-[500px] p-0 gap-0 overflow-hidden" style={{ borderRadius: 12, border: "0.5px solid #e5e5e5" }}>
 
-          <div className="space-y-6 py-4">
-            {/* Progress */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Form completion</span>
-                <span className="font-medium text-orange-500">{progress}%</span>
-              </div>
-              <Progress value={progress} className="h-2 [&>div]:bg-orange-500 bg-black/10 dark:bg-white/10" />
+          {/* Header */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", borderBottom: "0.5px solid #e5e5e5", flexShrink: 0 }}>
+            <div style={{ fontSize: 15, fontWeight: 500, display: "flex", alignItems: "center", gap: 7 }}>
+              <CalendarPlus size={15} color="#f97316" />
+              New leave request
             </div>
+          </div>
 
-            {/* Form Fields */}
-            <div className="grid md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-orange-500" />
-                  Leave type <span className="text-orange-500">*</span>
-                </label>
-                <Select value={leaveType} onValueChange={(v) => { setLeaveType(v); setErrors((e) => ({ ...e, leaveType: undefined })); }} disabled={loadingPolicies}>
-                  <SelectTrigger className={errors.leaveType ? "border-red-500" : ""}>
-                    <SelectValue placeholder={loadingPolicies ? "Loading leave types..." : "Select leave type"} />
-                    {loadingPolicies && <Loader2 className="h-4 w-4 animate-spin text-orange-500" />}
+          {/* Body */}
+          <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 14, overflowY: "auto", maxHeight: "72vh" }}>
+
+            {/* Leave type + Approver */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+              {/* Leave type */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                <div style={FIELD_LABEL}>
+                  <FileText size={12} /> Leave type <span style={{ color: "#f97316" }}>*</span>
+                </div>
+                <Select value={leaveType} onValueChange={v => { setLeaveType(v); setErrors(e => ({ ...e, leaveType: undefined })); }} disabled={loadingPolicies}>
+                  <SelectTrigger className={`h-[34px] text-xs rounded-lg border-[0.5px] ${errors.leaveType ? "border-red-500" : "border-[#d0d0d0]"}`}>
+                    <SelectValue placeholder={loadingPolicies ? "Loading…" : "Select leave type…"} />
+                    {loadingPolicies && <Loader2 className="h-3.5 w-3.5 animate-spin text-orange-500 ml-auto" />}
                   </SelectTrigger>
                   <SelectContent>
                     {loadingPolicies ? (
-                      <div className="flex items-center justify-center py-4">
-                        <Loader2 className="h-4 w-4 animate-spin text-orange-500 mr-2" />
-                        <span className="text-sm text-muted-foreground">Loading leave types...</span>
+                      <div className="flex items-center justify-center py-3 gap-2 text-xs text-muted-foreground">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-orange-500" /> Loading…
                       </div>
                     ) : policies.length === 0 ? (
-                      <div className="text-sm text-muted-foreground py-4 text-center">No leave types available</div>
-                    ) : (
-                      policies.map((p) => (
-                        <SelectItem key={p.leaveType} value={p.leaveType}>{p.leaveType}</SelectItem>
-                      ))
-                    )}
+                      <div className="text-xs text-muted-foreground py-3 text-center">No leave types available</div>
+                    ) : policies.map(p => (
+                      <SelectItem key={p.leaveType} value={p.leaveType} className="text-xs">{p.leaveType}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
-                {creditsForType != null && balance != null && (
-                  <div className={`text-xs p-2 rounded-md ${exceeds ? "bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400" : "bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400"}`}>
-                    <p className="font-medium">Balance: {balance}h of {creditsForType}h</p>
-                    {requested > 0 && <p className="mt-1">Requesting: {requested}h {exceeds && "⚠️ Exceeds balance"}</p>}
-                  </div>
+                {errors.leaveType && (
+                  <p style={{ fontSize: 11, color: "#ef4444", display: "flex", alignItems: "center", gap: 3 }}>
+                    <AlertCircle size={11} />{errors.leaveType}
+                  </p>
                 )}
-                {errors.leaveType && <p className="text-red-500 text-xs flex items-center gap-1"><AlertCircle className="h-3 w-3" />{errors.leaveType}</p>}
               </div>
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium flex items-center gap-2">
-                  <User className="h-4 w-4 text-orange-500" />
-                  Approver <span className="text-orange-500">*</span>
-                </label>
-                <Select value={approverId} onValueChange={(v) => { setApproverId(v); setErrors((e) => ({ ...e, approverId: undefined })); }} disabled={loadingApprovers}>
-                  <SelectTrigger className={errors.approverId ? "border-red-500" : ""}>
-                    <SelectValue placeholder={loadingApprovers ? "Loading approvers..." : "Select approver"} />
-                    {loadingApprovers && <Loader2 className="h-4 w-4 animate-spin text-orange-500" />}
+              {/* Approver */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                <div style={FIELD_LABEL}>
+                  <User size={12} /> Approver <span style={{ color: "#f97316" }}>*</span>
+                </div>
+                <Select value={approverId} onValueChange={v => { setApproverId(v); setErrors(e => ({ ...e, approverId: undefined })); }} disabled={loadingApprovers}>
+                  <SelectTrigger className={`h-[34px] text-xs rounded-lg border-[0.5px] ${errors.approverId ? "border-red-500" : "border-[#d0d0d0]"}`}>
+                    <SelectValue placeholder={loadingApprovers ? "Loading…" : "Select approver…"} />
+                    {loadingApprovers && <Loader2 className="h-3.5 w-3.5 animate-spin text-orange-500 ml-auto" />}
                   </SelectTrigger>
                   <SelectContent className="max-h-60">
                     {loadingApprovers ? (
-                      <div className="flex items-center justify-center py-4">
-                        <Loader2 className="h-4 w-4 animate-spin text-orange-500 mr-2" />
-                        <span className="text-sm text-muted-foreground">Loading approvers...</span>
+                      <div className="flex items-center justify-center py-3 gap-2 text-xs text-muted-foreground">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-orange-500" /> Loading…
                       </div>
                     ) : approvers.length === 0 ? (
-                      <div className="text-sm text-muted-foreground py-4 text-center">No approvers available</div>
-                    ) : (
-                      approvers.map((a) => {
-                        // Show role badge for clarity
-                        const roleLabel = a.role === 'superadmin' ? 'Super Admin' : 
-                                        a.role === 'admin' ? 'Admin' : 
-                                        a.role === 'supervisor' ? 'Supervisor' : a.role;
-                        return (
-                          <SelectItem key={a.id} value={String(a.id)}>
-                            <div className="flex items-center justify-between w-full gap-2">
-                              <span>{a.label}</span>
-                              <span className="text-xs text-muted-foreground">({roleLabel})</span>
-                            </div>
-                          </SelectItem>
-                        );
-                      })
-                    )}
+                      <div className="text-xs text-muted-foreground py-3 text-center">No approvers available</div>
+                    ) : approvers.map(a => {
+                      const role = a.role === "superadmin" ? "Super Admin" : a.role === "admin" ? "Admin" : a.role === "supervisor" ? "Supervisor" : a.role;
+                      return (
+                        <SelectItem key={a.id} value={String(a.id)} className="text-xs">
+                          {a.label} <span className="text-muted-foreground">({role})</span>
+                        </SelectItem>
+                      );
+                    })}
                   </SelectContent>
                 </Select>
-                {errors.approverId && <p className="text-red-500 text-xs flex items-center gap-1"><AlertCircle className="h-3 w-3" />{errors.approverId}</p>}
+                {errors.approverId && (
+                  <p style={{ fontSize: 11, color: "#ef4444", display: "flex", alignItems: "center", gap: 3 }}>
+                    <AlertCircle size={11} />{errors.approverId}
+                  </p>
+                )}
               </div>
             </div>
 
-            <div className="grid md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium flex items-center gap-2">
-                  <Calendar className="h-4 w-4 text-orange-500" />
-                  Start date <span className="text-orange-500">*</span>
-                </label>
-                <DateTimePicker value={start} onChange={(v) => { setStart(v); setErrors((e) => ({ ...e, start: undefined })); }} placeholder="Select start" />
-                {errors.start && <p className="text-red-500 text-xs flex items-center gap-1"><AlertCircle className="h-3 w-3" />{errors.start}</p>}
-              </div>
+            {/* Pay info block — shown after leave type selected */}
+            {leaveType && selectedPolicy && (
+              derivedIsPaid ? (
+                <div style={{ background: "#eaf3de", border: "0.5px solid #97c459", borderRadius: 8, padding: "10px 12px", display: "flex", alignItems: "flex-start", gap: 8 }}>
+                  <CheckCircle2 size={15} color="#3b6d11" style={{ flexShrink: 0, marginTop: 1 }} />
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                    <div style={{ fontSize: 12, fontWeight: 500, color: "#3b6d11" }}>Paid leave</div>
+                    <div style={{ fontSize: 11, color: "#888" }}>You will be compensated for this leave period.</div>
+                    <div style={{ fontSize: 11, fontWeight: 500, color: "#f97316", marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
+                      <Clock size={11} />
+                      {Number(selectedPolicy.balanceHours) || 0}h available balance
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ background: "#faeeda", border: "0.5px solid #ef9f27", borderRadius: 8, padding: "10px 12px", display: "flex", alignItems: "flex-start", gap: 8 }}>
+                  <AlertCircle size={15} color="#633806" style={{ flexShrink: 0, marginTop: 1 }} />
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                    <div style={{ fontSize: 12, fontWeight: 500, color: "#633806" }}>Unpaid leave</div>
+                    <div style={{ fontSize: 11, color: "#888" }}>This leave will not be compensated by your employer.</div>
+                  </div>
+                </div>
+              )
+            )}
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-orange-500" />
-                  End date <span className="text-orange-500">*</span>
-                </label>
-                <DateTimePicker value={end} onChange={(v) => { setEnd(v); setErrors((e) => ({ ...e, end: undefined })); }} placeholder="Select end" />
-                {errors.end && <p className="text-red-500 text-xs flex items-center gap-1"><AlertCircle className="h-3 w-3" />{errors.end}</p>}
+            {/* Start date + time */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              <div style={FIELD_LABEL}>
+                <Calendar size={12} /> Start date <span style={{ color: "#f97316" }}>*</span>
               </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 110px", gap: 8 }}>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={e => { setStartDate(e.target.value); setErrors(er => ({ ...er, startDate: undefined })); }}
+                  style={{ ...INPUT_BASE, border: `0.5px solid ${errors.startDate ? "#ef4444" : "#d0d0d0"}` }}
+                />
+                <input
+                  type="time"
+                  value={startTime}
+                  onChange={e => setStartTime(e.target.value)}
+                  style={{ ...INPUT_BASE, width: 110, border: "0.5px solid #d0d0d0" }}
+                />
+              </div>
+              {errors.startDate && (
+                <p style={{ fontSize: 11, color: "#ef4444", display: "flex", alignItems: "center", gap: 3 }}>
+                  <AlertCircle size={11} />{errors.startDate}
+                </p>
+              )}
             </div>
 
-            {/* Paid / Unpaid toggle */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium flex items-center gap-2">
-                <DollarSign className="h-4 w-4 text-orange-500" />
-                Leave Pay Type
-              </label>
-              <div className="flex items-center gap-1 p-1 bg-muted rounded-xl w-fit">
-                <button
-                  type="button"
-                  onClick={() => setIsPaid(true)}
-                  className={`flex items-center gap-1.5 px-5 py-1.5 rounded-lg text-sm font-medium transition-all duration-150 ${
-                    isPaid
-                      ? "bg-green-500 text-white shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Paid
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsPaid(false)}
-                  className={`flex items-center gap-1.5 px-5 py-1.5 rounded-lg text-sm font-medium transition-all duration-150 ${
-                    !isPaid
-                      ? "bg-red-500 text-white shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Unpaid
-                </button>
+            {/* End date + time + duration */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              <div style={FIELD_LABEL}>
+                <Calendar size={12} /> End date <span style={{ color: "#f97316" }}>*</span>
               </div>
-              <p className="text-xs text-muted-foreground">
-                {isPaid ? "This leave will be compensated." : "This leave will not be compensated."}
-              </p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 110px", gap: 8 }}>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={e => { setEndDate(e.target.value); setErrors(er => ({ ...er, endDate: undefined })); }}
+                  style={{ ...INPUT_BASE, border: `0.5px solid ${errors.endDate ? "#ef4444" : "#d0d0d0"}` }}
+                />
+                <input
+                  type="time"
+                  value={endTime}
+                  onChange={e => setEndTime(e.target.value)}
+                  style={{ ...INPUT_BASE, width: 110, border: "0.5px solid #d0d0d0" }}
+                />
+              </div>
+              {errors.endDate && (
+                <p style={{ fontSize: 11, color: "#ef4444", display: "flex", alignItems: "center", gap: 3 }}>
+                  <AlertCircle size={11} />{errors.endDate}
+                </p>
+              )}
+              {duration && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
+                  <Clock size={12} color="#bbb" />
+                  <span style={{ background: "#faeeda", color: "#633806", borderRadius: 20, fontSize: 11, fontWeight: 500, padding: "2px 8px" }}>
+                    {duration} day{duration === 1 ? "" : "s"}
+                  </span>
+                  <span style={{ fontSize: 11, color: "#bbb" }}>duration</span>
+                </div>
+              )}
             </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium flex items-center gap-2">
-                <FileText className="h-4 w-4 text-orange-500" />
-                Reason <span className="text-muted-foreground text-xs">(optional)</span>
-              </label>
-              <Textarea placeholder="Provide a reason for your leave request..." value={reason} onChange={(e) => setReason(e.target.value)} className="min-h-[100px] resize-none" />
+            {/* Affected schedules — shown when both dates are valid */}
+            {startDate && endDate && duration && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                <div style={FIELD_LABEL}>
+                  <CalendarDays size={12} /> Affected schedules
+                </div>
+                {loadingSchedules ? (
+                  <div style={{ height: 44, background: "#f5f5f3", borderRadius: 8, animation: "pulse 1.5s ease-in-out infinite" }} className="animate-pulse" />
+                ) : affectedSchedules.length === 0 ? (
+                  <div style={{ border: "0.5px solid #e5e5e5", borderRadius: 8, overflow: "hidden" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "10px 12px", fontSize: 12, color: "#888" }}>
+                      <CalendarX size={15} color="#bbb" />
+                      No scheduled shifts for this period.
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ border: "0.5px solid #e5e5e5", borderRadius: 8, overflow: "hidden" }}>
+                    {/* Schedule list header */}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", background: "#fafaf9", borderBottom: "0.5px solid #e5e5e5" }}>
+                      <div style={{ fontSize: 11, fontWeight: 500, color: "#888", display: "flex", alignItems: "center", gap: 5 }}>
+                        <CalendarDays size={13} /> Shifts that will be on leave
+                      </div>
+                      <div style={{ fontSize: 11, color: "#bbb" }}>
+                        {affectedSchedules.length} day{affectedSchedules.length > 1 ? "s" : ""}
+                      </div>
+                    </div>
+                    {/* Rows */}
+                    {affectedSchedules.map((s, i) => (
+                      <div key={s.userShiftId ?? i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderBottom: i < affectedSchedules.length - 1 ? "0.5px solid #e5e5e5" : "none", gap: 10 }}>
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 500 }}>{fmtDate(s.assignedDate.slice(0, 10))}</div>
+                          <div style={{ fontSize: 11, color: "#888", marginTop: 1 }}>{s.shiftName}</div>
+                          <div style={{ fontSize: 11, color: "#bbb", marginTop: 1, display: "flex", alignItems: "center", gap: 4 }}>
+                            <Clock size={11} />
+                            {fmtShiftTime(s.startTime)} → {fmtShiftTime(s.endTime)}
+                          </div>
+                        </div>
+                        <div style={{ fontSize: 12, fontWeight: 500, color: "#f97316", whiteSpace: "nowrap" }}>
+                          {Number(s.scheduledHours).toFixed(2)}h
+                        </div>
+                      </div>
+                    ))}
+                    {/* Footer totals */}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 12px", background: "#fafaf9", borderTop: "0.5px solid #e5e5e5" }}>
+                      <span style={{ fontSize: 11, color: "#888" }}>Total hours affected</span>
+                      <span style={{ fontSize: 11, fontWeight: 500, color: "#f97316" }}>{totalAffectedHours.toFixed(2)}h</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Reason — optional */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              <div style={FIELD_LABEL}>
+                <FileText size={12} /> Reason <span style={{ fontSize: 11, color: "#bbb", fontWeight: 400 }}>(optional)</span>
+              </div>
+              <Textarea
+                value={reason}
+                onChange={e => setReason(e.target.value)}
+                placeholder="Provide a reason for your leave request…"
+                className="resize-none text-xs border-[0.5px] border-[#d0d0d0] rounded-lg min-h-[72px]"
+              />
             </div>
           </div>
 
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => { setModalOpen(false); resetForm(); }} disabled={submitting}>Cancel</Button>
-            <Button className="bg-orange-500 hover:bg-orange-600 text-white gap-2" onClick={handleSubmit} disabled={submitting || progress < 100}>
-              {submitting ? <><Loader2 className="h-4 w-4 animate-spin" />Submitting...</> : <><Send className="h-4 w-4" />Submit Request</>}
-            </Button>
-          </DialogFooter>
+          {/* Footer */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "12px 16px", borderTop: "0.5px solid #e5e5e5", flexShrink: 0, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 11, color: "#bbb", display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 160 }}>
+              <ShieldCheck size={13} />
+              Nothing changes until your approver confirms.
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Button
+                variant="outline"
+                className="h-8 text-xs rounded-lg border-[0.5px] border-[#d0d0d0] px-3"
+                onClick={() => { setModalOpen(false); resetForm(); }}
+                disabled={submitting}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSubmit}
+                disabled={submitting || !leaveType || !approverId || !startDate || !endDate}
+                className="h-8 text-xs rounded-lg bg-orange-500 hover:bg-orange-600 text-white px-3 gap-1.5"
+              >
+                {submitting
+                  ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Submitting…</>
+                  : <><Send className="h-3.5 w-3.5" />Submit request</>}
+              </Button>
+            </div>
+          </div>
+
         </DialogContent>
       </Dialog>
     </div>

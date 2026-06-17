@@ -5,87 +5,187 @@ import { format, parseISO } from "date-fns";
 import Link from "next/link";
 import useAuthStore from "@/store/useAuthStore";
 import { toast, Toaster } from "sonner";
-import { motion, AnimatePresence } from "framer-motion";
-import { 
-  Clock, 
-  RefreshCw, 
-  Timer, 
-  CheckCircle2, 
-  XCircle, 
+import {
+  Clock,
+  RefreshCw,
+  Timer,
+  CheckCircle2,
+  XCircle,
   AlertCircle,
-  Filter,
   Download,
   FileText,
   Calendar,
-  TrendingUp,
   Activity,
-  ChevronRight
+  ChevronDown,
+  SlidersHorizontal,
+  TimerOff,
+  X,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
-function StatusBadge({ status }) {
-  const statusConfig = {
-    pending: {
-      variant: "secondary",
-      className: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
-      icon: AlertCircle,
-      label: "Pending"
-    },
-    approved: {
-      variant: "secondary",
-      className: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
-      icon: CheckCircle2,
-      label: "Approved"
-    },
-    rejected: {
-      variant: "secondary",
-      className: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
-      icon: XCircle,
-      label: "Rejected"
-    }
-  };
+// ── V2 reason map ──────────────────────────────────────────────────────────────
+const REASON_MAP = {
+  network_delay: "Network delay",
+  system_malfunction: "System malfunction",
+  forgot_to_clock_in: "Forgot to clock in",
+  remote_work: "Remote work",
+  other: "Other",
+};
+const fmtReason = (r) => REASON_MAP[r] || r || "—";
 
-  const config = statusConfig[status?.toLowerCase()] || statusConfig.pending;
-  const Icon = config.icon;
-
+// ── V2 status pill ─────────────────────────────────────────────────────────────
+function PillV2({ status }) {
+  const s = status?.toLowerCase();
+  const cfg = {
+    pending:  { bg: "#faeeda", color: "#633806", Icon: Clock,        label: "Pending"  },
+    approved: { bg: "#eaf3de", color: "#3b6d11", Icon: CheckCircle2, label: "Approved" },
+    rejected: { bg: "#fcebeb", color: "#791f1f", Icon: XCircle,      label: "Rejected" },
+  }[s] ?? { bg: "#faeeda", color: "#633806", Icon: Clock, label: status };
+  const { Icon } = cfg;
   return (
-    <Badge variant={config.variant} className={`${config.className} flex items-center gap-1 w-fit`}>
-      <Icon className="h-3 w-3" />
-      {config.label}
-    </Badge>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, borderRadius: 20, fontSize: 11, fontWeight: 500, padding: "3px 8px", background: cfg.bg, color: cfg.color }}>
+      <Icon style={{ width: 11, height: 11 }} />
+      {cfg.label}
+    </span>
   );
 }
 
-function TableRowSkeleton() {
+// ── V2 panel sub-components ────────────────────────────────────────────────────
+function DetailRowV2({ label, value, orange }) {
   return (
-    <TableRow>
-      {[...Array(8)].map((_, i) => (
-        <TableCell key={i}>
-          <Skeleton className="h-8 w-full" />
-        </TableCell>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6, gap: 8 }}>
+      <span style={{ fontSize: 12, color: "#888", flexShrink: 0 }}>{label}</span>
+      <span style={{ fontSize: 12, fontWeight: 500, textAlign: "right", color: orange ? "#f97316" : "#1a1a1a" }}>{value}</span>
+    </div>
+  );
+}
+
+function IdRowV2({ label, value }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 5, gap: 8 }}>
+      <span style={{ fontSize: 11, color: "#bbb", flexShrink: 0 }}>{label}</span>
+      <span style={{ fontSize: 11, fontFamily: "ui-monospace, monospace", color: "#888", textAlign: "right", wordBreak: "break-all" }}>{value}</span>
+    </div>
+  );
+}
+
+function SectionLabelV2({ children, topGap = 14 }) {
+  return (
+    <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.06em", textTransform: "uppercase", color: "#aaa", marginBottom: 8, marginTop: topGap }}>
+      {children}
+    </div>
+  );
+}
+
+function DividerV2() {
+  return <div style={{ height: "0.5px", background: "#e5e5e5", margin: "10px 0" }} />;
+}
+
+function PanelContentV2({ log, onClose }) {
+  return (
+    <>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", borderBottom: "0.5px solid #e5e5e5", flexShrink: 0 }}>
+        <span style={{ fontWeight: 500, fontSize: 13 }}>Contest details</span>
+        <button
+          onClick={onClose}
+          aria-label="Close panel"
+          style={{ background: "none", border: "none", cursor: "pointer", color: "#aaa", display: "flex", alignItems: "center", padding: 2, borderRadius: 8 }}
+        >
+          <X style={{ width: 15, height: 15 }} />
+        </button>
+      </div>
+
+      <div style={{ padding: 14, flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 5 }}>
+          {log.requestedClockIn ? format(parseISO(log.requestedClockIn), "EEEE, MMMM d, yyyy") : "—"}
+        </div>
+        <div style={{ marginBottom: 4 }}>
+          <PillV2 status={log.status} />
+        </div>
+
+        <SectionLabelV2>Requested times</SectionLabelV2>
+        <DetailRowV2 label="Clock in"  value={log.requestedClockIn  ? format(parseISO(log.requestedClockIn),  "hh:mm a") : "—"} orange />
+        <DetailRowV2 label="Clock out" value={log.requestedClockOut ? format(parseISO(log.requestedClockOut), "hh:mm a") : "—"} orange />
+
+        <DividerV2 />
+
+        <SectionLabelV2 topGap={6}>Original times</SectionLabelV2>
+        <DetailRowV2 label="Clock in"  value={log.currentClockIn  ? format(parseISO(log.currentClockIn),  "hh:mm a") : "—"} />
+        <DetailRowV2 label="Clock out" value={log.currentClockOut ? format(parseISO(log.currentClockOut), "hh:mm a") : "—"} />
+
+        <SectionLabelV2>Request info</SectionLabelV2>
+        <DetailRowV2 label="Reason" value={fmtReason(log.reason)} />
+        {log.description && (
+          <div style={{ marginBottom: 6 }}>
+            <div style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>Description</div>
+            <div style={{ background: "#fafaf9", border: "0.5px solid #e5e5e5", borderRadius: 8, padding: "8px 10px", fontSize: 12, color: "#888" }}>
+              {log.description}
+            </div>
+          </div>
+        )}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6, gap: 8, marginTop: 8 }}>
+          <span style={{ fontSize: 12, color: "#888", flexShrink: 0 }}>Submitted</span>
+          <span style={{ fontSize: 12, fontWeight: 500, textAlign: "right" }}>
+            {format(parseISO(log.createdAt), "MMM d, yyyy")}
+          </span>
+        </div>
+
+        {log.approver && (
+          <>
+            <SectionLabelV2>Approver</SectionLabelV2>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6, gap: 8 }}>
+              <span style={{ fontSize: 12, color: "#888", flexShrink: 0 }}>Name</span>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: 12, fontWeight: 500 }}>
+                  {log.approver.profile?.firstName} {log.approver.profile?.lastName}
+                </div>
+                <div style={{ fontSize: 11, color: "#aaa" }}>{log.approver.email}</div>
+              </div>
+            </div>
+          </>
+        )}
+
+        <DividerV2 />
+
+        <IdRowV2 label="Contest ID"   value={`#${log.id}`} />
+        <IdRowV2 label="Time log ref" value={`#${log.timeLogId || "N/A"}`} />
+      </div>
+    </>
+  );
+}
+
+// ── V2 skeleton row ────────────────────────────────────────────────────────────
+function V2SkeletonRow() {
+  return (
+    <tr style={{ borderBottom: "0.5px solid #e5e5e5" }}>
+      {[18, 14, 14, 16, 22, 16].map((w, i) => (
+        <td key={i} style={{ padding: "10px 12px" }}>
+          <div style={{ height: 14, borderRadius: 4, background: "#f0f0f0" }} />
+        </td>
       ))}
-    </TableRow>
+    </tr>
   );
 }
+
 
 export default function ContestTimeLogs() {
   const { token } = useAuthStore();
   const API_URL = process.env.NEXT_PUBLIC_API_URL;
-  
+
   const [contestLogs, setContestLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [expandedRow, setExpandedRow] = useState(null);
+  const [pendingFrom, setPendingFrom] = useState("");
+  const [pendingTo, setPendingTo] = useState("");
+  const [selectedLogV2, setSelectedLogV2] = useState(null);
 
   const fetchContestLogs = useCallback(async () => {
     if (!token) return;
@@ -95,17 +195,12 @@ export default function ContestTimeLogs() {
       if (statusFilter && statusFilter.toLowerCase() !== "all") {
         queryParams.append("status", statusFilter.toUpperCase());
       }
-  
+
       const res = await fetch(
         `${API_URL}/api/contest-policy/view-contestTimeLogs?${queryParams.toString()}`,
-        {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
+        { method: "GET", headers: { Authorization: `Bearer ${token}` } }
       );
-  
+
       const data = await res.json();
       if (res.ok) {
         setContestLogs(data.data?.contestLogs || []);
@@ -124,25 +219,21 @@ export default function ContestTimeLogs() {
     fetchContestLogs();
   }, [fetchContestLogs]);
 
-  // Filter and search logic
   const filteredLogs = useMemo(() => {
     let filtered = [...contestLogs];
 
-    // Status filter
     if (statusFilter !== "all") {
       filtered = filtered.filter(log => log.status?.toLowerCase() === statusFilter);
     }
 
-    // Search filter
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(log => 
+      filtered = filtered.filter(log =>
         log.reason?.toLowerCase().includes(query) ||
         log.id?.toString().includes(query)
       );
     }
 
-    // Date range filter
     if (dateFrom) {
       filtered = filtered.filter(log => {
         const logDate = parseISO(log.contestDate || log.createdAt);
@@ -159,13 +250,11 @@ export default function ContestTimeLogs() {
     return filtered;
   }, [contestLogs, statusFilter, searchQuery, dateFrom, dateTo]);
 
-  // Stats calculations
   const stats = useMemo(() => {
-    const total = contestLogs.length;
-    const pending = contestLogs.filter(log => log.status?.toLowerCase() === "pending").length;
+    const total    = contestLogs.length;
+    const pending  = contestLogs.filter(log => log.status?.toLowerCase() === "pending").length;
     const approved = contestLogs.filter(log => log.status?.toLowerCase() === "approved").length;
     const rejected = contestLogs.filter(log => log.status?.toLowerCase() === "rejected").length;
-
     return { total, pending, approved, rejected };
   }, [contestLogs]);
 
@@ -191,447 +280,291 @@ export default function ContestTimeLogs() {
     }
   };
 
+  const toggleLogV2 = (log) => {
+    setSelectedLogV2(prev => prev?.id === log.id ? null : log);
+  };
+
+  // V2 table column definitions
+  const V2_COLS = [
+    { label: "Contest date", width: "18%", align: "left"   },
+    { label: "Time in",      width: "14%", align: "left"   },
+    { label: "Time out",     width: "14%", align: "left"   },
+    { label: "Status",       width: "16%", align: "center" },
+    { label: "Reason",       width: "22%", align: "left"   },
+    { label: "Submitted",    width: "16%", align: "right"  },
+  ];
+
   return (
-    <TooltipProvider>
-      <div className="max-w-7xl mx-auto p-6 space-y-6">
-        <Toaster position="top-center" richColors />
-        
-        {/* Enhanced Header */}
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex flex-col lg:flex-row lg:items-center justify-between gap-4"
-        >
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-orange-500 text-white shadow-lg">
-                <Activity className="h-6 w-6" />
-              </div>
+    <TooltipProvider delayDuration={300}>
+      <div className="max-w-full mx-auto p-4 lg:px-10 px-2 space-y-6">
+        <Toaster position="top-center" />
+
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 py-1">
+          <div className="flex flex-col gap-0.5 min-w-0">
+            <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2 leading-tight">
+              <Activity className="h-5 w-5 text-orange-500 flex-shrink-0" />
               Contest Time Logs
-            </h1>
-            <p className="text-gray-600 dark:text-gray-400 mt-1">
-              View and track your time contest requests
-            </p>
+            </h2>
+            <p className="text-sm text-muted-foreground">View and track your time contest requests</p>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" asChild className="gap-2">
+          <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-start sm:justify-end">
+            <Button asChild className="hidden md:inline-flex h-8 text-xs rounded-lg bg-orange-500 hover:bg-orange-600 text-white px-3 gap-1.5">
               <Link href="/dashboard/employee/punch">
-                <Clock className="h-4 w-4" />
+                <Clock className="h-3.5 w-3.5" />
                 Punch
               </Link>
             </Button>
-            <Button variant="outline" size="sm" asChild className="gap-2">
+
+            <Button variant="outline" className="h-8 text-xs rounded-lg px-2.5 gap-1.5" asChild>
               <Link href="/dashboard/employee/punch-logs">
-                <Timer className="h-4 w-4" />
-                Logs
+                <Timer className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Punch Logs</span>
+                <span className="sm:hidden">Logs</span>
               </Link>
             </Button>
-            <Button
-              onClick={fetchContestLogs}
-              variant="outline"
-              size="sm"
-              disabled={loading}
-              className="gap-2"
-            >
-              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-              Refresh
-            </Button>
-            <Button
-              onClick={exportToCSV}
-              variant="outline"
-              size="sm"
-              className="gap-2"
-              disabled={filteredLogs.length === 0}
-            >
-              <Download className="h-4 w-4" />
-              Export CSV
-            </Button>
-            <Button
-              onClick={exportToPDF}
-              variant="outline"
-              size="sm"
-              className="gap-2"
-              disabled={filteredLogs.length === 0}
-            >
-              <FileText className="h-4 w-4" />
-              Export PDF
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="hidden sm:inline-flex h-8 text-xs rounded-lg px-2.5 gap-1.5" disabled={filteredLogs.length === 0}>
+                  <Download className="h-3.5 w-3.5" />
+                  Export
+                  <ChevronDown className="h-3 w-3 opacity-50" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-[170px]">
+                <DropdownMenuItem onClick={exportToCSV} disabled={filteredLogs.length === 0}>
+                  <Download className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                  Export CSV
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={exportToPDF} disabled={filteredLogs.length === 0}>
+                  <FileText className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                  Export PDF
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <Button variant="outline" size="icon" className="hidden sm:inline-flex h-8 w-8 rounded-lg" onClick={fetchContestLogs} disabled={loading}>
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
             </Button>
           </div>
-        </motion.div>
-
-        {/* Enhanced Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-            <Card className="border-2 shadow-lg hover:shadow-xl transition-shadow">
-              <div className="h-1 w-full bg-orange-500" />
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                    Total Contests
-                  </CardTitle>
-                  <FileText className="h-4 w-4 text-orange-500" />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-orange-600">
-                  {stats.total}
-                </div>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  All time requests
-                </p>
-              </CardContent>
-            </Card>
-          </motion.div>
-
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-            <Card className="border-2 shadow-lg hover:shadow-xl transition-shadow">
-              <div className="h-1 w-full bg-yellow-500" />
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                    Pending
-                  </CardTitle>
-                  <AlertCircle className="h-4 w-4 text-yellow-500" />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-yellow-600">
-                  {stats.pending}
-                </div>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Awaiting review
-                </p>
-              </CardContent>
-            </Card>
-          </motion.div>
-
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-            <Card className="border-2 shadow-lg hover:shadow-xl transition-shadow">
-              <div className="h-1 w-full bg-green-500" />
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                    Approved
-                  </CardTitle>
-                  <CheckCircle2 className="h-4 w-4 text-green-500" />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-green-600">
-                  {stats.approved}
-                </div>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Accepted requests
-                </p>
-              </CardContent>
-            </Card>
-          </motion.div>
-
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-            <Card className="border-2 shadow-lg hover:shadow-xl transition-shadow">
-              <div className="h-1 w-full bg-red-500" />
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                    Rejected
-                  </CardTitle>
-                  <XCircle className="h-4 w-4 text-red-500" />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-red-600">
-                  {stats.rejected}
-                </div>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Declined requests
-                </p>
-              </CardContent>
-            </Card>
-          </motion.div>
         </div>
 
-        {/* Filters and Table */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4 }}
-        >
-          <Card className="border-2 shadow-lg">
-            <div className="h-1 w-full bg-orange-500" />
-            <CardHeader>
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <Filter className="h-5 w-5 text-orange-500" />
-                    Contest Logs
-                  </CardTitle>
-                  <CardDescription>
-                    Filter and view your contest time requests
-                  </CardDescription>
-                </div>
-                <div className="text-sm text-gray-600 dark:text-gray-400">
-                  Showing {filteredLogs.length} of {contestLogs.length} entries
-                </div>
+        {/* Metric Cards */}
+        {loading ? (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="bg-card rounded-xl border p-3 flex flex-col gap-2.5">
+                <Skeleton className="h-3 w-16" />
+                <Skeleton className="h-7 w-10 mt-0.5" />
+                <Skeleton className="h-3 w-20 mt-0.5" />
               </div>
-            </CardHeader>
-            <CardContent>
-              {/* Filter Controls */}
-              <div className="flex flex-col md:flex-row gap-3 mb-6">
-                <div className="flex-1">
-                  <Input
-                    placeholder="Search by reason or ID..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full"
-                  />
-                </div>
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-full md:w-[180px]">
-                    <SelectValue placeholder="Filter by status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="approved">Approved</SelectItem>
-                    <SelectItem value="rejected">Rejected</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Input
-                  type="date"
-                  value={dateFrom}
-                  onChange={(e) => setDateFrom(e.target.value)}
-                  className="w-full md:w-[150px]"
-                  placeholder="From date"
-                />
-                <Input
-                  type="date"
-                  value={dateTo}
-                  onChange={(e) => setDateTo(e.target.value)}
-                  className="w-full md:w-[150px]"
-                  placeholder="To date"
-                />
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="bg-card rounded-xl border p-3 flex flex-col gap-1">
+              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <FileText className="h-3.5 w-3.5 text-orange-500" />Total contests
               </div>
+              <div className="text-2xl font-medium leading-none mt-0.5">{stats.total}</div>
+              <div className="text-[11px] text-muted-foreground/60 mt-0.5">all time requests</div>
+            </div>
+            <div className="bg-card rounded-xl border p-3 flex flex-col gap-1">
+              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <TimerOff className="h-3.5 w-3.5" style={{ color: "#633806" }} />Pending
+              </div>
+              <div className="text-2xl font-medium leading-none mt-0.5" style={{ color: "#633806" }}>{stats.pending}</div>
+              <div className="text-[11px] text-muted-foreground/60 mt-0.5">awaiting review</div>
+            </div>
+            <div className="bg-card rounded-xl border p-3 flex flex-col gap-1">
+              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <CheckCircle2 className="h-3.5 w-3.5" style={{ color: "#3b6d11" }} />Approved
+              </div>
+              <div className="text-2xl font-medium leading-none mt-0.5" style={{ color: "#3b6d11" }}>{stats.approved}</div>
+              <div className="text-[11px] text-muted-foreground/60 mt-0.5">accepted requests</div>
+            </div>
+            <div className="bg-card rounded-xl border p-3 flex flex-col gap-1">
+              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <XCircle className="h-3.5 w-3.5" style={{ color: "#b91c1c" }} />Rejected
+              </div>
+              <div className="text-2xl font-medium leading-none mt-0.5" style={{ color: "#b91c1c" }}>{stats.rejected}</div>
+              <div className="text-[11px] text-muted-foreground/60 mt-0.5">declined requests</div>
+            </div>
+          </div>
+        )}
 
-              {/* Table */}
-              <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-gray-50 dark:bg-gray-900">
-                      <TableHead className="w-12"></TableHead>
-                      <TableHead className="font-semibold">ID</TableHead>
-                      <TableHead className="font-semibold">Contest Date</TableHead>
-                      <TableHead className="font-semibold">Time In</TableHead>
-                      <TableHead className="font-semibold">Time Out</TableHead>
-                      <TableHead className="font-semibold">Status</TableHead>
-                      <TableHead className="font-semibold">Reason</TableHead>
-                      <TableHead className="font-semibold">Submitted</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {loading ? (
-                      Array(5).fill(0).map((_, i) => <TableRowSkeleton key={i} />)
-                    ) : filteredLogs.length > 0 ? (
-                      <AnimatePresence>
-                        {filteredLogs.map((log, index) => (
-                          <ContestLogRow
-                            key={log.id}
-                            log={log}
-                            index={index}
-                            expanded={expandedRow === log.id}
-                            onToggleExpand={() => setExpandedRow(expandedRow === log.id ? null : log.id)}
-                          />
-                        ))}
-                      </AnimatePresence>
-                    ) : (
-                      <TableRow>
-                        <TableCell colSpan={8} className="py-12 text-center">
-                          <div className="flex flex-col items-center justify-center">
-                            <div className="w-12 h-12 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mb-3">
-                              <FileText className="h-6 w-6 text-gray-400" />
-                            </div>
-                            <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
-                              No contest logs found
-                            </p>
-                            <p className="text-xs text-gray-500">
-                              {statusFilter !== "all" || searchQuery || dateFrom || dateTo
-                                ? "Try adjusting your filters"
-                                : "Submit a contest request to see it here"
-                              }
-                            </p>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
+        {/* Filters */}
+        <div className="bg-card rounded-xl border p-3">
+          <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+            <div className="flex items-center gap-1.5 text-sm font-medium">
+              <SlidersHorizontal className="h-3.5 w-3.5 text-orange-500" />
+              Filters &amp; controls
+            </div>
+            <span className="text-xs text-muted-foreground">{filteredLogs.length} shown · {contestLogs.length} total</span>
+          </div>
+          <div className="flex flex-col sm:flex-row sm:items-end flex-wrap gap-2">
+            <div className="flex flex-col gap-1 flex-1 min-w-[120px]">
+              <div className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                <AlertCircle className="h-2.5 w-2.5" />Status
               </div>
-            </CardContent>
-          </Card>
-        </motion.div>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="h-8 text-xs rounded-lg"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All statuses</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="approved">Approved</SelectItem>
+                  <SelectItem value="rejected">Rejected</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1 flex-[2] min-w-[200px]">
+              <div className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                <Calendar className="h-2.5 w-2.5" />Date range
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Input type="date" value={pendingFrom} onChange={(e) => setPendingFrom(e.target.value)} className="h-8 text-xs flex-1 rounded-lg" />
+                <span className="text-xs text-muted-foreground shrink-0">to</span>
+                <Input type="date" value={pendingTo} onChange={(e) => setPendingTo(e.target.value)} className="h-8 text-xs flex-1 rounded-lg" />
+              </div>
+            </div>
+            <Button
+              size="sm"
+              className="h-8 bg-orange-500 hover:bg-orange-600 text-white self-end rounded-lg"
+              onClick={() => { setDateFrom(pendingFrom); setDateTo(pendingTo); }}
+            >
+              Apply
+            </Button>
+          </div>
+        </div>
+
+        {/* ── V2 Table ────────────────────────────────────────────────────────── */}
+        <div style={{ border: "0.5px solid #e5e5e5", borderRadius: 12, overflow: "hidden", background: "#fff" }}>
+
+          {/* Toolbar */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "0.5px solid #e5e5e5" }}>
+            <div style={{ fontSize: 14, fontWeight: 500, display: "flex", alignItems: "center", gap: 7 }}>
+              <Activity style={{ width: 15, height: 15, color: "#f97316" }} />
+              Contest logs
+            </div>
+            <div style={{ fontSize: 12, color: "#888" }}>{filteredLogs.length} shown</div>
+          </div>
+
+          {/* Body: table + side panel — inline on all screen sizes, same pattern as Punch Logs */}
+          <div style={{ display: "flex" }}>
+
+            {/* Table wrap — flex-1 + overflow-x auto when panel is open so table scrolls horizontally on narrow screens */}
+            <div
+              className="transition-all duration-200"
+              style={selectedLogV2
+                ? { flex: 1, overflowX: "auto", minWidth: 0 }
+                : { width: "100%", overflowX: "auto" }
+              }
+            >
+              <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", minWidth: selectedLogV2 ? 360 : 480 }}>
+                <thead>
+                  <tr>
+                    {V2_COLS.map(({ label, width, align }, colIdx) => (
+                      <th
+                        key={label}
+                        style={{
+                          width,
+                          fontSize: 11,
+                          fontWeight: 500,
+                          color: "#888",
+                          textAlign: align,
+                          padding: "8px 12px",
+                          borderBottom: "0.5px solid #e5e5e5",
+                          background: "#fafaf9",
+                          whiteSpace: "nowrap",
+                          ...(colIdx === 0 ? { position: "sticky", left: 0, zIndex: 2 } : {}),
+                        }}
+                      >
+                        {label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    Array(5).fill(0).map((_, i) => <V2SkeletonRow key={i} />)
+                  ) : filteredLogs.length > 0 ? (
+                    filteredLogs.map((log) => {
+                      const isSelected = selectedLogV2?.id === log.id;
+                      return (
+                        <tr
+                          key={log.id}
+                          onClick={() => toggleLogV2(log)}
+                          className={isSelected ? "" : "hover:bg-[#fafaf9]"}
+                          style={{
+                            borderBottom: "0.5px solid #e5e5e5",
+                            cursor: "pointer",
+                            background: isSelected ? "#fff7f0" : undefined,
+                            borderLeft: isSelected ? "2px solid #f97316" : undefined,
+                            transition: "background 0.1s",
+                          }}
+                        >
+                          {/* Contest date — sticky so it stays visible when table scrolls horizontally on mobile */}
+                          <td style={{
+                            padding: "10px 12px",
+                            verticalAlign: "middle",
+                            overflow: "hidden",
+                            position: "sticky",
+                            left: 0,
+                            zIndex: 1,
+                            background: isSelected ? "#fff7f0" : "#fff",
+                          }}>
+                            <div style={{ fontWeight: 500, fontSize: 13 }}>
+                              {log.requestedClockIn ? format(parseISO(log.requestedClockIn), "EEE, MMMM d") : "—"}
+                            </div>
+                          </td>
+                          <td style={{ padding: "10px 12px", verticalAlign: "middle", overflow: "hidden" }}>
+                            <span style={{ fontSize: 13, fontWeight: 500 }}>
+                              {log.requestedClockIn ? format(parseISO(log.requestedClockIn), "hh:mm a") : "—"}
+                            </span>
+                          </td>
+                          <td style={{ padding: "10px 12px", verticalAlign: "middle", overflow: "hidden" }}>
+                            <span style={{ fontSize: 13, fontWeight: 500 }}>
+                              {log.requestedClockOut ? format(parseISO(log.requestedClockOut), "hh:mm a") : "—"}
+                            </span>
+                          </td>
+                          <td style={{ padding: "10px 12px", verticalAlign: "middle", overflow: "hidden", textAlign: "center" }}>
+                            <PillV2 status={log.status} />
+                          </td>
+                          <td style={{ padding: "10px 12px", verticalAlign: "middle", overflow: "hidden" }}>
+                            <span style={{ fontSize: 12, color: "#888" }}>{fmtReason(log.reason)}</span>
+                          </td>
+                          <td style={{ padding: "10px 12px", verticalAlign: "middle", overflow: "hidden", textAlign: "right" }}>
+                            <span style={{ fontSize: 12, color: "#888" }}>
+                              {format(parseISO(log.createdAt), "MMM d, yyyy")}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={6} style={{ padding: "48px 12px", textAlign: "center", color: "#aaa", fontSize: 13 }}>
+                        No contest logs match the selected filters
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Side panel — inline on all screen sizes, no bottom sheet */}
+            {selectedLogV2 && (
+              <div style={{ width: 272, minWidth: 272, borderLeft: "0.5px solid #e5e5e5", display: "flex", flexDirection: "column" }}>
+                <PanelContentV2 log={selectedLogV2} onClose={() => setSelectedLogV2(null)} />
+              </div>
+            )}
+          </div>
+        </div>
+
       </div>
     </TooltipProvider>
-  );
-}
-
-// Expandable Contest Log Row Component
-function ContestLogRow({ log, index, expanded, onToggleExpand }) {
-  return (
-    <>
-      <motion.tr
-        initial={{ opacity: 0, y: 5 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: index * 0.03 }}
-        className="border-b hover:bg-gray-50 dark:hover:bg-gray-900/20 cursor-pointer group transition-colors"
-        onClick={onToggleExpand}
-      >
-        <TableCell className="w-12">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 w-8 p-0"
-          >
-            <ChevronRight className={`h-4 w-4 transition-transform ${expanded ? "rotate-90" : ""}`} />
-          </Button>
-        </TableCell>
-        <TableCell className="font-mono text-sm">
-          #{log.id}
-        </TableCell>
-        <TableCell className="font-mono">
-          {log.requestedClockIn 
-            ? format(parseISO(log.requestedClockIn), "MMM d, yyyy")
-            : "N/A"
-          }
-        </TableCell>
-        <TableCell className="font-mono">
-        {log.requestedClockIn
-            ? format(parseISO(log.requestedClockIn), "MMM d, yyyy hh:mm a")
-            : "N/A"}
-        </TableCell>
-        <TableCell className="font-mono">
-        {log.requestedClockOut
-            ? format(parseISO(log.requestedClockOut), "MMM d, yyyy hh:mm a")
-            : "N/A"}
-        </TableCell>
-        <TableCell>
-          <StatusBadge status={log.status} />
-        </TableCell>
-        <TableCell className="max-w-xs truncate">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="cursor-help">
-                {log.reason || "No reason provided"}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p className="max-w-xs">{log.reason || "No reason provided"}</p>
-            </TooltipContent>
-          </Tooltip>
-        </TableCell>
-        <TableCell className="font-mono text-sm">
-          {format(parseISO(log.createdAt), "MMM d, yyyy HH:mm")}
-        </TableCell>
-      </motion.tr>
-      
-      {expanded && (
-        <motion.tr
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="bg-gray-50 dark:bg-gray-900/50"
-        >
-          <TableCell colSpan={8} className="p-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Time Details Section */}
-              <div className="space-y-3">
-                <h4 className="font-semibold text-sm flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-orange-500" />
-                  Original vs Requested Times
-                </h4>
-                <div className="space-y-2 text-sm">
-                  <div className="p-3 bg-white dark:bg-gray-800 rounded-md border">
-                    <div className="flex justify-between mb-2">
-                      <span className="text-gray-600 dark:text-gray-400">Original Clock In:</span>
-                      <span className="font-medium font-mono">{log.currentClockIn ? format(parseISO(log.currentClockIn), "MMM d, yyyy HH:mm") : "N/A"}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-green-600 dark:text-green-400">Requested Clock In:</span>
-                      <span className="font-medium font-mono text-green-600 dark:text-green-400">{log.requestedClockIn ? format(parseISO(log.requestedClockIn), "MMM d, yyyy HH:mm") : "N/A"}</span>
-                    </div>
-                  </div>
-                  
-                  <div className="p-3 bg-white dark:bg-gray-800 rounded-md border">
-                    <div className="flex justify-between mb-2">
-                      <span className="text-gray-600 dark:text-gray-400">Original Clock Out:</span>
-                      <span className="font-medium font-mono">{log.currentClockOut ? format(parseISO(log.currentClockOut), "MMM d, yyyy HH:mm") : "N/A"}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-green-600 dark:text-green-400">Requested Clock Out:</span>
-                      <span className="font-medium font-mono text-green-600 dark:text-green-400">{log.requestedClockOut ? format(parseISO(log.requestedClockOut), "MMM d, yyyy HH:mm") : "N/A"}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              
-              {/* Request Details Section */}
-              <div className="space-y-3">
-                <h4 className="font-semibold text-sm flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-orange-500" />
-                  Request Details
-                </h4>
-                <div className="space-y-2 text-sm">
-                  <div className="p-3 bg-white dark:bg-gray-800 rounded-md border">
-                    <div className="mb-2">
-                      <span className="text-gray-600 dark:text-gray-400 block mb-1">Status:</span>
-                      <StatusBadge status={log.status} />
-                    </div>
-                    <div className="mb-2">
-                      <span className="text-gray-600 dark:text-gray-400 block mb-1">Reason:</span>
-                      <span className="font-medium">{log.reason || "N/A"}</span>
-                    </div>
-                    {log.description && (
-                      <div className="mb-2">
-                        <span className="text-gray-600 dark:text-gray-400 block mb-1">Description:</span>
-                        <p className="text-xs bg-gray-50 dark:bg-gray-900 p-2 rounded border max-h-24 overflow-y-auto">
-                          {log.description}
-                        </p>
-                      </div>
-                    )}
-                    {log.approverName && (
-                      <div className="mb-2">
-                        <span className="text-gray-600 dark:text-gray-400 block mb-1">Approver:</span>
-                        <span className="font-medium">{log.approverName}</span>
-                      </div>
-                    )}
-                    <div>
-                      <span className="text-gray-600 dark:text-gray-400 block mb-1">Submitted:</span>
-                      <span className="font-medium font-mono text-xs">
-                        {format(parseISO(log.createdAt), "MMM d, yyyy 'at' HH:mm:ss")}
-                      </span>
-                    </div>
-                    {log.reviewedAt && (
-                      <div className="mt-2">
-                        <span className="text-gray-600 dark:text-gray-400 block mb-1">Reviewed:</span>
-                        <span className="font-medium font-mono text-xs">
-                          {format(parseISO(log.reviewedAt), "MMM d, yyyy 'at' HH:mm:ss")}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            {/* Time Log ID Reference */}
-            <div className="mt-4 pt-4 border-t">
-              <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-400">
-                <span>Time Log Reference: #{log.timeLogId || "N/A"}</span>
-                <span>Contest ID: #{log.id}</span>
-              </div>
-            </div>
-          </TableCell>
-        </motion.tr>
-      )}
-    </>
   );
 }

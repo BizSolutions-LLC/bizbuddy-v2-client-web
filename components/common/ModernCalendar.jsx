@@ -53,7 +53,15 @@ export default function ModernCalendar({
   getDayTooltip,
   getDayExtras,
 }) {
-  const weekDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const weekDays = [
+    { short: "S",  long: "Sun" },
+    { short: "M",  long: "Mon" },
+    { short: "Tu", long: "Tue" },
+    { short: "W",  long: "Wed" },
+    { short: "Th", long: "Thu" },
+    { short: "F",  long: "Fri" },
+    { short: "S",  long: "Sat" },
+  ];
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(currentMonth);
   const calendarDays = eachDayOfInterval({ start: monthStart, end: monthEnd });
@@ -116,10 +124,11 @@ export default function ModernCalendar({
         <div className="grid grid-cols-7 bg-gray-50 dark:bg-gray-800">
           {weekDays.map((d) => (
             <div
-              key={d}
-              className="p-3 text-center text-xs font-medium text-gray-600 dark:text-gray-400 border-r border-gray-200 dark:border-gray-700 last:border-r-0"
+              key={d.long}
+              className="p-1.5 sm:p-3 text-center text-xs font-medium text-gray-600 dark:text-gray-400 border-r border-gray-200 dark:border-gray-700 last:border-r-0"
             >
-              {d}
+              <span className="sm:hidden">{d.short}</span>
+              <span className="hidden sm:inline">{d.long}</span>
             </div>
           ))}
         </div>
@@ -139,14 +148,14 @@ export default function ModernCalendar({
                 onClick={() => onDateSelect(day)}
                 disabled={loading}
                 className={`
-                  relative p-2 h-16 border-r border-b border-gray-200 dark:border-gray-700
+                  relative p-1 sm:p-2 h-10 sm:h-16 border-r border-b border-gray-200 dark:border-gray-700
                   transition-all duration-200 group w-full text-left
                   ${!isCurrentMonth
                     ? "bg-gray-50 dark:bg-gray-900 text-gray-400 dark:text-gray-600"
                     : "bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
                   }
                   ${isSelected
-                    ? "bg-orange-50 dark:bg-orange-900/20 ring-2 ring-orange-500 ring-inset"
+                    ? "bg-orange-50 dark:bg-orange-900/20 sm:ring-2 sm:ring-orange-500 sm:ring-inset"
                     : ""
                   }
                   ${isTodayDate && isCurrentMonth && !isSelected
@@ -156,16 +165,22 @@ export default function ModernCalendar({
                 `}
               >
                 {/* Date number */}
-                <div className={`text-sm font-medium mb-1 ${
-                  isSelected
-                    ? "text-orange-700 dark:text-orange-300"
-                    : isTodayDate && isCurrentMonth
-                    ? "text-blue-700 dark:text-blue-300"
-                    : isCurrentMonth
-                    ? "text-gray-900 dark:text-gray-100"
-                    : "text-gray-400 dark:text-gray-600"
-                }`}>
-                  {day.getDate()}
+                <div className="flex sm:block items-start justify-center sm:justify-start">
+                  <span className={`
+                    inline-flex items-center justify-center rounded-full
+                    w-6 h-6 sm:w-auto sm:h-auto sm:rounded-none
+                    text-sm font-medium sm:mb-1
+                    ${isSelected
+                      ? "bg-orange-500 text-white sm:bg-transparent sm:text-orange-700 dark:sm:text-orange-300"
+                      : isTodayDate && isCurrentMonth
+                      ? "text-blue-700 dark:text-blue-300"
+                      : isCurrentMonth
+                      ? "text-gray-900 dark:text-gray-100"
+                      : "text-gray-400 dark:text-gray-600"
+                    }
+                  `}>
+                    {day.getDate()}
+                  </span>
                 </div>
 
                 {/* Bottom dot indicators */}

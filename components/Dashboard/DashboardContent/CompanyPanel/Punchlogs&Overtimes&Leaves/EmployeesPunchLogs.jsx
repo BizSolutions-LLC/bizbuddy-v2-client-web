@@ -39,6 +39,7 @@ import {
   LayoutTemplate,
   Trash2,
   Tag,
+  X,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast, Toaster } from "sonner";
