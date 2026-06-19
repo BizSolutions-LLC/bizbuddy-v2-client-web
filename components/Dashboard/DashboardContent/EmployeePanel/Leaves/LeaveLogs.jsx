@@ -34,7 +34,8 @@ import { toast } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
 import socketService from "@/lib/socketService";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -105,10 +106,11 @@ function StatusPill({ status }) {
 }
 
 function PayPill({ isPaid }) {
+  if (isPaid === undefined || isPaid === null) return null;
   return isPaid ? (
-    <span style={{ background: "#eaf3de", color: "#3b6d11", padding: "3px 8px", borderRadius: 20, fontSize: 11, fontWeight: 500 }}>Paid</span>
+    <span style={{ background: "#eaf3de", color: "#3b6d11", padding: "3px 8px", borderRadius: 20, fontSize: 11, fontWeight: 500 }}>Paid Leave</span>
   ) : (
-    <span style={{ background: "#f5f5f3", color: "#888", padding: "3px 8px", borderRadius: 20, fontSize: 11, fontWeight: 500, border: "0.5px solid #d0d0d0" }}>Unpaid</span>
+    <span style={{ background: "#f5f5f3", color: "#888", padding: "3px 8px", borderRadius: 20, fontSize: 11, fontWeight: 500, border: "0.5px solid #d0d0d0" }}>Unpaid Leave</span>
   );
 }
 
@@ -164,6 +166,18 @@ export default function EmployeeLeaveRequests() {
     const d = Math.round((new Date(endDate) - new Date(startDate)) / 864e5) + 1;
     return d > 0 ? d : null;
   }, [startDate, endDate]);
+
+  const duplicateConflict = useMemo(() => {
+    if (!startDate || !endDate) return null;
+    const newStart = new Date(startDate);
+    const newEnd   = new Date(endDate);
+    return leaves.find(r => {
+      if (!["pending", "pending_secondary", "approved"].includes(r.status)) return false;
+      const s = new Date(r.startDate.slice(0, 10));
+      const e = new Date(r.endDate.slice(0, 10));
+      return newStart <= e && s <= newEnd;
+    }) ?? null;
+  }, [startDate, endDate, leaves]);
 
   const affectedShiftIds = useMemo(
     () => affectedSchedules.map(s => s.userShiftId),
@@ -351,7 +365,25 @@ export default function EmployeeLeaveRequests() {
     if (!endDate)    errs.endDate    = "End date is required";
     if (startDate && endDate && new Date(startDate) > new Date(endDate))
       errs.endDate = "End date must be after start date";
+    if (!reason || reason.trim().length < 30)
+      errs.reason = `Reason is required and must be at least 30 characters (${reason.trim().length}/30)`;
     if (Object.keys(errs).length) { setErrors(errs); return; }
+
+    // Duplicate check — block if an active request overlaps the chosen date range
+    const newStart = new Date(startDate);
+    const newEnd   = new Date(endDate);
+    const conflict = leaves.find(r => {
+      if (!["pending", "pending_secondary", "approved"].includes(r.status)) return false;
+      const s = new Date(r.startDate.slice(0, 10));
+      const e = new Date(r.endDate.slice(0, 10));
+      return newStart <= e && s <= newEnd;
+    });
+    if (conflict) {
+      const s = toLocalDate(conflict.startDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      const e = toLocalDate(conflict.endDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      toast.error(`You already have a ${conflict.status === "approved" ? "approved" : "pending"} leave request for ${s} – ${e}. Please choose a different date range.`);
+      return;
+    }
 
     const fromDate = new Date(`${startDate}T${startTime || "08:00"}:00`).toISOString();
     const toDate   = new Date(`${endDate}T${endTime   || "17:00"}:00`).toISOString();
@@ -545,30 +577,29 @@ export default function EmployeeLeaveRequests() {
                       onClick={() => selectRow(row)}
                       style={{ borderBottom: "0.5px solid #e5e5e5", cursor: "pointer", background: selected ? "#fff7f0" : undefined, borderLeft: selected ? "2px solid #f97316" : "2px solid transparent" }}
                     >
-                      <td style={{ padding: "10px 12px", verticalAlign: "middle" }}>
+                      <td style={{ padding: "8px 12px", verticalAlign: "middle" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                           <div style={{ width: 26, height: 26, borderRadius: "50%", background: "#f5f5f3", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#f97316" }}>
                             <Icon size={13} />
                           </div>
-                          <div>
-                            <div style={{ fontSize: 13, fontWeight: 500 }}>{row.leaveType}</div>
-                            <div style={{ marginTop: 3 }}><PayPill isPaid={row.isPaid} /></div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ fontSize: 13, fontWeight: 500 }}>{row.leaveType}</span>
+                            <PayPill isPaid={row.isPaid} />
                           </div>
                         </div>
                       </td>
-                      <td style={{ padding: "10px 12px", verticalAlign: "middle" }}>
+                      <td style={{ padding: "8px 12px", verticalAlign: "middle", whiteSpace: "nowrap" }}>
                         {row.startDate ? (
                           <>
-                            <div style={{ fontSize: 13, fontWeight: 500 }}>{fmtDate(row.startDate)}</div>
-                            <div style={{ fontSize: 11, color: "#bbb", marginTop: 2 }}>to {fmtDate(row.endDate)}</div>
-                            {days && <div style={{ fontSize: 11, color: "#f97316", marginTop: 2 }}>{days} day{days === 1 ? "" : "s"}</div>}
+                            <div style={{ fontSize: 12, fontWeight: 500 }}>{fmtDate(row.startDate)} – {fmtDate(row.endDate)}</div>
+                            {days && <div style={{ fontSize: 11, color: "#f97316", marginTop: 1 }}>{days} day{days === 1 ? "" : "s"}</div>}
                           </>
                         ) : "—"}
                       </td>
-                      <td style={{ padding: "10px 12px", verticalAlign: "middle", textAlign: "center" }}>
+                      <td style={{ padding: "8px 12px", verticalAlign: "middle", textAlign: "center" }}>
                         <StatusPill status={row.status} />
                       </td>
-                      <td style={{ padding: "10px 12px", verticalAlign: "middle", textAlign: "right" }}>
+                      <td style={{ padding: "8px 12px", verticalAlign: "middle", textAlign: "right", whiteSpace: "nowrap" }}>
                         <span style={{ fontSize: 12, color: "#888" }}>
                           {row.createdAt ? fmtSubmitted(row.createdAt) : "—"}
                         </span>
@@ -688,6 +719,7 @@ export default function EmployeeLeaveRequests() {
       {/* NEW REQUEST MODAL */}
       <Dialog open={modalOpen} onOpenChange={open => { if (!open) { setModalOpen(false); resetForm(); } else setModalOpen(true); }}>
         <DialogContent className="sm:max-w-[500px] p-0 gap-0 overflow-hidden" style={{ borderRadius: 12, border: "0.5px solid #e5e5e5" }}>
+          <VisuallyHidden><DialogTitle>New leave request</DialogTitle></VisuallyHidden>
 
           {/* Header */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", borderBottom: "0.5px solid #e5e5e5", flexShrink: 0 }}>
@@ -853,6 +885,21 @@ export default function EmployeeLeaveRequests() {
               )}
             </div>
 
+            {/* Duplicate request warning */}
+            {duplicateConflict && (
+              <div style={{ background: "#fcebeb", border: "0.5px solid #f09595", borderRadius: 8, padding: "10px 12px", display: "flex", alignItems: "flex-start", gap: 8 }}>
+                <AlertCircle size={15} color="#791f1f" style={{ flexShrink: 0, marginTop: 1 }} />
+                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: "#791f1f" }}>A request already exists for this period</div>
+                  <div style={{ fontSize: 11, color: "#a33" }}>
+                    You have a <strong>{duplicateConflict.status === "approved" ? "approved" : "pending"}</strong> {duplicateConflict.leaveType} request
+                    from {toLocalDate(duplicateConflict.startDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })} – {toLocalDate(duplicateConflict.endDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}.
+                    Please choose a different date range.
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Affected schedules — shown when both dates are valid */}
             {startDate && endDate && duration && (
               <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
@@ -905,17 +952,25 @@ export default function EmployeeLeaveRequests() {
               </div>
             )}
 
-            {/* Reason — optional */}
+            {/* Reason */}
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
               <div style={FIELD_LABEL}>
-                <FileText size={12} /> Reason <span style={{ fontSize: 11, color: "#bbb", fontWeight: 400 }}>(optional)</span>
+                <FileText size={12} /> Reason <span style={{ color: "#f97316" }}>*</span>
+                <span style={{ fontSize: 11, color: reason.trim().length >= 30 ? "#3b6d11" : "#bbb", fontWeight: 400, marginLeft: "auto" }}>
+                  {reason.trim().length}/30 min
+                </span>
               </div>
               <Textarea
                 value={reason}
-                onChange={e => setReason(e.target.value)}
-                placeholder="Provide a reason for your leave request…"
-                className="resize-none text-xs border-[0.5px] border-[#d0d0d0] rounded-lg min-h-[72px]"
+                onChange={e => { setReason(e.target.value); setErrors(er => ({ ...er, reason: undefined })); }}
+                placeholder="Provide a reason for your leave request (at least 30 characters)…"
+                className={`resize-none text-xs border-[0.5px] rounded-lg min-h-[72px] ${errors.reason ? "border-red-500" : "border-[#d0d0d0]"}`}
               />
+              {errors.reason && (
+                <p style={{ fontSize: 11, color: "#ef4444", display: "flex", alignItems: "center", gap: 3 }}>
+                  <AlertCircle size={11} />{errors.reason}
+                </p>
+              )}
             </div>
           </div>
 
@@ -936,7 +991,7 @@ export default function EmployeeLeaveRequests() {
               </Button>
               <Button
                 onClick={handleSubmit}
-                disabled={submitting || !leaveType || !approverId || !startDate || !endDate}
+                disabled={submitting || !leaveType || !approverId || !startDate || !endDate || reason.trim().length < 30 || !!duplicateConflict}
                 className="h-8 text-xs rounded-lg bg-orange-500 hover:bg-orange-600 text-white px-3 gap-1.5"
               >
                 {submitting
