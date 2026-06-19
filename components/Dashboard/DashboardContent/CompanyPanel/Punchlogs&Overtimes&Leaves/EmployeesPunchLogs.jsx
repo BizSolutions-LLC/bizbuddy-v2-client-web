@@ -737,7 +737,8 @@ export default function EmployeesPunchLogs() {
   const [weeklyOtThreshold,setWeeklyOtThreshold]= useState(40);
   const [cutoffOtThreshold,setCutoffOtThreshold]= useState(80);
   // ── G-2: Grace period from company settings ────────────────────────────────
-  const [gracePeriodMins, setGracePeriodMins] = useState(15);
+  const [gracePeriodMins,        setGracePeriodMins]        = useState(15);
+  const [earlyClockInGraceMins,  setEarlyClockInGraceMins]  = useState(0);
   const [companyName,    setCompanyName]    = useState("");
   const [currentUserName,  setCurrentUserName]  = useState("");
   const [currentUserEmail, setCurrentUserEmail] = useState("");
@@ -917,6 +918,7 @@ export default function EmployeesPunchLogs() {
         if (cJ.data?.id) setCompanyId(cJ.data.id);
         // ── G-2: Read grace period from settings ──────────────────────────────
         setGracePeriodMins(cJ.data?.gracePeriodMinutes ?? 15);
+        setEarlyClockInGraceMins(cJ.data?.earlyClockInGraceMinutes ?? 0);
         setOtBasis(cJ.data?.otBasis ?? "daily");
         setDailyOtThreshold(parseFloat(cJ.data?.dailyOtThresholdHours  ?? 8));
         setWeeklyOtThreshold(parseFloat(cJ.data?.weeklyOtThresholdHours ?? 40));
@@ -2275,6 +2277,10 @@ export default function EmployeesPunchLogs() {
                                         <div className="flex justify-between">
                                           <span className="text-muted-foreground">Grace Period:</span>
                                           <span className="text-xs text-muted-foreground">{gracePeriodMins} min</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                          <span className="text-muted-foreground">Early Clock-In Grace:</span>
+                                          <span className="text-xs text-muted-foreground">{earlyClockInGraceMins} min</span>
                                         </div>
                                         <div className="flex justify-between">
                                           <span className="text-muted-foreground">Cutoff:</span>

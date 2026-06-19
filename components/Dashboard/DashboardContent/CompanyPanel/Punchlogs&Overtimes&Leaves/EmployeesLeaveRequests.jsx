@@ -17,11 +17,18 @@ import {
   CalendarDays,
   DollarSign,
   CreditCard,
+  Search,
+  X,
+  ArrowUpDown,
+  ChevronUp,
+  ChevronDown,
+  ChevronsLeft,
+  ChevronsRight,
 } from "lucide-react";
 import { format } from "date-fns";
 import { toast, Toaster } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
-import DataTable from "@/components/common/DataTable";
+const PER_PAGE = 10;
 import ModernCalendar from "@/components/common/ModernCalendar";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -170,114 +177,48 @@ export default function SupervisorLeaveRequests() {
     { label: "Rejected", value: "rejected", count: stats.rejected },
   ], [stats]);
 
-  const columns = [
-    {
-      key: "requester",
-      label: "Employee",
-      render: (_, row) => (
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
-            <User className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-          </div>
-          <div>
-            <div className="font-medium">{row.requester?.email || row.User?.email || "Unknown"}</div>
-            <div className="text-xs text-muted-foreground">
-              {row.requester?.department?.name || row.User?.department?.name || "No department"}
-            </div>
-          </div>
-        </div>
-      ),
-    },
-    {
-      key: "leaveType",
-      label: "Leave Type",
-      render: (type) => (
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-orange-100 dark:bg-orange-900/30 rounded-full flex items-center justify-center">
-            <Calendar className="h-4 w-4 text-orange-600 dark:text-orange-400" />
-          </div>
-          <span className="font-medium">{type}</span>
-        </div>
-      ),
-    },
-    {
-      key: "dateRange",
-      label: "Date Range",
-      render: (_, row) => {
-        const start = toLocalDate(row.startDate);
-        const end = toLocalDate(row.endDate);
-        const diffDays = Math.floor((end - start) / 86400000) + 1;
-        return (
-          <div className="text-sm">
-            <div className="font-medium">{start.toLocaleDateString()}</div>
-            <div className="text-xs text-muted-foreground">to {end.toLocaleDateString()}</div>
-            <div className="text-xs text-orange-600 font-medium">{diffDays} day{diffDays === 1 ? "" : "s"}</div>
-          </div>
-        );
-      },
-      sortable: true,
-    },
-    {
-      key: "status",
-      label: "Status",
-      render: (status) => <StatusBadge status={status} />,
-      sortable: true,
-    },
-    {
-      key: "isPaid",
-      label: "Pay Type",
-      render: (isPaid) => isPaid === undefined ? (
-        <span className="text-xs text-muted-foreground">—</span>
-      ) : (
-        <Badge variant="secondary" className={isPaid
-          ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-0"
-          : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 border-0"
-        }>
-          <DollarSign className="h-3 w-3 mr-1" />
-          {isPaid ? "Paid" : "Unpaid"}
-        </Badge>
-      ),
-    },
-    {
-      key: "leaveReason",
-      label: "Reason",
-      render: (reason) => (
-        <div className="max-w-32 truncate text-sm text-muted-foreground">
-          {reason || "No reason provided"}
-        </div>
-      ),
-    },
-    {
-      key: "createdAt",
-      label: "Submitted",
-      render: (date) => (
-        <div className="text-sm text-muted-foreground">{new Date(date).toLocaleDateString()}</div>
-      ),
-      sortable: true,
-    },
-  ];
+  // ── Inline table state ────────────────────────────────────────────────────
 
-  const actions = [
-    {
-      label: "View Details",
-      icon: Eye,
-      onClick: (request) => setDetailDialog({ open: true, request }),
-    },
-    {
-      label: "Approve",
-      icon: CheckCircle2,
-      onClick: (request) => setActionDialog({ open: true, type: "approve", request }),
-      condition: (request) => (request.status === "pending" || request.status === "pending_secondary") && request.canAct === true,
-      className: "text-green-600 hover:text-green-700",
-    },
-    {
-      label: "Reject",
-      icon: XCircle,
-      onClick: (request) => setActionDialog({ open: true, type: "reject", request }),
-      condition: (request) => (request.status === "pending" || request.status === "pending_secondary") && request.canAct === true,
-      className: "text-red-600 hover:text-red-700",
-    },
-  ];
+  const [tableSearch,    setTableSearch]    = useState("");
+  const [tableSortKey,   setTableSortKey]   = useState("createdAt");
+  const [tableSortDir,   setTableSortDir]   = useState(-1);
+  const [tablePage,      setTablePage]      = useState(1);
+  const [tableActiveTab, setTableActiveTab] = useState("all");
+
+  const tableFiltered = useMemo(() => {
+    let list = leaves;
+    if (tableActiveTab !== "all") list = list.filter(r => r.status === tableActiveTab);
+    if (tableSearch) {
+      const q = tableSearch.toLowerCase();
+      list = list.filter(r => {
+        const req  = r.requester || r.User;
+        const name = req?.name || [req?.profile?.firstName, req?.profile?.lastName].filter(Boolean).join(" ") || [req?.firstName, req?.lastName].filter(Boolean).join(" ") || req?.email || "";
+        return name.toLowerCase().includes(q) || (r.leaveType ?? "").toLowerCase().includes(q) || (r.status ?? "").toLowerCase().includes(q);
+      });
+    }
+    return [...list].sort((a, b) => {
+      const av = a[tableSortKey] ?? "", bv = b[tableSortKey] ?? "";
+      return av > bv ? tableSortDir : av < bv ? -tableSortDir : 0;
+    });
+  }, [leaves, tableActiveTab, tableSearch, tableSortKey, tableSortDir]);
+
+  const tableTotalPages = Math.max(1, Math.ceil(tableFiltered.length / PER_PAGE));
+  const tablePaginated  = tableFiltered.slice((tablePage - 1) * PER_PAGE, tablePage * PER_PAGE);
+
+  function toggleTableSort(key) {
+    if (tableSortKey === key) setTableSortDir(d => d * -1);
+    else { setTableSortKey(key); setTableSortDir(-1); }
+    setTablePage(1);
+  }
+
+  function TableSortIcon({ col }) {
+    if (tableSortKey !== col) return <ArrowUpDown size={11} style={{ marginLeft: 2, opacity: 0.4 }} />;
+    return tableSortDir === 1
+      ? <ChevronUp   size={11} style={{ marginLeft: 2, color: "#f97316" }} />
+      : <ChevronDown size={11} style={{ marginLeft: 2, color: "#f97316" }} />;
+  }
+
+  function goTablePage(p) { setTablePage(p); }
 
   // ── API handlers ──────────────────────────────────────────────────────────
 
@@ -526,27 +467,183 @@ export default function SupervisorLeaveRequests() {
 
         {/* ── Table View ── */}
         {viewMode === "table" && (
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <Calendar className="h-5 w-5 text-orange-600" />
-                <CardTitle>Employee Leave Requests</CardTitle>
+          <div style={{ background: "#fff", border: "0.5px solid #e5e5e5", borderRadius: 12, overflow: "hidden" }}>
+
+            {/* Toolbar */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "0.5px solid #e5e5e5" }}>
+              <div style={{ fontSize: 14, fontWeight: 500, display: "flex", alignItems: "center", gap: 7 }}>
+                <Calendar size={15} color="#f97316" />
+                Employee Leave Requests
               </div>
-            </CardHeader>
-            <CardContent className="p-6">
-              <DataTable
-                data={leaves}
-                columns={columns}
-                loading={loading}
-                onRefresh={fetchLeaves}
-                actions={actions}
-                searchPlaceholder="Search by employee, leave type, or reason..."
-                statusTabs={statusTabs}
-                onRowClick={(request) => setDetailDialog({ open: true, request })}
-                pageSize={10}
-              />
-            </CardContent>
-          </Card>
+              <div style={{ fontSize: 12, color: "#888" }}>{tablePaginated.length} of {tableFiltered.length}</div>
+            </div>
+
+            {/* Search */}
+            <div style={{ padding: "10px 16px", borderBottom: "0.5px solid #e5e5e5" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, height: 32, border: "0.5px solid #d0d0d0", borderRadius: 8, padding: "0 10px", background: "#fff", maxWidth: 320 }}>
+                <Search size={13} color="#bbb" />
+                <input
+                  value={tableSearch}
+                  onChange={e => { setTableSearch(e.target.value); setTablePage(1); }}
+                  placeholder="Search by name, leave type, or status…"
+                  style={{ border: "none", outline: "none", fontSize: 12, color: "#1a1a1a", background: "transparent", width: "100%" }}
+                />
+                {tableSearch && (
+                  <button onClick={() => { setTableSearch(""); setTablePage(1); }} style={{ background: "none", border: "none", cursor: "pointer", color: "#bbb", display: "flex", alignItems: "center", padding: 0 }}>
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Tabs */}
+            <div style={{ display: "flex", padding: "0 16px", borderBottom: "0.5px solid #e5e5e5", overflowX: "auto" }}>
+              {statusTabs.map(t => {
+                const active = tableActiveTab === t.value;
+                return (
+                  <button
+                    key={t.value}
+                    onClick={() => { setTableActiveTab(t.value); setTablePage(1); }}
+                    style={{ display: "flex", alignItems: "center", gap: 5, padding: "8px 10px", fontSize: 12, fontWeight: 500, cursor: "pointer", color: active ? "#f97316" : "#888", background: "none", border: "none", borderBottom: active ? "2px solid #f97316" : "2px solid transparent", whiteSpace: "nowrap", marginBottom: -0.5, fontFamily: "inherit" }}
+                  >
+                    {t.label}
+                    <span style={{ fontSize: 11, borderRadius: 20, padding: "1px 6px", fontWeight: 400, background: active ? "#faeeda" : "#f5f5f3", color: active ? "#633806" : "#888" }}>
+                      {t.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Table */}
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    {[
+                      { label: "Name",        key: null,         w: "auto", align: "left"  },
+                      { label: "Date Range",  key: "startDate",  w: "1%",   align: "left"  },
+                      { label: "Leave Type",  key: "leaveType",  w: "auto", align: "left"  },
+                      { label: "Submitted",   key: "createdAt",  w: "1%",   align: "right" },
+                      { label: "",            key: null,         w: "1%",   align: "right" },
+                    ].map((col, i) => (
+                      <th
+                        key={i}
+                        onClick={() => col.key && toggleTableSort(col.key)}
+                        style={{ width: col.w, fontSize: 11, fontWeight: 500, color: "#888", textAlign: col.align, padding: "8px 12px", borderBottom: "0.5px solid #e5e5e5", background: "#fafaf9", whiteSpace: "nowrap", cursor: col.key ? "pointer" : "default", userSelect: "none" }}
+                      >
+                        {col.label}{col.key && <TableSortIcon col={col.key} />}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    <tr>
+                      <td colSpan={4} style={{ padding: "48px 16px", textAlign: "center" }}>
+                        <div style={{ display: "flex", justifyContent: "center" }}>
+                          <Loader2 size={24} className="animate-spin" style={{ color: "#f97316" }} />
+                        </div>
+                      </td>
+                    </tr>
+                  ) : tablePaginated.length === 0 ? (
+                    <tr>
+                      <td colSpan={4}>
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "48px 16px", gap: 8 }}>
+                          <div style={{ width: 34, height: 34, borderRadius: "50%", background: "#f5f5f3", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <Search size={16} color="#bbb" />
+                          </div>
+                          <div style={{ fontSize: 13, color: "#888" }}>No records found</div>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : tablePaginated.map(row => {
+                    const req      = row.requester || row.User;
+                    const name     = req?.name || [req?.profile?.firstName, req?.profile?.lastName].filter(Boolean).join(" ") || [req?.firstName, req?.lastName].filter(Boolean).join(" ") || req?.email || "Unknown";
+                    const sCfg     = statusConfig[row.status];
+                    const SIcon    = sCfg?.icon ?? Clock;
+                    const sPillBg  = row.status === "approved" ? "#eaf3de" : row.status === "rejected" ? "#fcebeb" : row.status === "pending_secondary" ? "#EEEDFE" : row.status === "cancelled" ? "#f5f5f3" : "#faeeda";
+                    const sPillClr = row.status === "approved" ? "#3b6d11" : row.status === "rejected" ? "#791f1f" : row.status === "pending_secondary" ? "#3C3489" : row.status === "cancelled" ? "#888" : "#633806";
+                    return (
+                      <tr key={row.id} style={{ borderBottom: "0.5px solid #e5e5e5" }}>
+                        <td style={{ padding: "10px 12px", verticalAlign: "middle" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#f5f5f3", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                              <User size={13} color="#888" />
+                            </div>
+                            <div>
+                              <div style={{ fontSize: 13, fontWeight: 500 }}>{name}</div>
+                              {sCfg && (
+                                <span style={{ fontSize: 10, display: "inline-flex", alignItems: "center", gap: 3, marginTop: 2, background: sPillBg, color: sPillClr, padding: "2px 7px", borderRadius: 20, fontWeight: 500 }}>
+                                  <SIcon size={10} />
+                                  {sCfg.label}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td style={{ padding: "10px 12px", verticalAlign: "middle", whiteSpace: "nowrap" }}>
+                          {row.startDate ? (() => {
+                            const s    = toLocalDate(row.startDate);
+                            const e    = toLocalDate(row.endDate);
+                            const days = Math.floor((e - s) / 86400000) + 1;
+                            const fmt  = d => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                            return (
+                              <div>
+                                <div style={{ fontSize: 12, fontWeight: 500 }}>{fmt(s)} – {fmt(e)}</div>
+                                <div style={{ fontSize: 11, color: "#f97316", marginTop: 2 }}>{days} day{days === 1 ? "" : "s"}</div>
+                              </div>
+                            );
+                          })() : <span style={{ fontSize: 12, color: "#bbb" }}>—</span>}
+                        </td>
+                        <td style={{ padding: "10px 12px", verticalAlign: "middle" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                            <div style={{ width: 26, height: 26, borderRadius: "50%", background: "#f5f5f3", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                              <Calendar size={12} color="#f97316" />
+                            </div>
+                            <span style={{ fontSize: 13, fontWeight: 500 }}>{row.leaveType}</span>
+                          </div>
+                        </td>
+                        <td style={{ padding: "10px 12px", verticalAlign: "middle", textAlign: "right", whiteSpace: "nowrap" }}>
+                          <span style={{ fontSize: 12, color: "#888" }}>
+                            {row.createdAt ? new Date(row.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+                          </span>
+                        </td>
+                        <td style={{ padding: "10px 12px", verticalAlign: "middle", textAlign: "right" }}>
+                          <button
+                            onClick={() => setDetailDialog({ open: true, request: row })}
+                            style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 500, color: "#f97316", background: "#fff7f0", border: "0.5px solid #f97316", borderRadius: 8, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}
+                          >
+                            <Eye size={12} /> View
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", borderTop: "0.5px solid #e5e5e5", background: "#fafaf9", flexWrap: "wrap", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+                <button disabled={tablePage === 1} onClick={() => goTablePage(1)} style={{ border: "0.5px solid #e5e5e5", background: "#fff", color: "#888", borderRadius: 8, padding: "4px 9px", fontSize: 12, cursor: tablePage === 1 ? "default" : "pointer", display: "flex", alignItems: "center", gap: 3, opacity: tablePage === 1 ? 0.4 : 1, fontFamily: "inherit" }}>
+                  <ChevronsLeft size={12} /> First
+                </button>
+                {Array.from({ length: tableTotalPages }, (_, i) => i + 1).map(p => (
+                  <button key={p} onClick={() => goTablePage(p)} style={{ border: `0.5px solid ${tablePage === p ? "#f97316" : "#e5e5e5"}`, background: tablePage === p ? "#f97316" : "#fff", color: tablePage === p ? "#fff" : "#888", borderRadius: 8, padding: "4px 9px", fontSize: 12, cursor: "pointer", fontWeight: tablePage === p ? 500 : 400, fontFamily: "inherit" }}>
+                    {p}
+                  </button>
+                ))}
+                <button disabled={tablePage === tableTotalPages} onClick={() => goTablePage(tableTotalPages)} style={{ border: "0.5px solid #e5e5e5", background: "#fff", color: "#888", borderRadius: 8, padding: "4px 9px", fontSize: 12, cursor: tablePage === tableTotalPages ? "default" : "pointer", display: "flex", alignItems: "center", gap: 3, opacity: tablePage === tableTotalPages ? 0.4 : 1, fontFamily: "inherit" }}>
+                  Last <ChevronsRight size={12} />
+                </button>
+              </div>
+              <span style={{ fontSize: 12, color: "#888" }}>
+                Page {tablePage} of {tableTotalPages} · {tableFiltered.length} records
+              </span>
+            </div>
+          </div>
         )}
 
         {/* ── Calendar View ── */}
@@ -670,8 +767,10 @@ export default function SupervisorLeaveRequests() {
                 ) : (
                   <div className="divide-y">
                     {selectedDateLeaves.map((leave) => {
-                      const email = leave.requester?.email || leave.User?.email || "Unknown";
-                      const dept  = leave.requester?.department?.name || leave.User?.department?.name;
+                      const req   = leave.requester || leave.User;
+                      const email = req?.email || "Unknown";
+                      const name  = req?.name || [req?.profile?.firstName, req?.profile?.lastName].filter(Boolean).join(" ") || [req?.firstName, req?.lastName].filter(Boolean).join(" ") || email;
+                      const dept  = req?.department?.name;
                       const start = toLocalDate(leave.startDate);
                       const end   = toLocalDate(leave.endDate);
                       const days  = Math.floor((end - start) / 86400000) + 1;
@@ -685,7 +784,7 @@ export default function SupervisorLeaveRequests() {
                                 <User className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                               </div>
                               <div className="min-w-0">
-                                <p className="text-sm font-medium truncate">{email}</p>
+                                <p className="text-sm font-medium truncate">{name}</p>
                                 {dept && <p className="text-xs text-muted-foreground truncate">{dept}</p>}
                               </div>
                             </div>
@@ -786,10 +885,10 @@ export default function SupervisorLeaveRequests() {
                   </div>
                 </div>
 
-                <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
+                <div className="bg-muted/40 p-4 rounded-lg border border-border">
                   <div className="flex items-center gap-2 mb-3">
-                    <User className="h-4 w-4 text-blue-600" />
-                    <div className="font-medium text-blue-700 dark:text-blue-300">Employee Information</div>
+                    <User className="h-4 w-4 text-muted-foreground" />
+                    <div className="font-medium text-foreground">Employee Information</div>
                   </div>
                   <div className="grid grid-cols-1 gap-2 text-sm">
                     {(() => {
@@ -818,10 +917,10 @@ export default function SupervisorLeaveRequests() {
                   const secondary = detailDialog.request.secondApprover;
                   if (!primary && !secondary) return null;
                   return (
-                    <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-lg border border-indigo-200 dark:border-indigo-800">
+                    <div className="bg-muted/40 p-4 rounded-lg border border-border">
                       <div className="flex items-center gap-2 mb-3">
-                        <CheckCircle2 className="h-4 w-4 text-indigo-600" />
-                        <div className="font-medium text-indigo-700 dark:text-indigo-300">Approver</div>
+                        <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+                        <div className="font-medium text-foreground">Approver</div>
                       </div>
                       <div className="grid grid-cols-1 gap-2 text-sm">
                         {primary && (
@@ -847,13 +946,13 @@ export default function SupervisorLeaveRequests() {
                   const row   = matrixByEmail[email];
                   if (!row && !matrixLoading) return null;
                   return (
-                    <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-lg border border-purple-200 dark:border-purple-800">
+                    <div className="bg-muted/40 p-4 rounded-lg border border-border">
                       <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-2">
-                          <CreditCard className="h-4 w-4 text-purple-600" />
-                          <div className="font-medium text-purple-700 dark:text-purple-300">Leave Credits</div>
+                          <CreditCard className="h-4 w-4 text-muted-foreground" />
+                          <div className="font-medium text-foreground">Leave Credits</div>
                         </div>
-                        {matrixLoading && <Loader2 className="h-3 w-3 animate-spin text-purple-400" />}
+                        {matrixLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
                       </div>
                       {row ? (
                         <div className="space-y-2">
@@ -861,8 +960,8 @@ export default function SupervisorLeaveRequests() {
                             const bal = row.balances?.[type] || { credits: 0, used: 0, available: 0 };
                             const isRequested = type === detailDialog.request.leaveType;
                             return (
-                              <div key={type} className={`flex items-center justify-between text-sm rounded px-2 py-1 ${isRequested ? "bg-purple-100 dark:bg-purple-800/30 font-semibold" : ""}`}>
-                                <span className={isRequested ? "text-purple-700 dark:text-purple-300" : "text-muted-foreground"}>
+                              <div key={type} className={`flex items-center justify-between text-sm rounded px-2 py-1 ${isRequested ? "bg-orange-50 dark:bg-orange-900/20 font-semibold" : ""}`}>
+                                <span className={isRequested ? "text-orange-700 dark:text-orange-300" : "text-muted-foreground"}>
                                   {isRequested && "▶ "}{type}
                                 </span>
                                 <div className="flex items-center gap-3 text-xs">
@@ -883,10 +982,10 @@ export default function SupervisorLeaveRequests() {
                   );
                 })()}
 
-                <div className="bg-orange-50 dark:bg-orange-900/20 p-4 rounded-lg border border-orange-200 dark:border-orange-800">
+                <div className="bg-muted/40 p-4 rounded-lg border border-border">
                   <div className="flex items-center gap-2 mb-3">
-                    <Calendar className="h-4 w-4 text-orange-600" />
-                    <div className="font-medium text-orange-700 dark:text-orange-300">Leave Period</div>
+                    <Calendar className="h-4 w-4 text-muted-foreground" />
+                    <div className="font-medium text-foreground">Leave Period</div>
                   </div>
                   <div className="grid grid-cols-1 gap-2 text-sm">
                     <div className="flex justify-between">
@@ -967,7 +1066,7 @@ export default function SupervisorLeaveRequests() {
                   </Button>
                 </>
               ) : (
-                <Button onClick={() => setDetailDialog({ open: false, request: null })}>Close</Button>
+                <Button onClick={() => setDetailDialog({ open: false, request: null })} className="bg-orange-500 hover:bg-orange-600 text-white">Close</Button>
               )}
             </DialogFooter>
           </DialogContent>
