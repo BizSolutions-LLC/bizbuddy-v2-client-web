@@ -385,8 +385,8 @@ export default function EmployeeLeaveRequests() {
       return;
     }
 
-    const fromDate = new Date(`${startDate}T${startTime || "08:00"}:00`).toISOString();
-    const toDate   = new Date(`${endDate}T${endTime   || "17:00"}:00`).toISOString();
+    const fromDate = startDate;
+    const toDate   = endDate;
 
     setSubmitting(true);
     try {

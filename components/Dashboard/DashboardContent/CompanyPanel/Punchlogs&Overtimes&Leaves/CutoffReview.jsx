@@ -571,7 +571,9 @@ const TimelineRow = ({ rec, onApprove, onApproveOT, onApproveSchedule, onApprove
 
       {/* Hours */}
       <td className="px-3 py-3 w-24 text-right align-top">
-        {rec.hours > 0 ? (
+        {rec.isApproving ? (
+          <Skeleton className="h-5 w-12 ml-auto rounded" />
+        ) : rec.hours > 0 ? (
           <div>
             <div className="inline-flex items-center gap-0.5 justify-end">
               <span className={`font-mono text-sm font-extrabold
@@ -596,41 +598,49 @@ const TimelineRow = ({ rec, onApprove, onApproveOT, onApproveSchedule, onApprove
 
       {/* Actions */}
       <td className="px-3 py-3 w-72 align-top">
-        {isLocked && (
-          <div className="flex items-center justify-end gap-2">
-            {rec.localStatus === "excluded"
-              ? <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-neutral-100 text-neutral-400 border border-neutral-200"><XCircle className="w-3 h-3" /> Excluded</span>
-              : <>
-                  <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-200"><Check className="w-3 h-3" /> Approved</span>
-                  <ActionBtn color="neutral" icon={RotateCcw} label="Reset" onClick={(e) => { e.stopPropagation(); onReset(rec.id); }} />
-                </>
-            }
-          </div>
-        )}
-        {isRestOrPreApproved && !isLocked && (
+        {rec.isApproving ? (
           <div className="flex justify-end">
-            <span className="text-xs font-semibold text-emerald-600 flex items-center gap-1">
-              <Lock className="w-3 h-3" /> Pre-approved
-            </span>
+            <Skeleton className="h-7 w-24 rounded-lg" />
           </div>
-        )}
-        {!isLocked && !isRestOrPreApproved && (
-          <div className="flex items-center justify-end gap-1.5">
-            {rec.actions?.includes("approve")          && <ActionBtn color="green"   icon={Check}         label="Approve"      onClick={() => onApprove(rec.id)} />}
-            {rec.actions?.includes("approve-ot")       && <ActionBtn color="purple"  icon={Zap}           label="+ OT"         onClick={() => onApproveOT(rec.id)} />}
-            {rec.actions?.includes("approve-schedule") && <ActionBtn color="green"   icon={Check}         label="Schedule"     onClick={() => onApproveSchedule(rec)} />}
-            {rec.actions?.includes("approve-raw")      && <ActionBtn color="blue"    icon={Clock}         label="Raw"          onClick={() => onApproveRaw(rec.id)} />}
-            {rec.actions?.includes("honor-punch")      && <ActionBtn color="blue"    icon={Clock}         label="Honor Punch"  onClick={() => onConflict(rec.id, "punch")} />}
-            {rec.actions?.includes("honor-leave")      && <ActionBtn color="green"   icon={CalendarCheck} label="Honor Leave"  onClick={() => onConflict(rec.id, "leave")} />}
-            {rec.actions?.includes("toggle-training")  && <ActionBtn
-              color={rec.punchType === "TRAINING" ? "neutral" : "amber"}
-              icon={GraduationCap}
-              label={rec.punchType === "TRAINING" ? "Regular" : "Training"}
-              onClick={(e) => { e.stopPropagation(); onSetPunchType(rec.id, rec.punchType === "TRAINING" ? "REGULAR" : "TRAINING"); }}
-            />}
-            {rec.actions?.includes("edit")             && <ActionBtn color="neutral" icon={Pencil}        label="Edit"         onClick={(e) => { e.stopPropagation(); onEdit(rec); }} />}
-            {rec.actions?.includes("exclude")          && <ActionBtn color="red"     icon={X}             label="Exclude"      onClick={(e) => { e.stopPropagation(); onExclude(rec.id); }} />}
-          </div>
+        ) : (
+          <>
+            {isLocked && (
+              <div className="flex items-center justify-end gap-2">
+                {rec.localStatus === "excluded"
+                  ? <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-neutral-100 text-neutral-400 border border-neutral-200"><XCircle className="w-3 h-3" /> Excluded</span>
+                  : <>
+                      <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-200"><Check className="w-3 h-3" /> Approved</span>
+                      <ActionBtn color="neutral" icon={RotateCcw} label="Reset" onClick={(e) => { e.stopPropagation(); onReset(rec.id); }} />
+                    </>
+                }
+              </div>
+            )}
+            {isRestOrPreApproved && !isLocked && (
+              <div className="flex justify-end">
+                <span className="text-xs font-semibold text-emerald-600 flex items-center gap-1">
+                  <Lock className="w-3 h-3" /> Pre-approved
+                </span>
+              </div>
+            )}
+            {!isLocked && !isRestOrPreApproved && (
+              <div className="flex items-center justify-end gap-1.5">
+                {rec.actions?.includes("approve")          && <ActionBtn color="green"   icon={Check}         label="Approve"      onClick={() => onApprove(rec.id)} />}
+                {rec.actions?.includes("approve-ot")       && <ActionBtn color="purple"  icon={Zap}           label="+ OT"         onClick={() => onApproveOT(rec.id)} />}
+                {rec.actions?.includes("approve-schedule") && <ActionBtn color="green"   icon={Check}         label="Schedule"     onClick={() => onApproveSchedule(rec)} />}
+                {rec.actions?.includes("approve-raw")      && <ActionBtn color="blue"    icon={Clock}         label="Raw"          onClick={() => onApproveRaw(rec.id)} />}
+                {rec.actions?.includes("honor-punch")      && <ActionBtn color="blue"    icon={Clock}         label="Honor Punch"  onClick={() => onConflict(rec.id, "punch")} />}
+                {rec.actions?.includes("honor-leave")      && <ActionBtn color="green"   icon={CalendarCheck} label="Honor Leave"  onClick={() => onConflict(rec.id, "leave")} />}
+                {rec.actions?.includes("toggle-training")  && <ActionBtn
+                  color={rec.punchType === "TRAINING" ? "neutral" : "amber"}
+                  icon={GraduationCap}
+                  label={rec.punchType === "TRAINING" ? "Regular" : "Training"}
+                  onClick={(e) => { e.stopPropagation(); onSetPunchType(rec.id, rec.punchType === "TRAINING" ? "REGULAR" : "TRAINING"); }}
+                />}
+                {rec.actions?.includes("edit")             && <ActionBtn color="neutral" icon={Pencil}        label="Edit"         onClick={(e) => { e.stopPropagation(); onEdit(rec); }} />}
+                {rec.actions?.includes("exclude")          && <ActionBtn color="red"     icon={X}             label="Exclude"      onClick={(e) => { e.stopPropagation(); onExclude(rec.id); }} />}
+              </div>
+            )}
+          </>
         )}
       </td>
     </tr>
@@ -723,7 +733,9 @@ const PunchSubRow = ({ rec, onApprove, onApproveOT, onApproveSchedule, onApprove
         )}
       </td>
       <td className="px-3 py-3 w-24 text-right align-top">
-        {rec.hours > 0 ? (
+        {rec.isApproving ? (
+          <Skeleton className="h-5 w-12 ml-auto rounded" />
+        ) : rec.hours > 0 ? (
           <div>
             <div className="inline-flex items-center gap-0.5 justify-end">
               <span className={`font-mono text-sm font-extrabold
@@ -746,41 +758,49 @@ const PunchSubRow = ({ rec, onApprove, onApproveOT, onApproveSchedule, onApprove
         )}
       </td>
       <td className="px-3 py-3 w-72 align-top">
-        {isLocked && (
-          <div className="flex items-center justify-end gap-2">
-            {rec.localStatus === "excluded"
-              ? <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-neutral-100 text-neutral-400 border border-neutral-200"><XCircle className="w-3 h-3" /> Excluded</span>
-              : <>
-                  <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-200"><Check className="w-3 h-3" /> Approved</span>
-                  <ActionBtn color="neutral" icon={RotateCcw} label="Reset" onClick={(e) => { e.stopPropagation(); onReset(rec.id); }} />
-                </>
-            }
-          </div>
-        )}
-        {isRestOrPreApproved && !isLocked && (
+        {rec.isApproving ? (
           <div className="flex justify-end">
-            <span className="text-xs font-semibold text-emerald-600 flex items-center gap-1">
-              <Lock className="w-3 h-3" /> Pre-approved
-            </span>
+            <Skeleton className="h-7 w-24 rounded-lg" />
           </div>
-        )}
-        {!isLocked && !isRestOrPreApproved && (
-          <div className="flex items-center justify-end gap-1.5">
-            {rec.actions?.includes("approve")          && <ActionBtn color="green"   icon={Check}         label="Approve"      onClick={() => onApprove(rec.id)} />}
-            {rec.actions?.includes("approve-ot")       && <ActionBtn color="purple"  icon={Zap}           label="+ OT"         onClick={() => onApproveOT(rec.id)} />}
-            {rec.actions?.includes("approve-schedule") && <ActionBtn color="green"   icon={Check}         label="Schedule"     onClick={() => onApproveSchedule(rec)} />}
-            {rec.actions?.includes("approve-raw")      && <ActionBtn color="blue"    icon={Clock}         label="Raw"          onClick={() => onApproveRaw(rec.id)} />}
-            {rec.actions?.includes("honor-punch")      && <ActionBtn color="blue"    icon={Clock}         label="Honor Punch"  onClick={() => onConflict(rec.id, "punch")} />}
-            {rec.actions?.includes("honor-leave")      && <ActionBtn color="green"   icon={CalendarCheck} label="Honor Leave"  onClick={() => onConflict(rec.id, "leave")} />}
-            {rec.actions?.includes("toggle-training")  && <ActionBtn
-              color={rec.punchType === "TRAINING" ? "neutral" : "amber"}
-              icon={GraduationCap}
-              label={rec.punchType === "TRAINING" ? "Regular" : "Training"}
-              onClick={(e) => { e.stopPropagation(); onSetPunchType(rec.id, rec.punchType === "TRAINING" ? "REGULAR" : "TRAINING"); }}
-            />}
-            {rec.actions?.includes("edit")             && <ActionBtn color="neutral" icon={Pencil}        label="Edit"         onClick={(e) => { e.stopPropagation(); onEdit(rec); }} />}
-            {rec.actions?.includes("exclude")          && <ActionBtn color="red"     icon={X}             label="Exclude"      onClick={(e) => { e.stopPropagation(); onExclude(rec.id); }} />}
-          </div>
+        ) : (
+          <>
+            {isLocked && (
+              <div className="flex items-center justify-end gap-2">
+                {rec.localStatus === "excluded"
+                  ? <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-neutral-100 text-neutral-400 border border-neutral-200"><XCircle className="w-3 h-3" /> Excluded</span>
+                  : <>
+                      <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-200"><Check className="w-3 h-3" /> Approved</span>
+                      <ActionBtn color="neutral" icon={RotateCcw} label="Reset" onClick={(e) => { e.stopPropagation(); onReset(rec.id); }} />
+                    </>
+                }
+              </div>
+            )}
+            {isRestOrPreApproved && !isLocked && (
+              <div className="flex justify-end">
+                <span className="text-xs font-semibold text-emerald-600 flex items-center gap-1">
+                  <Lock className="w-3 h-3" /> Pre-approved
+                </span>
+              </div>
+            )}
+            {!isLocked && !isRestOrPreApproved && (
+              <div className="flex items-center justify-end gap-1.5">
+                {rec.actions?.includes("approve")          && <ActionBtn color="green"   icon={Check}         label="Approve"      onClick={() => onApprove(rec.id)} />}
+                {rec.actions?.includes("approve-ot")       && <ActionBtn color="purple"  icon={Zap}           label="+ OT"         onClick={() => onApproveOT(rec.id)} />}
+                {rec.actions?.includes("approve-schedule") && <ActionBtn color="green"   icon={Check}         label="Schedule"     onClick={() => onApproveSchedule(rec)} />}
+                {rec.actions?.includes("approve-raw")      && <ActionBtn color="blue"    icon={Clock}         label="Raw"          onClick={() => onApproveRaw(rec.id)} />}
+                {rec.actions?.includes("honor-punch")      && <ActionBtn color="blue"    icon={Clock}         label="Honor Punch"  onClick={() => onConflict(rec.id, "punch")} />}
+                {rec.actions?.includes("honor-leave")      && <ActionBtn color="green"   icon={CalendarCheck} label="Honor Leave"  onClick={() => onConflict(rec.id, "leave")} />}
+                {rec.actions?.includes("toggle-training")  && <ActionBtn
+                  color={rec.punchType === "TRAINING" ? "neutral" : "amber"}
+                  icon={GraduationCap}
+                  label={rec.punchType === "TRAINING" ? "Regular" : "Training"}
+                  onClick={(e) => { e.stopPropagation(); onSetPunchType(rec.id, rec.punchType === "TRAINING" ? "REGULAR" : "TRAINING"); }}
+                />}
+                {rec.actions?.includes("edit")             && <ActionBtn color="neutral" icon={Pencil}        label="Edit"         onClick={(e) => { e.stopPropagation(); onEdit(rec); }} />}
+                {rec.actions?.includes("exclude")          && <ActionBtn color="red"     icon={X}             label="Exclude"      onClick={(e) => { e.stopPropagation(); onExclude(rec.id); }} />}
+              </div>
+            )}
+          </>
         )}
       </td>
     </tr>
@@ -826,7 +846,9 @@ const DriverSegmentRow = ({ seg, onApprove, onApproveOT, onApproveSchedule, onAp
         )}
       </td>
       <td className="px-3 py-2.5 w-24 text-right align-top">
-        {seg.hours > 0 ? (
+        {seg.isApproving ? (
+          <Skeleton className="h-5 w-12 ml-auto rounded" />
+        ) : seg.hours > 0 ? (
           <span className="font-mono text-sm font-extrabold text-neutral-800 dark:text-neutral-100">
             {parseFloat(seg.hours).toFixed(2).replace(/\.?0+$/, "")}h
           </span>
@@ -835,7 +857,11 @@ const DriverSegmentRow = ({ seg, onApprove, onApproveOT, onApproveSchedule, onAp
         )}
       </td>
       <td className="px-3 py-2.5 w-72 align-top">
-        {isLocked ? (
+        {seg.isApproving ? (
+          <div className="flex justify-end">
+            <Skeleton className="h-7 w-24 rounded-lg" />
+          </div>
+        ) : isLocked ? (
           <div className="flex items-center justify-end gap-2">
             {seg.localStatus === "excluded"
               ? <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-neutral-100 text-neutral-400 border border-neutral-200"><XCircle className="w-3 h-3" /> Excluded</span>
@@ -882,9 +908,13 @@ const DriverGroupRow = ({ group, onApprove, onApproveOT, onApproveSchedule, onAp
           </div>
         </td>
         <td className="px-3 py-2 text-right align-middle">
-          <span className="font-mono text-sm font-extrabold text-neutral-600 dark:text-neutral-300">
-            {parseFloat(group.hours).toFixed(2).replace(/\.?0+$/, "")}h total
-          </span>
+          {group.isApproving ? (
+            <Skeleton className="h-5 w-20 ml-auto rounded" />
+          ) : (
+            <span className="font-mono text-sm font-extrabold text-neutral-600 dark:text-neutral-300">
+              {parseFloat(group.hours).toFixed(2).replace(/\.?0+$/, "")}h total
+            </span>
+          )}
         </td>
       </tr>
       {group.segments.map((seg) => (
@@ -932,50 +962,107 @@ const PunchGroupRow = ({ group, onApprove, onApproveOT, onApproveSchedule, onApp
 
 /** OT block row — rendered after the last punch row for a given date (B&C), or as a period summary (DayCare) */
 const OTBlockRow = ({ block, onOTBlock, localOTBlockStatus, threshold, isCutoffBasis }) => {
-  const status = localOTBlockStatus[block.id] || block.status;
+  const [expanded, setExpanded] = useState(false);
+  const status    = localOTBlockStatus[block.id] || block.status;
   const isPending = status === "pending";
+  const bd        = block.breakdown;
+  const hasBreakdown = isCutoffBasis && bd?.days?.length > 0;
+
   return (
-    <tr className="bg-purple-50/40 dark:bg-purple-900/5 border-t border-purple-100 dark:border-purple-800/30">
-      <td className="px-3 py-2.5 w-24" />
-      <td className="px-3 py-2.5">
-        <span className="inline-flex items-center gap-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 text-[10px] font-bold px-1.5 py-0.5 rounded">
-          <Zap className="w-2.5 h-2.5" /> OT
-        </span>
-      </td>
-      <td className="px-3 py-2.5">
-        <span className="text-xs text-neutral-500 dark:text-neutral-400">
-          {isCutoffBasis
-            ? `Period OT · ${block.otHours}h total / ${threshold}h threshold`
-            : `Overtime · ${block.otHours}h over ${threshold}h daily threshold`
-          }
-        </span>
-        {status === "approved" && (
-          <span className="ml-2 inline-flex items-center gap-0.5 text-[10px] font-semibold text-green-600 bg-green-100 dark:bg-green-900/20 dark:text-green-400 px-1.5 py-0.5 rounded">
-            <Check className="w-2.5 h-2.5" /> Approved
+    <>
+      <tr className="bg-purple-50/40 dark:bg-purple-900/5 border-t border-purple-100 dark:border-purple-800/30">
+        <td className="px-3 py-2.5 w-24" />
+        <td className="px-3 py-2.5">
+          <span className="inline-flex items-center gap-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 text-[10px] font-bold px-1.5 py-0.5 rounded">
+            <Zap className="w-2.5 h-2.5" /> OT
           </span>
-        )}
-        {status === "excluded" && (
-          <span className="ml-2 inline-flex items-center gap-0.5 text-[10px] font-semibold text-neutral-500 bg-neutral-100 dark:bg-neutral-800 px-1.5 py-0.5 rounded">
-            <X className="w-2.5 h-2.5" /> Excluded
-          </span>
-        )}
-      </td>
-      <td className="px-3 py-2.5">
-        <span className={`font-mono text-sm font-bold ${isPending ? "text-purple-600 dark:text-purple-400" : "text-neutral-400"}`}>
-          {isCutoffBasis
-            ? `+${parseFloat(block.otHours - threshold).toFixed(2).replace(/\.?0+$/, "")}h`
-            : `${block.otHours}h`}
-        </span>
-      </td>
-      <td className="px-3 py-2.5 w-72 text-right">
-        {isPending && (
-          <div className="flex items-center justify-end gap-1.5">
-            <ActionBtn color="purple" icon={Zap}  label="Approve OT" onClick={() => onOTBlock(block.id, "approve")} />
-            <ActionBtn color="red"    icon={X}    label="Exclude"    onClick={() => onOTBlock(block.id, "exclude")} />
+        </td>
+        <td className="px-3 py-2.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-neutral-500 dark:text-neutral-400">
+              {isCutoffBasis
+                ? `Period OT · ${bd?.totalHours ?? block.otHours}h total / ${bd?.threshold ?? threshold}h threshold`
+                : `Overtime · ${block.otHours}h over ${threshold}h daily threshold`
+              }
+            </span>
+            {hasBreakdown && (
+              <button
+                onClick={() => setExpanded((v) => !v)}
+                className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-purple-600 hover:text-purple-800 dark:text-purple-400 dark:hover:text-purple-300 transition-colors"
+              >
+                <ChevronDown className={`w-3 h-3 transition-transform duration-150 ${expanded ? "rotate-180" : ""}`} />
+                {expanded ? "Hide" : "Days"}
+              </button>
+            )}
+            {status === "approved" && (
+              <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-green-600 bg-green-100 dark:bg-green-900/20 dark:text-green-400 px-1.5 py-0.5 rounded">
+                <Check className="w-2.5 h-2.5" /> Approved
+              </span>
+            )}
+            {status === "excluded" && (
+              <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-neutral-500 bg-neutral-100 dark:bg-neutral-800 px-1.5 py-0.5 rounded">
+                <X className="w-2.5 h-2.5" /> Excluded
+              </span>
+            )}
           </div>
-        )}
-      </td>
-    </tr>
+        </td>
+        <td className="px-3 py-2.5">
+          <span className={`font-mono text-sm font-bold ${isPending ? "text-purple-600 dark:text-purple-400" : "text-neutral-400"}`}>
+            {isCutoffBasis
+              ? `+${parseFloat(bd?.otHours ?? block.otHours).toFixed(2).replace(/\.?0+$/, "")}h`
+              : `${block.otHours}h`}
+          </span>
+        </td>
+        <td className="px-3 py-2.5 w-72 text-right">
+          {isPending && (
+            <div className="flex items-center justify-end gap-1.5">
+              <ActionBtn color="purple" icon={Zap}  label="Approve OT" onClick={() => onOTBlock(block.id, "approve")} />
+              <ActionBtn color="red"    icon={X}    label="Exclude"    onClick={() => onOTBlock(block.id, "exclude")} />
+            </div>
+          )}
+        </td>
+      </tr>
+      {expanded && hasBreakdown && (
+        <tr className="bg-purple-50/40 dark:bg-purple-900/10 border-b border-purple-100 dark:border-purple-800/30">
+          <td colSpan={5} className="px-3 pb-3 pt-1">
+            <div className="flex justify-end">
+              <div className="w-80 rounded-lg border border-purple-200 dark:border-purple-800/50 overflow-hidden">
+                <table className="w-full text-xs">
+                  <tbody>
+                    {bd.days.map((d) => (
+                      <tr key={d.date} className="border-b border-purple-100/60 dark:border-purple-900/20 last:border-0">
+                        <td className="px-3 py-1 text-neutral-500 dark:text-neutral-400">
+                          <span>{formatDate(d.date)}</span>
+                          {d.isTraining && (
+                            <span className="ml-2 text-[10px] text-amber-600 dark:text-amber-400 font-medium">Training</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-1 text-right font-mono font-semibold text-neutral-700 dark:text-neutral-300">
+                          {parseFloat(d.hours).toFixed(2).replace(/\.?0+$/, "")}h
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-purple-200 dark:border-purple-700 bg-purple-50/80 dark:bg-purple-900/20">
+                      <td className="px-3 py-1.5 font-bold text-neutral-700 dark:text-neutral-200">Total</td>
+                      <td className="px-3 py-1.5 text-right font-mono font-bold text-neutral-800 dark:text-neutral-100">
+                        {parseFloat(bd.totalHours).toFixed(2).replace(/\.?0+$/, "")}h
+                      </td>
+                    </tr>
+                    <tr className="bg-purple-100/50 dark:bg-purple-900/30">
+                      <td colSpan={2} className="px-3 py-1.5 text-[11px] font-semibold text-purple-600 dark:text-purple-400">
+                        {parseFloat(bd.totalHours).toFixed(2).replace(/\.?0+$/, "")}h − {bd.threshold}h threshold = +{parseFloat(bd.otHours).toFixed(2).replace(/\.?0+$/, "")}h OT
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   );
 };
 
@@ -1502,6 +1589,147 @@ export default function CutoffReview({ cutoffId }) {
     }
   }, [token, cutoffId]);
 
+  // Re-fetch GET /approvals and rebuild employees so the skeleton resolves to enriched
+  // hours from enrichApprovals (approvedClockOut − approvedClockIn) rather than stale
+  // values from the initial load. The PATCH response returns a raw approval record —
+  // enriched hours only exist after enrichApprovals runs on GET.
+  // Keeps approvingIds[recId] active until the GET completes so both the hours skeleton
+  // and the actions skeleton hold until the correct data lands.
+  const refreshApprovals = useCallback(async (recId) => {
+    if (!token || !cutoffId) return;
+    try {
+      const ps     = cutoff?.periodStart;
+      const pe     = cutoff?.periodEnd;
+      const deptId = cutoff?.departmentId;
+
+      const rlParams = new URLSearchParams({ from: ps || "", to: pe || "", limit: "10000" });
+      if (deptId) rlParams.set("departmentId", deptId);
+
+      const [approvalsRes, rawLogsRes] = await Promise.all([
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/cutoff-periods/${cutoffId}/approvals`,
+          { headers: { Authorization: `Bearer ${token}` } }),
+        ps && pe
+          ? fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/timelogs?${rlParams}`,
+              { headers: { Authorization: `Bearer ${token}` } })
+          : Promise.resolve({ ok: false }),
+      ]);
+
+      if (!approvalsRes.ok) return;
+      const approvalsData = await approvalsRes.json();
+      const rawLogsData   = rawLogsRes.ok ? await rawLogsRes.json() : { data: [] };
+
+      setOTBlocks(approvalsData.otBlocks || []);
+      setDailyOtThresholdHours(approvalsData.dailyOtThresholdHours ?? 8);
+      setCutoffOtThresholdHours(approvalsData.cutoffOtThresholdHours ?? null);
+
+      const empMap = {};
+      const COLORS = ["#f97316","#8b5cf6","#2563eb","#ec4899","#0891b2","#16a34a","#7c3aed","#0d9488","#db2777","#b45309","#be185d","#0369a1","#ca8a04"];
+      let colorIdx = 0;
+
+      (approvalsData.data || []).forEach((approval) => {
+        const user   = approval.timeLog?.user;
+        const userId = user?.id;
+        if (!userId) return;
+        if (!empMap[userId]) {
+          const initials = ((user.profile?.firstName?.[0] || "") + (user.profile?.lastName?.[0] || "") || user.username?.[0] || "?").toUpperCase();
+          empMap[userId] = {
+            id:       userId,
+            name:     `${user.profile?.firstName || ""} ${user.profile?.lastName || user.username || ""}`.trim(),
+            email:    user.email,
+            initials,
+            color:    COLORS[colorIdx++ % COLORS.length],
+            records:  [],
+            hasOT:    false,
+            hasBulk:  false,
+            isDriver: false,
+          };
+        }
+        const emp     = empMap[userId];
+        const details = buildDetails(approval, companyTimezone, isBNC);
+        emp.records.push(details);
+        if (details.hasOT) emp.hasOT = true;
+        if (details.segmentType !== null) emp.isDriver = true;
+        if (details.actions?.some((a) => ["approve", "approve-schedule", "approve-raw"].includes(a)) && !["conflict", "unscheduled"].includes(details.type)) {
+          emp.hasBulk = true;
+        }
+      });
+
+      (approvalsData.leaves || []).forEach((leaveRow) => {
+        const user   = leaveRow.user;
+        const userId = user?.id;
+        if (!userId) return;
+        if (!empMap[userId]) {
+          const initials = ((user.profile?.firstName?.[0] || "") + (user.profile?.lastName?.[0] || "") || user.username?.[0] || "?").toUpperCase();
+          empMap[userId] = {
+            id:       userId,
+            name:     `${user.profile?.firstName || ""} ${user.profile?.lastName || user.username || ""}`.trim(),
+            email:    user.email,
+            initials,
+            color:    COLORS[colorIdx++ % COLORS.length],
+            records:  [],
+            hasOT:    false,
+            hasBulk:  false,
+          };
+        }
+        empMap[userId].records.push({
+          id:             leaveRow.id,
+          timeLogId:      null,
+          segmentType:    null,
+          date:           new Date(leaveRow.leaveDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: companyTimezone }),
+          type:           "leave",
+          detail:         `${leaveRow.leave.leaveType} — <strong>Approved</strong>`,
+          tags:           [],
+          actions:        ["pre-approved"],
+          hours:          8,
+          scheduledHours: 0,
+          scheduleInfo:   null,
+          hasOT:          false,
+          timeIn:         "—",
+          timeOut:        "—",
+          localStatus:    null,
+          pendingLeave:   null,
+        });
+      });
+
+      const syncedTimeLogIds = new Set((approvalsData.data || []).map((a) => a.timeLog?.id).filter(Boolean));
+      (rawLogsData.data || []).forEach((rawLog) => {
+        if (syncedTimeLogIds.has(rawLog.id)) return;
+        const userId = rawLog.userId;
+        if (!userId) return;
+        if (!empMap[userId]) {
+          const nameStr  = rawLog.employeeName || rawLog.email || "Unknown";
+          const parts    = nameStr.trim().split(/\s+/);
+          const initials = ((parts[0]?.[0] || "") + (parts[parts.length - 1]?.[0] || "")).toUpperCase() || "?";
+          empMap[userId] = {
+            id:       userId,
+            name:     nameStr,
+            email:    rawLog.email || "",
+            initials,
+            color:    COLORS[colorIdx++ % COLORS.length],
+            records:  [],
+            hasOT:    false,
+            hasBulk:  false,
+          };
+        }
+        empMap[userId].records.push(buildUnsyncedRecord(rawLog, companyTimezone));
+      });
+
+      setEmployees(Object.values(empMap).map((emp) => ({
+        ...emp,
+        records: groupRecordsByDate(emp.records, ps, pe, companyTimezone),
+      })));
+
+      // Server data is now authoritative — clear optimistic overrides for this record
+      setLocalStatus((s) => { const n = { ...s }; delete n[recId]; return n; });
+      setLocalApprovedTimes((s) => { const n = { ...s }; delete n[recId]; return n; });
+      setResetIds((s) => { const n = new Set(s); n.delete(recId); return n; });
+    } catch {
+      // silent — stale data stays; resolves on next full reload
+    } finally {
+      setApprovingIds((s) => { const n = new Set(s); n.delete(recId); return n; });
+    }
+  }, [token, cutoffId, companyTimezone, isBNC, cutoff]);
+
   // ─────────────────────────────────────────────────────────────────────
   // SYNC — picks up new employees / punch records added after cutoff creation
   // ─────────────────────────────────────────────────────────────────────
@@ -1788,11 +2016,11 @@ export default function CutoffReview({ cutoffId }) {
       const records = emp.records.map((r) => {
         if (r.type === "driver_group") {
           const segments = r.segments.map((s) => patchTimes({ ...s, localStatus: effectiveStatus(s.id, s.localStatus) }));
-          return { ...r, segments, hours: segments.reduce((sum, s) => s.localStatus === "excluded" ? sum : sum + (s.hours || 0), 0) };
+          return { ...r, segments, hours: segments.reduce((sum, s) => s.localStatus === "approved" ? sum + (s.hours || 0) : sum, 0), isApproving: segments.some((s) => s.isApproving) };
         }
         if (r.type === "punch_group") {
           const punches = r.punches.map((p) => patchTimes({ ...p, localStatus: effectiveStatus(p.id, p.localStatus) }));
-          return { ...r, punches, hours: punches.reduce((sum, p) => p.punchType === "TRAINING" ? sum : sum + (p.hours || 0), 0) };
+          return { ...r, punches, hours: punches.reduce((sum, p) => p.localStatus === "approved" ? sum + (p.hours || 0) : sum, 0) };
         }
         return patchTimes({ ...r, localStatus: effectiveStatus(r.id, r.localStatus) });
       });
@@ -1817,7 +2045,11 @@ export default function CutoffReview({ cutoffId }) {
       const empOTBlocks     = otBlocks.filter((b) => b.userId === emp.id);
       const pendingOTBlocks = empOTBlocks.filter((b) => (localOTBlockStatus[b.id] || b.status) === "pending").length;
       const pending    = actionableFlat.filter((r) => !r.localStatus).length + pendingOTBlocks;
-      const punchHours = records.reduce((s, r) => (r.type === "leave" || r.punchType === "TRAINING") ? s : s + (r.hours || 0), 0);
+      const punchHours = records.reduce((s, r) => {
+        if (r.type === "leave") return s;
+        if (r.type === "punch_group" || r.type === "driver_group") return s + (r.hours || 0);
+        return r.localStatus === "approved" ? s + (r.hours || 0) : s;
+      }, 0);
       const leaveHours = records.filter((r) => r.type === "leave").reduce((s, r) => s + (r.hours || 0), 0);
       return { ...emp, records, approved, pending, unsyncedCount, totalHours: punchHours + leaveHours, punchHours, leaveHours, otBlocks: empOTBlocks };
     });
@@ -1979,30 +2211,19 @@ export default function CutoffReview({ cutoffId }) {
         }
       );
       if (!res.ok) throw new Error();
-      const data = await res.json();
-      const approved = data.data;
-      if (approved?.approvedClockIn || approved?.approvedClockOut) {
-        setLocalApprovedTimes((s) => ({
-          ...s,
-          [recId]: {
-            timeIn:  approved.approvedClockIn  ? formatDateTime(approved.approvedClockIn,  companyTimezone) : null,
-            timeOut: approved.approvedClockOut ? formatDateTime(approved.approvedClockOut, companyTimezone) : null,
-          },
-        }));
-      }
-      setApprovingIds((s) => { const n = new Set(s); n.delete(recId); return n; });
       toast.success("Approved");
-      if (isBNC || otBasis === "cutoff") refreshOTBlocks();
+      // Keep approvingIds active — refreshApprovals clears it once the GET /approvals
+      // completes and employees are rebuilt with enriched hours from enrichApprovals.
+      await refreshApprovals(recId);
     } catch {
       setLocalStatus((s) => { const n = { ...s }; delete n[recId]; return n; });
-      setLocalApprovedTimes((s) => { const n = { ...s }; delete n[recId]; return n; });
       setApprovingIds((s) => { const n = new Set(s); n.delete(recId); return n; });
       if (approvalMode === "schedule" && shiftId) {
         setUsedShifts((s) => { const n = { ...s }; delete n[recId]; return n; });
       }
       toast.error("Failed to approve");
     }
-  }, [token, cutoffId, findRecord, isBNC, otBasis, refreshOTBlocks, companyTimezone]);
+  }, [token, cutoffId, findRecord, refreshApprovals]);
 
   const handleApproveSchedule = useCallback((rec) => {
     // DayCare (any punch type) — no shift picker needed; schedule is already known server-side.
@@ -2190,8 +2411,8 @@ export default function CutoffReview({ cutoffId }) {
 
   const doReset = useCallback(async (recId) => {
     setResetIds((s) => new Set([...s, recId]));
-    // Also clear any optimistic approved/excluded status so the row re-enables cleanly
     setLocalStatus((s) => { const n = { ...s }; delete n[recId]; return n; });
+    setApprovingIds((s) => { const n = new Set(s); n.add(recId); return n; });
     try {
       const rec = findRecord(recId);
       if (!rec) return;
@@ -2204,13 +2425,15 @@ export default function CutoffReview({ cutoffId }) {
       );
       if (!res.ok) throw new Error();
       toast.success("Approval reset — record returned to pending");
-      if (isBNC || otBasis === "cutoff") refreshOTBlocks();
+      // Keep approvingIds active — refreshApprovals clears it once the GET /approvals
+      // completes and employees are rebuilt with the restored pending-state hours.
+      await refreshApprovals(recId);
     } catch {
-      // Roll back optimistic reset — restore to approved
       setResetIds((s) => { const n = new Set(s); n.delete(recId); return n; });
+      setApprovingIds((s) => { const n = new Set(s); n.delete(recId); return n; });
       toast.error("Failed to reset approval");
     }
-  }, [token, cutoffId, findRecord, isBNC, otBasis, refreshOTBlocks]);
+  }, [token, cutoffId, findRecord, refreshApprovals]);
 
   const doSetPunchType = useCallback(async (recId, targetType) => {
     const prevType = localPunchType[recId];
@@ -2219,7 +2442,7 @@ export default function CutoffReview({ cutoffId }) {
       const rec = findRecord(recId);
       if (!rec) return;
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/cutoff-periods/${cutoffId}/approvals/${rec.id}/punch-type`,
+        `${process.env.NEXT_PUBLIC_API_URL}/api/cutoff-periods/${cutoffId}/approvals/${rec.id}/set-punch-type`,
         {
           method: "PATCH",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -2227,7 +2450,11 @@ export default function CutoffReview({ cutoffId }) {
         }
       );
       if (!res.ok) throw new Error();
+      const data = await res.json();
       toast.success(targetType === "TRAINING" ? "Punch marked as Training" : "Punch marked as Regular");
+      if (targetType === "TRAINING" && (data.data?.excludedSegmentCount ?? 0) > 0) {
+        await refreshApprovals(recId);
+      }
     } catch {
       setLocalPunchType((s) => {
         const n = { ...s };
@@ -2236,7 +2463,7 @@ export default function CutoffReview({ cutoffId }) {
       });
       toast.error("Failed to update punch type");
     }
-  }, [token, cutoffId, findRecord, localPunchType]);
+  }, [token, cutoffId, findRecord, localPunchType, refreshApprovals]);
 
   const doSetPunchTypeForDate = useCallback(async (date, targetType) => {
     // Collect all eligible records for this date across ALL employees
@@ -2268,13 +2495,13 @@ export default function CutoffReview({ cutoffId }) {
     const results = await Promise.allSettled(
       targets.map((rec) =>
         fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/api/cutoff-periods/${cutoffId}/approvals/${rec.id}/punch-type`,
+          `${process.env.NEXT_PUBLIC_API_URL}/api/cutoff-periods/${cutoffId}/approvals/${rec.id}/set-punch-type`,
           {
             method: "PATCH",
             headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
             body: JSON.stringify({ punchType: targetType }),
           }
-        ).then((r) => { if (!r.ok) throw new Error(); })
+        ).then(async (r) => { if (!r.ok) throw new Error(); return r.json(); })
       )
     );
 
@@ -2293,8 +2520,12 @@ export default function CutoffReview({ cutoffId }) {
           ? `${targets.length} punch(es) on ${date} marked as Training`
           : `${targets.length} punch(es) on ${date} reset to Regular`
       );
+      const anyExcluded = targetType === "TRAINING" && results.some(
+        (r) => r.status === "fulfilled" && (r.value?.data?.excludedSegmentCount ?? 0) > 0
+      );
+      if (anyExcluded) await refreshApprovals(targets[0]?.id);
     }
-  }, [token, cutoffId, mergedEmployees]);
+  }, [token, cutoffId, mergedEmployees, refreshApprovals]);
 
   const confirmFinalize = useCallback(async () => {
     setIsSaving(true);
