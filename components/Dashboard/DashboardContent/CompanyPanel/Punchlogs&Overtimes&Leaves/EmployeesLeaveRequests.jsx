@@ -103,6 +103,10 @@ export default function SupervisorLeaveRequests() {
   const [leaveTypes, setLeaveTypes] = useState([]);
   const [matrixLoading, setMatrixLoading] = useState(false);
 
+  // Per-request balance fetched when approval dialog opens
+  const [actionBalance, setActionBalance] = useState([]); // [{ leaveType, balanceHours, usedHours }]
+  const [actionBalanceLoading, setActionBalanceLoading] = useState(false);
+
   const matrixByEmail = useMemo(() => {
     const map = {};
     leaveMatrix.forEach((row) => { if (row.email) map[row.email.toLowerCase()] = row; });
@@ -291,7 +295,20 @@ export default function SupervisorLeaveRequests() {
     setComment("");
     setRequireSecondApproval(false);
     setEscalateTo("");
+    setActionBalance([]);
   };
+
+  useEffect(() => {
+    if (!actionDialog.open || !actionDialog.request || !token) return;
+    const userId = actionDialog.request.requester?.id || actionDialog.request.User?.id;
+    if (!userId) return;
+    setActionBalanceLoading(true);
+    fetch(`${API_URL}/api/leaves/balances?userId=${userId}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.ok ? r.json() : Promise.reject())
+      .then((data) => setActionBalance(Array.isArray(data.data) ? data.data : []))
+      .catch(() => setActionBalance([]))
+      .finally(() => setActionBalanceLoading(false));
+  }, [actionDialog.open, actionDialog.request, token]);
 
   const handleAction = async () => {
     if (!actionDialog.request || !actionDialog.type) return;
@@ -1124,7 +1141,7 @@ export default function SupervisorLeaveRequests() {
                       return (
                         <>
                           <div className="flex justify-between"><span className="text-muted-foreground">Days:</span><span className="font-medium">{d}</span></div>
-                          <div className="flex justify-between"><span className="font-semibold text-orange-700 dark:text-orange-300">Total Hours:</span><span className="font-bold text-orange-600">{d * 8}h</span></div>
+                          <div className="flex justify-between"><span className="font-semibold text-orange-700 dark:text-orange-300">Total Hours:</span><span className="font-bold text-orange-600">{actionDialog.request.requestedHours ?? (d * 8)}h</span></div>
                         </>
                       );
                     })()}
@@ -1135,16 +1152,17 @@ export default function SupervisorLeaveRequests() {
 
             {/* Credit balance for the requested leave type */}
             {actionDialog.request && (() => {
-              const email = (actionDialog.request.requester?.email || actionDialog.request.User?.email || "").toLowerCase();
-              const row   = matrixByEmail[email];
               const type  = actionDialog.request.leaveType;
-              const bal   = row?.balances?.[type];
-              if (!bal && !matrixLoading) return null;
+              const entry = actionBalance.find((e) => e.leaveType === type);
+              if (!entry && !actionBalanceLoading) return null;
               const s = toLocalDate(actionDialog.request.startDate);
               const e = toLocalDate(actionDialog.request.endDate);
               const days = Math.floor((e - s) / 86400000) + 1;
-              const requestedHours = days * 8;
-              const willExceed = bal && bal.available < requestedHours;
+              const requestedHours = actionDialog.request.requestedHours ?? (days * 8);
+              const used       = entry ? Number(entry.usedHours)    : 0;
+              const left       = entry ? Number(entry.balanceHours) : 0;
+              const total      = used + left;
+              const willExceed = entry && left < requestedHours;
               return (
                 <div className={`p-4 rounded-md border ${willExceed ? "bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800" : "bg-purple-50 border-purple-200 dark:bg-purple-900/20 dark:border-purple-800"}`}>
                   <div className="flex items-center justify-between mb-2">
@@ -1154,21 +1172,21 @@ export default function SupervisorLeaveRequests() {
                         {type} Balance
                       </div>
                     </div>
-                    {matrixLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+                    {actionBalanceLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
                   </div>
-                  {bal ? (
+                  {entry ? (
                     <div className="space-y-1.5 text-sm">
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Total Credits:</span>
-                        <span className="font-medium">{bal.credits}h</span>
+                        <span className="font-medium">{total}h</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Already Used:</span>
-                        <span className="font-medium text-amber-600">{bal.used}h</span>
+                        <span className="font-medium text-amber-600">{used}h</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Available:</span>
-                        <span className={`font-bold ${bal.available > 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>{bal.available}h</span>
+                        <span className={`font-bold ${left > 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>{left}h</span>
                       </div>
                       <div className="h-px bg-current opacity-10 my-1" />
                       <div className="flex justify-between">
@@ -1178,7 +1196,7 @@ export default function SupervisorLeaveRequests() {
                       {willExceed && (
                         <div className="flex items-center gap-1.5 text-red-600 dark:text-red-400 text-xs mt-1 font-medium">
                           <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
-                          Exceeds available balance by {requestedHours - bal.available}h
+                          Exceeds available balance by {requestedHours - left}h
                         </div>
                       )}
                     </div>
