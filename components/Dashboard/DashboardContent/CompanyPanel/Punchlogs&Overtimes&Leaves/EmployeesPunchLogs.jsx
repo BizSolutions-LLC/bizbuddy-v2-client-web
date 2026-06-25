@@ -275,23 +275,31 @@ const StatusBadge = ({ status }) => (
 const OvertimeBadge = ({ otStatus, overtimeRec, onClick }) => {
   const defs = {
     approved:      "Approved: Extra hours will be paid at overtime rate.",
+    Approved:      "Approved: Period overtime has been reviewed and approved.",
     pending:       "Pending: Awaiting supervisor approval.",
+    Included:      "Included: Overtime has been computed for this period and is pending admin approval.",
     rejected:      "Rejected: Request was denied.",
     "No Approval": "No Approval: Employee worked extra hours without a request.",
     "—":           "No overtime recorded for this shift.",
+    "-":           "No overtime detected for this employee this period.",
   };
-  const variants = { approved: "default", pending: "secondary", rejected: "destructive" };
-  const icons    = {
-    approved: <CheckCircle className="w-3 h-3 mr-1" />,
-    pending:  <AlertCircle className="w-3 h-3 mr-1" />,
-    rejected: <XCircle className="w-3 h-3 mr-1" />,
+  const getConfig = (s) => {
+    switch (s) {
+      case "Approved":
+      case "approved":  return { variant: "default",      icon: <CheckCircle className="w-3 h-3 mr-1" />, cls: "" };
+      case "Included":  return { variant: "outline",      icon: <Clock className="w-3 h-3 mr-1" />,       cls: "bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" };
+      case "pending":   return { variant: "secondary",    icon: <AlertCircle className="w-3 h-3 mr-1" />, cls: "" };
+      case "rejected":  return { variant: "destructive",  icon: <XCircle className="w-3 h-3 mr-1" />,     cls: "" };
+      default:          return { variant: "outline",      icon: <Timer className="w-3 h-3 mr-1" />,       cls: "" };
+    }
   };
+  const { variant, icon, cls } = getConfig(otStatus);
   return (
     <TooltipProvider delayDuration={200}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Badge variant={variants[otStatus] || "outline"} className="cursor-pointer hover:opacity-80 capitalize text-xs" onClick={onClick}>
-            {icons[otStatus] || <Timer className="w-3 h-3 mr-1" />}{otStatus}
+          <Badge variant={variant} className={`cursor-pointer hover:opacity-80 capitalize text-xs ${cls}`} onClick={onClick}>
+            {icon}{otStatus}
           </Badge>
         </TooltipTrigger>
         <TooltipContent className="max-w-xs">
@@ -778,10 +786,12 @@ function enrichTimelogs(rawData, { companyTimezone, isDayCare, otBasis, locMap, 
 
     const otHours = (rawOtMins / 60).toFixed(2);
 
-    let otStatus = "—";
-    if (approvedOTHours > 0) otStatus = `Approved ${approvedOTHours.toFixed(2)}h`;
-    else if (hasPendingOT)   otStatus = "pending";
-    else if (rawOtMins > 0)  otStatus = "No Approval";
+    const otStatus = t.otStatus != null
+      ? t.otStatus
+      : approvedOTHours > 0 ? `Approved ${approvedOTHours.toFixed(2)}h`
+      : hasPendingOT        ? "pending"
+      : rawOtMins > 0       ? "No Approval"
+      : "—";
 
     const periodHours    = t.scheduledHours != null ? parseFloat(t.scheduledHours).toFixed(2) : "0.00";
     const lateHours      = t.lateHours      != null ? parseFloat(t.lateHours).toFixed(2)      : "0.00";

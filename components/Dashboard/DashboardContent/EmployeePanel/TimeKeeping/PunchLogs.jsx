@@ -636,11 +636,12 @@ export default function PunchLogs() {
       const otHours    = (rawOtMins / 60).toFixed(2);
 
       // OT status display
-      let otStatus;
-      if (approvedOTHours > 0) otStatus = `Approved ${approvedOTHours.toFixed(2)}h`;
-      else if (hasPendingOT)   otStatus = "Pending";
-      else if (otEligible)     otStatus = "No Approval";
-      else                     otStatus = "—";
+      const otStatus = log.otStatus != null
+        ? log.otStatus
+        : approvedOTHours > 0 ? `Approved ${approvedOTHours.toFixed(2)}h`
+        : hasPendingOT        ? "Pending"
+        : otEligible          ? "No Approval"
+        : "—";
 
       // ── Schedule for this day — for "View Schedule" dialog & DA hints ──────
       const logDate = log.timeIn ? toLocalDateStr(log.timeIn, companyTimezone) : null;
@@ -866,11 +867,12 @@ export default function PunchLogs() {
       const periodHours = log.scheduledHours != null ? parseFloat(log.scheduledHours).toFixed(2) : "0.00";
 
       const otHours = (rawOtMins / 60).toFixed(2);
-      let otStatus;
-      if (approvedOTHours > 0) otStatus = `Approved ${approvedOTHours.toFixed(2)}h`;
-      else if (hasPendingOT)   otStatus = "Pending";
-      else if (rawOtMins > 0)  otStatus = "No Approval";
-      else                     otStatus = "—";
+      const otStatus = log.otStatus != null
+        ? log.otStatus
+        : approvedOTHours > 0 ? `Approved ${approvedOTHours.toFixed(2)}h`
+        : hasPendingOT        ? "Pending"
+        : rawOtMins > 0       ? "No Approval"
+        : "—";
 
       const driverAideAMHours  = isAnyDA ? (log.driverAmSegmentHours ?? null) : null;
       const regularHoursForLog = isAnyDA ? (log.regularSegmentHours  ?? null) : null;
@@ -1483,6 +1485,22 @@ export default function PunchLogs() {
                               <span className="text-muted-foreground">OT Hours</span>
                               <span className={parseFloat(selectedLogV3.otHours) > 0 ? "font-semibold text-orange-600" : ""}>{selectedLogV3.otHours}h</span>
                             </div>
+                            {isDayCare && selectedLogV3.otStatus != null && (
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="text-muted-foreground">OT Status</span>
+                                {selectedLogV3.otStatus === "Approved" ? (
+                                  <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                                    <CheckCircle className="h-3 w-3" />Approved
+                                  </span>
+                                ) : selectedLogV3.otStatus === "Included" ? (
+                                  <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                                    <Clock className="h-3 w-3" />Included
+                                  </span>
+                                ) : (
+                                  <span className="text-muted-foreground">—</span>
+                                )}
+                              </div>
+                            )}
                             {selectedLogV3.otStatus === "No Approval" && (
                               <Button
                                 size="sm"
