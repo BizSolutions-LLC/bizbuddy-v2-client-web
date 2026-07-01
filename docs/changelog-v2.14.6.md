@@ -1,6 +1,6 @@
 # Changelog — v2.14.6
 
-Leave Credits Management in Company Configurations fully redesigned — modal-based adjustment flow and a new accordion-style employee view replacing the old horizontal matrix table. DayCare punch log CSV export now includes an OT column.
+Leave Credits Management in Company Configurations fully redesigned — modal-based adjustment flow and a new accordion-style employee view replacing the old horizontal matrix table. DayCare punch log CSV export now includes an OT column. Also fixes an off-by-one date bug on the company Punch Log Requests approval card.
 
 ---
 
@@ -106,10 +106,28 @@ The DayCare CSV export had no OT column. Overtime hours were not visible in the 
 
 ---
 
+## Punch Log Requests — Approval Card Date Off-By-One
+
+**Status:** Shipped (client only).
+
+**Page:** `/dashboard/company/punch-logs` → Punch Log Requests Pending Approval
+
+**File:** `components/Dashboard/DashboardContent/CompanyPanel/Punchlogs&Overtimes&Leaves/EmployeesPunchLogs.jsx`
+
+**Problem:**
+
+The pending approval card showed the requested date one day earlier than what the employee actually submitted (e.g. employee requests Jun 15, admin sees Jun 14). `req.requestedDate` is a date-only value (no time component), but it was formatted with `safeDate(d, companyTimezone)`, which does `new Date(d)` — parsed as UTC midnight — and then converts into the company's timezone. For any timezone behind UTC (e.g. `America/Los_Angeles`), that conversion rolls the date back by one day. The reject-request dialog had the same issue.
+
+**Fix:**
+
+Added `safeCalendarDate`, which parses the date's Y/M/D parts directly, pins them to noon UTC, and formats in UTC — avoiding any timezone-driven shift. Used it for `req.requestedDate` in both the approval card and the reject dialog, in place of `safeDate(..., companyTimezone)`.
+
+---
+
 ## Files Changed
 
 | File | Changes |
 |---|---|
 | `components/Dashboard/DashboardContent/CompanyPanel/Settings/CompanyConfigurations.jsx` | Added `AdjustCreditsModal` + `LeaveCreditsAccordionCard` components; removed `LeaveAdminCard`; added avatar helpers (`avatarColor`, `avatarInitials`, `AVATAR_COLORS`) |
 | `lib/exports/employeePunchLogs.js` | Added `cutoffOtThreshold` param; pre-sum `netWorkedHours` before deduplication; added OT column to DayCare CSV header, data rows, and grand total |
-| `components/Dashboard/DashboardContent/CompanyPanel/Punchlogs&Overtimes&Leaves/EmployeesPunchLogs.jsx` | Passes `cutoffOtThreshold` into the CSV export call |
+| `components/Dashboard/DashboardContent/CompanyPanel/Punchlogs&Overtimes&Leaves/EmployeesPunchLogs.jsx` | Passes `cutoffOtThreshold` into the CSV export call; added `safeCalendarDate` helper and used it for `requestedDate` in the approval card and reject dialog to fix an off-by-one date bug |
