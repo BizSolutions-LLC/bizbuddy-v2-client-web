@@ -77,6 +77,12 @@ const fmtLastFirst = (firstName = "", lastName = "") => {
 
 const safeDate = (d, timezone = "UTC") =>
   d ? new Date(d).toLocaleDateString("en-US", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: timezone }) : "—";
+// For date-only values (e.g. a requested calendar date) — avoids off-by-one shifts from converting midnight UTC into a behind-UTC timezone.
+const safeCalendarDate = (d) => {
+  if (!d) return "—";
+  const [y, m, day] = d.slice(0, 10).split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, day, 12)).toLocaleDateString("en-US", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: "UTC" });
+};
 const safeTime = (d, timezone = "UTC") =>
   d ? new Date(d).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: timezone }) : "—";
 const safeDateTime = (d, timezone = "UTC") =>
@@ -2027,7 +2033,7 @@ export default function EmployeesPunchLogs() {
                                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                                     <div className="space-y-1">
                                       <div className="text-xs text-muted-foreground flex items-center gap-1"><Calendar className="h-3 w-3" />Date</div>
-                                      <div className="font-medium">{safeDate(req.requestedDate, companyTimezone)}</div>
+                                      <div className="font-medium">{safeCalendarDate(req.requestedDate)}</div>
                                     </div>
                                     <div className="space-y-1">
                                       <div className="text-xs text-muted-foreground flex items-center gap-1"><Clock className="h-3 w-3" />Time In</div>
@@ -2741,7 +2747,7 @@ export default function EmployeesPunchLogs() {
             <div className="space-y-4">
               <div className="p-3 bg-muted rounded-lg space-y-2 text-sm">
                 <div><span className="font-medium">Employee:</span> {rejectingRequest.userDisplayName}</div>
-                <div><span className="font-medium">Date:</span> {safeDate(rejectingRequest.requestedDate)}</div>
+                <div><span className="font-medium">Date:</span> {safeCalendarDate(rejectingRequest.requestedDate)}</div>
                 <div><span className="font-medium">Time:</span> {safeTime(rejectingRequest.requestedClockIn)} - {safeTime(rejectingRequest.requestedClockOut)}</div>
               </div>
               <div className="space-y-2">
