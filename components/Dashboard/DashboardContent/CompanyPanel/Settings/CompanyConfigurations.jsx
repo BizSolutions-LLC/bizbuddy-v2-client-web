@@ -1775,148 +1775,505 @@ function LeaveTypesCard({ API, token, policies, reload }) {
   );
 }
 
-// ── Leave Credits Card ───────────────────────────────────────────────────────
-function LeaveAdminCard({ token, API, leaveTypes, matrix, loadingMatrix, errorMessage, reload }) {
-  const [userId,   setUserId]   = useState("");
-  const [typesSel, setTypesSel] = useState([]);
-  const [hours,    setHours]    = useState("");
-  const [saving,   setSaving]   = useState(false);
+// ── Adjust Credits Modal ──────────────────────────────────────────────────────
+function AdjustCreditsModal({ open, onClose, token, API, leaveTypes, matrix, onSuccess }) {
+  const [empSearch,      setEmpSearch]      = useState("");
+  const [empOpen,        setEmpOpen]        = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState("");
+  const [selectedTypes,  setSelectedTypes]  = useState([]);
+  const [direction,      setDirection]      = useState("add"); // "add" | "subtract"
+  const [amount,         setAmount]         = useState("");
+  const [saving,         setSaving]         = useState(false);
 
-  useEffect(() => setTypesSel(leaveTypes), [leaveTypes]);
-  const toggleType = (t) => setTypesSel((p) => p.includes(t) ? p.filter((x) => x !== t) : [...p, t]);
+  useEffect(() => {
+    if (open) {
+      setSelectedUserId("");
+      setSelectedTypes([...leaveTypes]);
+      setDirection("add");
+      setAmount("");
+      setEmpSearch("");
+      setEmpOpen(false);
+    }
+  }, [open]);
 
-  const userOptions = matrix.map((r) => ({ value: r.userId, label: `${r.fullName} (${r.email})` }));
+  const selectedEmployee = matrix.find((r) => String(r.userId) === selectedUserId);
+
+  const filteredEmployees = empSearch
+    ? matrix.filter((r) =>
+        r.fullName.toLowerCase().includes(empSearch.toLowerCase()) ||
+        r.email.toLowerCase().includes(empSearch.toLowerCase())
+      )
+    : matrix;
+
+  const toggleType = (t) =>
+    setSelectedTypes((p) => (p.includes(t) ? p.filter((x) => x !== t) : [...p, t]));
+
+  const allSelected = leaveTypes.length > 0 && selectedTypes.length === leaveTypes.length;
+
+  const numAmount  = parseFloat(amount) || 0;
+  const finalHours = direction === "add" ? numAmount : -numAmount;
+  const isValid    = selectedUserId && numAmount > 0 && selectedTypes.length > 0;
 
   // API: POST /api/leave-balances/adjust
   const applyAdjust = async () => {
-    const hrs = Number(hours);
-    if (!userId || hrs === 0 || isNaN(hrs)) { toast.error("Select employee and enter hours ≠ 0"); return; }
-    if (!typesSel.length) { toast.error("Choose at least one leave type"); return; }
+    if (!isValid) return;
     setSaving(true);
     try {
       const r = await fetch(`${API}/api/leave-balances/adjust`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ targetUserId: userId, leaveTypes: typesSel, hours: hrs }),
+        body: JSON.stringify({ targetUserId: selectedUserId, leaveTypes: selectedTypes, hours: finalHours }),
       });
       const j = await r.json();
-      if (r.ok) { toast.success("Balances adjusted!"); setHours(""); reload(); }
-      else toast.error(j.message || "Failed to adjust");
+      if (r.ok) {
+        toast.success(
+          `${direction === "add" ? "Added" : "Subtracted"} ${numAmount}h across ${selectedTypes.length} leave type${selectedTypes.length !== 1 ? "s" : ""}`
+        );
+        onSuccess();
+        onClose();
+      } else {
+        toast.error(j.message || "Failed to adjust");
+      }
     } catch { toast.error("Network error"); }
     setSaving(false);
   };
 
   return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v && !saving) onClose(); }}>
+      <DialogContent className="sm:max-w-lg overflow-hidden">
+        <div className="h-[3px] bg-gradient-to-r from-orange-500 via-red-400 to-orange-500 -mt-6 mb-4 -mx-6" />
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <span className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center">
+              <Award className="w-4 h-4 text-orange-600" />
+            </span>
+            Adjust Leave Credits
+          </DialogTitle>
+          <DialogDescription>
+            Select an employee, choose which leave types to adjust, then add or subtract hours.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-5 max-h-[62vh] overflow-y-auto pr-1">
+
+          {/* ── Step 1: Employee ── */}
+          <div className="space-y-2">
+            <label className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 flex items-center gap-1.5">
+              <User className="w-3.5 h-3.5 text-orange-500" /> Employee
+            </label>
+            <Popover open={empOpen} onOpenChange={setEmpOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="w-full flex items-center justify-between h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                >
+                  {selectedEmployee ? (
+                    <span className="font-semibold truncate">{selectedEmployee.fullName}</span>
+                  ) : (
+                    <span className="text-muted-foreground">Search and select an employee…</span>
+                  )}
+                  <ChevronDown className="w-4 h-4 text-neutral-400 ml-2 flex-shrink-0" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="p-0 w-[var(--radix-popover-trigger-width)]" align="start">
+                <div className="p-2 border-b">
+                  <Input
+                    placeholder="Search by name or email…"
+                    value={empSearch}
+                    onChange={(e) => setEmpSearch(e.target.value)}
+                    className="h-8 text-sm"
+                    autoFocus
+                  />
+                </div>
+                <ScrollArea className="h-52">
+                  {filteredEmployees.length === 0 ? (
+                    <div className="text-sm text-neutral-400 py-4 text-center">No employees found</div>
+                  ) : (
+                    filteredEmployees.map((r) => (
+                      <button
+                        key={r.userId}
+                        type="button"
+                        onClick={() => {
+                          setSelectedUserId(String(r.userId));
+                          setEmpSearch("");
+                          setEmpOpen(false);
+                        }}
+                        className={`w-full text-left px-3 py-2.5 text-sm hover:bg-orange-50 dark:hover:bg-orange-950/20 transition-colors flex items-center justify-between gap-2 ${
+                          String(r.userId) === selectedUserId ? "bg-orange-50 dark:bg-orange-950/20" : ""
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <p className="font-semibold text-sm truncate">{r.fullName}</p>
+                          <p className="text-xs text-neutral-400 truncate">{r.email}</p>
+                        </div>
+                        {String(r.userId) === selectedUserId && (
+                          <Check className="w-4 h-4 text-orange-500 flex-shrink-0" />
+                        )}
+                      </button>
+                    ))
+                  )}
+                </ScrollArea>
+              </PopoverContent>
+            </Popover>
+
+            {selectedEmployee && (
+              <div className="flex items-center gap-3 p-3 rounded-xl bg-orange-50 border border-orange-200">
+                <div className="w-9 h-9 rounded-full bg-orange-200 flex items-center justify-center font-bold text-orange-700 text-sm flex-shrink-0">
+                  {selectedEmployee.fullName?.charAt(0)?.toUpperCase() || "?"}
+                </div>
+                <div>
+                  <p className="font-semibold text-sm text-orange-900">{selectedEmployee.fullName}</p>
+                  <p className="text-xs text-orange-600">{selectedEmployee.email}</p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── Step 2: Leave Types ── */}
+          {selectedUserId && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-orange-500" /> Leave Types
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setSelectedTypes(allSelected ? [] : [...leaveTypes])}
+                  className="text-xs font-semibold text-orange-600 hover:text-orange-800 transition-colors"
+                >
+                  {allSelected ? "Clear all" : "Select all"}
+                </button>
+              </div>
+              <div className="space-y-1.5">
+                {leaveTypes.map((t) => {
+                  const cell      = selectedEmployee?.balances?.[t];
+                  const isChecked = selectedTypes.includes(t);
+                  const newAvail  = cell ? Math.max((cell.available ?? 0) + (isChecked ? finalHours : 0), 0) : null;
+
+                  return (
+                    <div
+                      key={t}
+                      onClick={() => toggleType(t)}
+                      className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all select-none ${
+                        isChecked
+                          ? "border-orange-300 bg-orange-50 dark:bg-orange-950/20"
+                          : "border-neutral-200 bg-white dark:bg-neutral-900 hover:border-orange-200"
+                      }`}
+                    >
+                      <Checkbox
+                        checked={isChecked}
+                        onCheckedChange={() => toggleType(t)}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold truncate">{t}</p>
+                        {cell && (
+                          <div className="flex items-center gap-2.5 mt-0.5">
+                            <span className="text-[10px] font-mono font-semibold text-green-600">Credits: {cell.credits.toFixed(1)}h</span>
+                            <span className="text-[10px] font-mono font-semibold text-red-500">Used: {cell.used.toFixed(1)}h</span>
+                            <span className="text-[10px] font-mono font-semibold text-blue-600">Available: {cell.available.toFixed(1)}h</span>
+                          </div>
+                        )}
+                      </div>
+                      {/* Preview after adjustment */}
+                      {isChecked && numAmount > 0 && newAvail !== null && (
+                        <div className="text-right flex-shrink-0">
+                          <p className="text-[9px] text-neutral-400 uppercase tracking-wide">After</p>
+                          <p className={`text-xs font-bold font-mono ${direction === "add" ? "text-green-600" : "text-red-500"}`}>
+                            {newAvail.toFixed(1)}h
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ── Step 3: Direction + Amount ── */}
+          {selectedUserId && selectedTypes.length > 0 && (
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 flex items-center gap-1.5">
+                <Timer className="w-3.5 h-3.5 text-orange-500" /> Adjustment
+              </label>
+              <div className="flex gap-2 items-center">
+                {/* Add / Subtract toggle */}
+                <div className="flex rounded-lg border border-neutral-200 overflow-hidden flex-shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setDirection("add")}
+                    className={`px-4 py-2 text-sm font-bold transition-colors focus:outline-none ${
+                      direction === "add"
+                        ? "bg-green-500 text-white"
+                        : "bg-white text-neutral-500 hover:bg-green-50 dark:bg-neutral-900 dark:text-neutral-400"
+                    }`}
+                  >
+                    + Add
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDirection("subtract")}
+                    className={`px-4 py-2 text-sm font-bold transition-colors focus:outline-none ${
+                      direction === "subtract"
+                        ? "bg-red-500 text-white"
+                        : "bg-white text-neutral-500 hover:bg-red-50 dark:bg-neutral-900 dark:text-neutral-400"
+                    }`}
+                  >
+                    − Subtract
+                  </button>
+                </div>
+                <Input
+                  type="number"
+                  min="0.25"
+                  step="0.25"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="0.00"
+                  className="font-mono text-base font-bold flex-1"
+                />
+                <span className="text-sm text-neutral-400 font-medium flex-shrink-0">hrs</span>
+              </div>
+              {numAmount > 0 && (
+                <p className={`text-xs font-semibold ${direction === "add" ? "text-green-600" : "text-red-500"}`}>
+                  {direction === "add" ? "+" : "−"}{numAmount.toFixed(2)} hours applied to {selectedTypes.length} leave type{selectedTypes.length !== 1 ? "s" : ""}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2 pt-2">
+          <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button
+            onClick={applyAdjust}
+            disabled={saving || !isValid}
+            className={`text-white ${direction === "add" ? "bg-green-500 hover:bg-green-600" : "bg-red-500 hover:bg-red-600"}`}
+          >
+            {saving ? (
+              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+            ) : direction === "add" ? (
+              <Plus className="w-4 h-4 mr-2" />
+            ) : (
+              <span className="mr-1.5 font-bold text-base leading-none">−</span>
+            )}
+            {direction === "add" ? "Add" : "Subtract"} Credits
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Leave Credits Card ───────────────────────────────────────────────────────
+// ── Leave Credits Accordion ──────────────────────────────────────────────────
+const AVATAR_COLORS = [
+  "bg-blue-200   text-blue-700",
+  "bg-green-200  text-green-700",
+  "bg-orange-200 text-orange-700",
+  "bg-purple-200 text-purple-700",
+  "bg-pink-200   text-pink-700",
+  "bg-teal-200   text-teal-700",
+  "bg-amber-200  text-amber-700",
+  "bg-red-200    text-red-700",
+];
+function avatarColor(name = "") {
+  return AVATAR_COLORS[(name.charCodeAt(0) || 0) % AVATAR_COLORS.length];
+}
+function avatarInitials(name = "") {
+  const parts = name.trim().split(/\s+/);
+  return parts.length === 1
+    ? parts[0].charAt(0).toUpperCase()
+    : (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+}
+
+function LeaveCreditsAccordionCard({ token, API, matrix, leaveTypes, loadingMatrix, errorMessage, reload }) {
+  const [expandedIds, setExpandedIds] = useState(new Set());
+  const [search,      setSearch]      = useState("");
+  const [adjustOpen,  setAdjustOpen]  = useState(false);
+
+  const toggle = (userId) =>
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      next.has(userId) ? next.delete(userId) : next.add(userId);
+      return next;
+    });
+
+  const filtered = search
+    ? matrix.filter((r) =>
+        r.fullName.toLowerCase().includes(search.toLowerCase()) ||
+        r.email.toLowerCase().includes(search.toLowerCase())
+      )
+    : matrix;
+
+  return (
+    <>
+      <AdjustCreditsModal
+        open={adjustOpen}
+        onClose={() => setAdjustOpen(false)}
+        token={token}
+        API={API}
+        leaveTypes={leaveTypes}
+        matrix={matrix}
+        onSuccess={reload}
+      />
     <Card className="border-[1.5px] shadow-md overflow-hidden">
       <CardStripe />
       <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2.5 text-[15px] font-extrabold">
-          <SectionIcon icon={Award} color="purple" />
-          Leave Credits Management
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-5">
-        {/* Adjustment controls */}
-        <div className="bg-orange-50 border border-orange-200 rounded-xl p-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
-            <div className="space-y-1.5">
-              <label className="text-sm font-semibold flex items-center gap-1.5 text-neutral-700">
-                <User className="w-3.5 h-3.5 text-orange-500" /> Employee
-              </label>
-              <Select value={userId} onValueChange={setUserId}>
-                <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
-                <SelectContent className="max-h-60">
-                  {userOptions.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-semibold flex items-center gap-1.5 text-neutral-700">
-                <CheckSquare className="w-3.5 h-3.5 text-orange-500" /> Leave Types
-              </label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full justify-start text-sm">
-                    {typesSel.length === leaveTypes.length && leaveTypes.length ? "All types" : typesSel.length ? `${typesSel.length} selected` : "Select leave types"}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-60">
-                  <div className="space-y-2">
-                    {leaveTypes.map((t) => (
-                      <div key={t} className="flex items-center gap-2">
-                        <Checkbox checked={typesSel.includes(t)} onCheckedChange={() => toggleType(t)} />
-                        <label className="text-sm">{t}</label>
-                      </div>
-                    ))}
-                  </div>
-                </PopoverContent>
-              </Popover>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-semibold flex items-center gap-1.5 text-neutral-700">
-                <Timer className="w-3.5 h-3.5 text-orange-500" /> Adjust Hours (±)
-              </label>
-              <Input type="number" step="0.25" value={hours} onChange={(e) => setHours(e.target.value)} placeholder="e.g. +8 or -4" className="font-mono" />
-            </div>
-            <Button onClick={applyAdjust} disabled={saving || loadingMatrix} className="bg-orange-500 hover:bg-orange-600 text-white">
-              {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CheckSquare className="w-4 h-4 mr-2" />} Apply
-            </Button>
-          </div>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <CardTitle className="flex items-center gap-2.5 text-[15px] font-extrabold">
+            <SectionIcon icon={Award} color="orange" />
+            Leave Credits Management
+          </CardTitle>
+          <Button
+            onClick={() => setAdjustOpen(true)}
+            disabled={loadingMatrix || leaveTypes.length === 0}
+            className="bg-orange-500 hover:bg-orange-600 text-white text-sm"
+          >
+            <Edit3 className="w-4 h-4 mr-1.5" /> Adjust Credits
+          </Button>
         </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {!loadingMatrix && matrix.length > 0 && (
+          <Input
+            placeholder="Search employee by name or email…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-9 text-sm max-w-sm"
+          />
+        )}
 
-        {/* Matrix table */}
         {loadingMatrix ? (
-          <div className="space-y-2">{[1,2,3].map((i) => <Skeleton key={i} className="h-10" />)}</div>
+          <div className="space-y-2">{[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-16 rounded-xl" />)}</div>
         ) : errorMessage ? (
           <div className="flex items-center justify-center gap-2 text-red-500 py-10">
             <AlertCircle className="w-5 h-5" /> {errorMessage}
           </div>
-        ) : matrix.length === 0 ? (
-          <p className="text-center text-neutral-400 py-10">No leave balance data available</p>
+        ) : filtered.length === 0 ? (
+          <p className="text-center text-neutral-400 py-10">
+            {search ? "No employees match your search" : "No leave balance data available"}
+          </p>
         ) : (
-          <div className="border rounded-xl overflow-hidden">
-            <ScrollArea className="h-96">
-              <Table>
-                <TableHeader className="sticky top-0 bg-neutral-50 dark:bg-neutral-800 z-10">
-                  <TableRow>
-                    <TableHead className="font-bold text-xs uppercase tracking-wide">Employee</TableHead>
-                    <TableHead className="font-bold text-xs uppercase tracking-wide">Email</TableHead>
-                    {leaveTypes.map((t) => (
-                      <TableHead key={t} className="text-center font-bold text-xs uppercase tracking-wide">
-                        <div>{t}</div>
-                        <div className="flex justify-center gap-3 text-[10px] font-normal text-neutral-400 mt-0.5">
-                          <span>Credits</span><span>Used</span><span>Avail</span>
-                        </div>
-                      </TableHead>
-                    ))}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {matrix.map((row) => (
-                    <TableRow key={row.userId} className="hover:bg-neutral-50/70">
-                      <TableCell className="font-semibold text-sm">{row.fullName}</TableCell>
-                      <TableCell className="text-neutral-400 text-xs">{row.email}</TableCell>
-                      {leaveTypes.map((t) => {
-                        const cell = row.balances[t];
-                        return (
-                          <TableCell key={t} className="text-center">
-                            <div className="inline-flex gap-3 bg-neutral-100 rounded-lg px-2.5 py-1 font-mono text-xs font-semibold">
-                              <span className="text-green-600">{cell?.credits?.toFixed(2) ?? "0.00"}</span>
-                              <span className="text-red-500">{cell?.used?.toFixed(2)    ?? "0.00"}</span>
-                              <span className="text-blue-600">{cell?.available?.toFixed(2) ?? "0.00"}</span>
-                            </div>
-                          </TableCell>
-                        );
-                      })}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </ScrollArea>
+          <div className="space-y-2">
+            {filtered.map((row) => {
+              const isOpen       = expandedIds.has(row.userId);
+              const totalCredits = leaveTypes.reduce((s, t) => s + (row.balances[t]?.credits || 0), 0);
+              const depletedCount = leaveTypes.filter((t) => {
+                const b = row.balances[t];
+                return b && b.credits > 0 && b.available === 0;
+              }).length;
+
+              return (
+                <div key={row.userId} className="border border-neutral-200 dark:border-neutral-700 rounded-xl overflow-hidden">
+
+                  {/* ── Employee header row ── */}
+                  <button
+                    type="button"
+                    onClick={() => toggle(row.userId)}
+                    className="w-full flex items-center gap-3 px-4 py-3.5 bg-white dark:bg-neutral-900 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors text-left"
+                  >
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0 ${avatarColor(row.fullName)}`}>
+                      {avatarInitials(row.fullName)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm text-neutral-800 dark:text-neutral-100 truncate">{row.fullName}</p>
+                      <p className="text-xs text-neutral-400 truncate">{row.email}</p>
+                    </div>
+                    <div className="flex items-center gap-2.5 flex-shrink-0">
+                      {depletedCount > 0 && (
+                        <span className="flex items-center gap-1 text-xs font-semibold text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-0.5">
+                          <AlertCircle className="w-3 h-3" /> {depletedCount} depleted
+                        </span>
+                      )}
+                      <span className="text-sm text-neutral-400 font-medium">
+                        {totalCredits === 0 ? "No credits allocated" : `${totalCredits.toLocaleString()} total credits`}
+                      </span>
+                      <ChevronDown className={`w-4 h-4 text-neutral-400 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`} />
+                    </div>
+                  </button>
+
+                  {/* ── Expanded: leave type breakdown ── */}
+                  {isOpen && (
+                    <div className="border-t border-neutral-200 dark:border-neutral-700">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="bg-neutral-50 dark:bg-neutral-800/60">
+                            <th className="text-left   px-4 py-2.5 text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">Leave Type</th>
+                            <th className="text-right  px-4 py-2.5 text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">Credits</th>
+                            <th className="text-right  px-4 py-2.5 text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">Used</th>
+                            <th className="text-right  px-4 py-2.5 text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">Avail</th>
+                            <th className="text-right  px-4 py-2.5 text-[11px] font-semibold text-neutral-400 uppercase tracking-wider w-36">Balance</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {leaveTypes.map((t) => {
+                            const cell    = row.balances[t];
+                            const credits = cell?.credits   || 0;
+                            const used    = cell?.used      || 0;
+                            const avail   = cell?.available || 0;
+
+                            const notAllocated = credits === 0;
+                            const depleted     = credits > 0 && avail === 0;
+                            const pct          = credits > 0 ? Math.round((avail / credits) * 100) : 0;
+
+                            const barColor  = depleted  ? "bg-red-400"
+                                            : pct < 50  ? "bg-orange-400"
+                                            :              "bg-green-500";
+                            const pctColor  = depleted  ? "text-red-500"
+                                            : pct < 50  ? "text-orange-500"
+                                            :              "text-neutral-500";
+                            const availClass = depleted
+                              ? "text-red-500 font-bold"
+                              : "text-neutral-700 dark:text-neutral-200 font-bold";
+
+                            return (
+                              <tr
+                                key={t}
+                                className="border-t border-neutral-100 dark:border-neutral-800 hover:bg-neutral-50/60 dark:hover:bg-neutral-800/30 transition-colors"
+                              >
+                                <td className="px-4 py-3 text-sm text-neutral-700 dark:text-neutral-200">{t}</td>
+                                <td className="px-4 py-3 text-right font-mono text-sm text-neutral-500">
+                                  {notAllocated ? <span className="text-neutral-300">—</span> : credits}
+                                </td>
+                                <td className="px-4 py-3 text-right font-mono text-sm text-neutral-500">
+                                  {notAllocated ? <span className="text-neutral-300">—</span> : used}
+                                </td>
+                                <td className={`px-4 py-3 text-right font-mono text-sm ${notAllocated ? "" : availClass}`}>
+                                  {notAllocated ? <span className="text-neutral-300">—</span> : avail}
+                                </td>
+                                <td className="px-4 py-3">
+                                  {notAllocated ? (
+                                    <p className="text-xs text-neutral-300 font-medium text-right">Not allocated</p>
+                                  ) : (
+                                    <div className="flex items-center justify-end gap-2">
+                                      <div className="w-24 h-1.5 rounded-full bg-neutral-200 dark:bg-neutral-700 overflow-hidden">
+                                        <div
+                                          className={`h-full rounded-full ${barColor}`}
+                                          style={{ width: `${pct}%` }}
+                                        />
+                                      </div>
+                                      <span className={`text-xs font-semibold font-mono w-9 text-right tabular-nums ${pctColor}`}>
+                                        {pct}%
+                                      </span>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </CardContent>
     </Card>
+    </>
   );
 }
 
@@ -2401,8 +2758,8 @@ export default function ModernCompanyConfigurations() {
         approvers={approvers} loadingApprovers={loadingApprovers}
       />
       <LeaveTypesCard API={API} token={token} policies={policies} reload={loadData} />
-      <LeaveAdminCard
-        token={token} API={API} leaveTypes={leaveTypes} matrix={matrix}
+      <LeaveCreditsAccordionCard
+        token={token} API={API} matrix={matrix} leaveTypes={leaveTypes}
         loadingMatrix={loadingMatrix} errorMessage={errorMessage} reload={loadData}
       />
     </div>
