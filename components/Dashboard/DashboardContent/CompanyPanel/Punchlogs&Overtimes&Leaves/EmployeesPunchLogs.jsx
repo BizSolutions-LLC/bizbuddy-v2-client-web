@@ -1634,6 +1634,7 @@ export default function EmployeesPunchLogs() {
           data: enriched, companyTimezone, employeeNameMap,
           approvedLeaves, defaultShiftHours: defaultHours,
           fromDate: from, toDate: to,
+          cutoffOtThreshold,
         });
         if (result.success) toast.success(result.filename);
       }
