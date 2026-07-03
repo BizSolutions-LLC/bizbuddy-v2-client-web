@@ -1623,7 +1623,8 @@ export default function EmployeesPunchLogs() {
         const result = await exportEmployeePunchLogsPDF({
           data: enriched, visibleColumns: columns, columnMap: columnMapForExport,
           filters: exportFilters, userTimezone, companyTimezone, isDayCare: freshIsDayCare,
-          bncOtBlocks: freshOtBlocks, bncDailyOtThreshold: freshOtThreshold, employeeNameMap,
+          bncOtBlocks: freshOtBlocks, bncDailyOtThreshold: freshOtThreshold,
+          otBasis, cutoffOtThreshold, employeeNameMap,
         });
         if (result.success) toast.success(result.filename);
       } else if (type === "csv-detail") {
@@ -1631,7 +1632,8 @@ export default function EmployeesPunchLogs() {
         const result = await exportEmployeePunchLogsCSV({
           data: enriched, visibleColumns: columns, columnMap: columnMapForExport,
           filters: exportFilters, userTimezone, companyTimezone, isDayCare: freshIsDayCare,
-          bncOtBlocks: freshOtBlocks, bncDailyOtThreshold: freshOtThreshold, employeeNameMap,
+          bncOtBlocks: freshOtBlocks, bncDailyOtThreshold: freshOtThreshold,
+          otBasis, cutoffOtThreshold, employeeNameMap,
         });
         if (result.success) toast.success(result.filename);
       } else if (type === "csv-payroll") {
