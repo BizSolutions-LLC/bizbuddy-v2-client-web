@@ -3,8 +3,11 @@ import React, { useState, useEffect } from 'react';
 import { toast, Toaster } from 'sonner';
 import Reports from './Reports';
 import Employee from './Employee';
+import EmployeeSheet from './EmployeeSheet';
 import Company from './Company';
 import useAuthStore from "@/store/useAuthStore";
+import { calculateDeductionValue } from '@/lib/payrollCompute';
+import ModalPortal from '@/components/ui/modal-portal';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
@@ -95,8 +98,9 @@ const Payroll = () => {
       const result = await response.json();
   
       if (response.ok && result.data) {
-        setSuggestedCheckNumber(result.data.suggestedCheckNumber);
-        setCheckNumber(result.data.suggestedCheckNumber);
+        const nextCheck = String(result.data.suggestedCheckNumber ?? '');
+        setSuggestedCheckNumber(nextCheck);
+        setCheckNumber(nextCheck);
         
         if (result.data.lastCheckStart) {
           toast.info(`Last payroll used checks ${result.data.lastCheckStart}-${parseInt(result.data.lastCheckStart) + result.data.lastEmployeeCount - 1}`);
@@ -170,8 +174,8 @@ const Payroll = () => {
           const earnings = {};
           etData.forEach((et) => {
             if (et.calculationType === 'flat') {
-              if (et.code === 'salary' && emp.payrollDetails.payType === 'salary') {
-                earnings[et.id] = emp.payrollDetails.payRate.toString();
+              if (et.code === 'salary' && emp.payrollDetails?.payType === 'salary') {
+                earnings[et.id] = emp.payrollDetails.payRate?.toString() ?? '';
               } else {
                 earnings[et.id] = '';
               }
@@ -421,7 +425,11 @@ const Payroll = () => {
     const deductionsBreakdown = {};
 
     deductionTypes.forEach((dt) => {
-      const value = parseDecimal(empPayroll.deductions[dt.id] || '');
+      const value = calculateDeductionValue(
+        dt,
+        empPayroll.deductions[dt.id] || '',
+        grossEarnings
+      );
       deductionsBreakdown[dt.id] = value;
       totalDeductions += value;
     });
@@ -636,8 +644,8 @@ const Payroll = () => {
     employees.forEach((emp) => {
       const earnings = {};
       earningTypes.forEach((et) => {
-        if (et.calculationType === 'flat' && et.code === 'salary' && emp.payrollDetails.payType === 'salary') {
-          earnings[et.id] = emp.payrollDetails.payRate.toString();
+        if (et.calculationType === 'flat' && et.code === 'salary' && emp.payrollDetails?.payType === 'salary') {
+          earnings[et.id] = emp.payrollDetails.payRate?.toString() ?? '';
         } else {
           earnings[et.id] = '';
         }
@@ -757,7 +765,8 @@ const Payroll = () => {
       }
     }
 
-    return empPayroll.earnings[earningType.id] || '';
+    const stored = empPayroll.earnings[earningType.id];
+    return stored === undefined || stored === null ? '' : String(stored);
   };
 
   const isColumnDisabled = (employee, earningType) => {
@@ -825,10 +834,11 @@ const Payroll = () => {
       : 0;
 
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto">
+      <ModalPortal>
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
         
-        <div className="relative bg-white rounded-xl shadow-2xl p-8 w-full max-w-md mx-4 my-8">
+        <div className="relative bg-white rounded-xl shadow-2xl p-8 w-full max-w-md">
           <div className="text-center mb-6">
             <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <svg className="w-8 h-8 text-orange-600 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -885,6 +895,7 @@ const Payroll = () => {
           </p>
         </div>
       </div>
+      </ModalPortal>
     );
   };
 
@@ -897,14 +908,14 @@ const Payroll = () => {
     const empHours = hoursData[employee.id] || {};
 
     return (
-      <div className="fixed inset-0 z-50 overflow-y-auto">
-        <div className="flex min-h-screen items-center justify-center p-4">
+      <ModalPortal>
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 overflow-y-auto">
         <div 
         className="fixed inset-0 bg-black/50 backdrop-blur-sm"
         onClick={closeHoursBreakdown}
         ></div>
         
-          <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+          <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col my-auto">
             <div className="sticky top-0 bg-gradient-to-r from-blue-600 to-blue-700 text-white px-6 py-4 rounded-t-xl flex-shrink-0">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
@@ -1110,8 +1121,8 @@ const Payroll = () => {
               </button>
             </div>
           </div>
-        </div>
       </div>
+      </ModalPortal>
     );
   };
 
@@ -1131,14 +1142,14 @@ const Payroll = () => {
     const netPayAfterTaxes = round2(calculated.netPay - taxes.totalTaxes);
 
     return (
-        <div className="fixed inset-0 z-50 overflow-y-auto">
-          <div className="flex min-h-screen items-center justify-center p-4">
+        <ModalPortal>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 overflow-y-auto">
           <div 
             className="fixed inset-0 bg-black/50 backdrop-blur-sm"
             onClick={closeEmployeeDetail}
           ></div>
         
-          <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+          <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto my-auto">
             <div className="sticky top-0 bg-gradient-to-r from-orange-500 to-orange-600 text-white px-6 py-4 rounded-t-xl">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
@@ -1386,7 +1397,7 @@ const Payroll = () => {
             </div>
           </div>
         </div>
-      </div>
+        </ModalPortal>
     );
   };
 
@@ -1513,7 +1524,8 @@ const Payroll = () => {
                       <div className="flex flex-col">
                         <span>{dt.label}</span>
                         <span className="text-[10px] font-normal text-red-400">
-                          ({dt.isPreTax ? 'Pre-Tax' : 'Post-Tax'})
+                          ({dt.calculationType === 'percent' ? '% of gross' : 'Fixed $'}
+                          {dt.isPreTax ? ' · Pre-Tax' : ''})
                         </span>
                       </div>
                     </th>
@@ -1728,7 +1740,8 @@ const Payroll = () => {
                             type="text"
                             value={payrollData[employee.id]?.deductions[dt.id] || ''}
                             onChange={(e) => handleDeductionChange(employee.id, dt.id, e.target.value)}
-                            placeholder="0.00"
+                            placeholder={dt.calculationType === 'percent' ? '0%' : '0.00'}
+                            title={dt.calculationType === 'percent' ? 'Enter percentage of gross pay' : 'Enter dollar amount'}
                             className="w-20 px-2 py-1 text-sm border border-gray-300 rounded text-right focus:outline-none focus:ring-1 focus:ring-orange-500"
                           />
                         </td>
@@ -2119,14 +2132,19 @@ const Payroll = () => {
                       return (
                         <div key={dt.id} className="text-xs">
                           <div className="flex justify-between items-start mb-1">
-                            <span className="text-gray-600 font-medium">{dt.label}</span>
+                            <span className="text-gray-600 font-medium">
+                              {dt.label}
+                              <span className="text-gray-400 font-normal ml-1">
+                                ({dt.calculationType === 'percent' ? '%' : '$'})
+                              </span>
+                            </span>
                             <span className="text-red-700 font-bold">{formatCurrency(value)}</span>
                           </div>
                           <input
                             type="text"
                             value={inputValue}
                             onChange={(e) => handleDeductionChange(employee.id, dt.id, e.target.value)}
-                            placeholder="0.00"
+                            placeholder={dt.calculationType === 'percent' ? '0%' : '0.00'}
                             className="w-full px-2 py-1 text-xs border rounded"
                           />
                         </div>
@@ -2538,7 +2556,8 @@ const Payroll = () => {
 
   const tabs = [
     { id: 'create-paycheck', label: 'Create Paycheck' },
-    { id: 'reports', label: 'Reports', badge: unviewedCount },
+    { id: 'employee-sheet', label: 'Employee Sheet', beta: true },
+    { id: 'reports', label: 'Reports', beta: true, badge: unviewedCount },
     { id: 'employee', label: 'Employee' },
     { id: 'company', label: 'Company' },
   ];
@@ -2547,6 +2566,8 @@ const Payroll = () => {
     switch (activeTab) {
       case 'create-paycheck':
         return renderCreatePaycheckTab();
+      case 'employee-sheet':
+        return <EmployeeSheet />;
       case 'reports':
         return <Reports />;
       case 'employee':
@@ -2587,8 +2608,21 @@ const Payroll = () => {
                   }
                 `}
               >
-                {tab.label}
-                
+                <span className="inline-flex items-center gap-1.5">
+                  {tab.label}
+                  {tab.beta && (
+                    <span
+                      className={`text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ${
+                        activeTab === tab.id
+                          ? 'bg-orange-100 text-orange-700'
+                          : 'bg-violet-100 text-violet-700'
+                      }`}
+                    >
+                      Beta
+                    </span>
+                  )}
+                </span>
+
                 {/* Notification Badge */}
                 {tab.badge > 0 && (
                   <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center animate-pulse">
