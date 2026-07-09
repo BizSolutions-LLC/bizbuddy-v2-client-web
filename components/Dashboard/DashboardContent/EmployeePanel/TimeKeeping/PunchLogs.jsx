@@ -7,8 +7,6 @@ import {
   Clock,
   Calendar,
   Download,
-  Filter,
-  Badge,
   RefreshCw,
   ChevronUp,
   ChevronDown,
@@ -20,25 +18,35 @@ import {
   AlertTriangle,
   User,
   AlertCircle,
-  CheckCircle2,
-  Activity,
-  ChevronRight,
-  MoreHorizontal,
   AlarmClockPlus,
   Car,
   UserCheck,
   CheckCircle,
   XCircle,
   TrendingUp,
-  Info,
   LayoutTemplate,
+  Plus,
+  Check,
+  Info,
+  LogIn,
+  LogOut,
+  ArrowLeft,
+  ArrowRight,
+  X,
+  Coffee,
+  MapPin as MapPinIcon,
+  SlidersHorizontal,
+  Flag,
+  TimerOff,
+  BarChart3,
+  GraduationCap,
 } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import useAuthStore from "@/store/useAuthStore";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -47,8 +55,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import TableSkeleton from "@/components/common/TableSkeleton";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ContestDialog } from "./ContestDialog";
 import FormDialog from "@/components/common/FormDialog";
 import OrangeLoadingSpinner from "@/components/common/Spinner";
@@ -174,27 +182,81 @@ function PunchTypeBadge({ punchType, size = "sm" }) {
   if (!punchType) return null;
 
   const config = {
-    DRIVER_AIDE:    { label: "Driver/Aide", icon: Car,       color: "blue"   },
-    DRIVER_AIDE_AM: { label: "Driver AM",   icon: Car,       color: "blue"   },
-    DRIVER_AIDE_PM: { label: "Driver PM",   icon: Car,       color: "blue"   },
-    REGULAR:        { label: "Regular",     icon: UserCheck, color: "purple" },
+    DRIVER_AIDE:    { label: "Driver/Aide", icon: Car,            color: "blue"   },
+    DRIVER_AIDE_AM: { label: "Driver AM",   icon: Car,            color: "blue"   },
+    DRIVER_AIDE_PM: { label: "Driver PM",   icon: Car,            color: "blue"   },
+    REGULAR:        { label: "Regular",     icon: UserCheck,      color: "purple" },
+    TRAINING:       { label: "Training",    icon: GraduationCap,  color: "green"  },
   };
 
   const meta = config[punchType] ?? config.REGULAR;
   const Icon = meta.icon;
-  const isBlue = meta.color === "blue";
+  const colorClass =
+    meta.color === "blue"
+      ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+      : meta.color === "green"
+      ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"
+      : "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300";
 
   return (
     <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium ${
       size === "sm" ? "text-xs" : "text-sm"
-    } ${
-      isBlue
-        ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
-        : "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300"
-    }`}>
+    } ${colorClass}`}>
       <Icon className="h-3 w-3" />
       {meta.label}
     </span>
+  );
+}
+
+// ── V3CutoffBadge (table cell — soft rectangular) ─────────────────────────────
+function V3CutoffBadge({ cutoffApproval }) {
+  if (!cutoffApproval) return <span className="text-muted-foreground text-sm">—</span>;
+  const { status } = cutoffApproval;
+  if (status === "approved")
+    return (
+      <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+        <CheckCircle className="h-3 w-3" />Approved
+      </span>
+    );
+  if (status === "pending")
+    return (
+      <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+        <Clock className="h-3 w-3" />Awaiting
+      </span>
+    );
+  if (status === "rejected")
+    return (
+      <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
+        <XCircle className="h-3 w-3" />Rejected
+      </span>
+    );
+  return <span className="text-muted-foreground text-sm">—</span>;
+}
+
+// ── V3CutoffBox (side-panel block) ────────────────────────────────────────────
+function V3CutoffBox({ cutoffApproval }) {
+  if (!cutoffApproval)
+    return <p className="text-xs text-muted-foreground">Not included in any cutoff period yet.</p>;
+  const { status, cutoffPeriod } = cutoffApproval;
+  const range = cutoffPeriod
+    ? `${new Date(cutoffPeriod.periodStart).toLocaleDateString()} – ${new Date(cutoffPeriod.periodEnd).toLocaleDateString()}`
+    : null;
+  return (
+    <div className="space-y-1.5">
+      <V3CutoffBadge cutoffApproval={cutoffApproval} />
+      {range && (
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">Cutoff</span>
+          <span className="text-xs">{range}</span>
+        </div>
+      )}
+      {cutoffPeriod?.status && (
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">Period</span>
+          <span className="text-xs capitalize">{cutoffPeriod.status}</span>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -208,73 +270,6 @@ const AutoBreakBadge = ({ deductible }) => (
     {deductible ? "Auto · Deducted" : "Auto · Paid"}
   </span>
 );
-
-// ── CutoffApprovalBadge ────────────────────────────────────────────────────────
-const CutoffApprovalBadge = ({ cutoffApproval }) => {
-  if (!cutoffApproval) {
-    return (
-      <TooltipProvider delayDuration={200}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Badge variant="outline" className="text-xs text-muted-foreground border-dashed cursor-default">
-              <Clock className="w-3 h-3 mr-1 opacity-50" />
-              Not in cutoff
-            </Badge>
-          </TooltipTrigger>
-          <TooltipContent className="max-w-xs">
-            <div className="text-sm">This log has not been included in any payroll cutoff period yet.</div>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    );
-  }
-
-  const { status, cutoffPeriod } = cutoffApproval;
-
-  const config = {
-    approved: {
-      icon: <CheckCircle className="w-3 h-3 mr-1" />,
-      label: "Approved",
-      cls: "bg-green-50 border-green-200 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-      tip: "This log has been approved for payroll.",
-    },
-    pending: {
-      icon: <AlertCircle className="w-3 h-3 mr-1" />,
-      label: "Pending Review",
-      cls: "bg-yellow-50 border-yellow-200 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
-      tip: "Awaiting admin review in the cutoff period.",
-    },
-    rejected: {
-      icon: <XCircle className="w-3 h-3 mr-1" />,
-      label: "Rejected",
-      cls: "bg-red-50 border-red-200 text-red-700 dark:bg-red-900/30 dark:text-red-400",
-      tip: "This log was rejected during cutoff review. Contact your supervisor.",
-    },
-  };
-
-  const meta = config[status] ?? config.pending;
-  const periodLabel = cutoffPeriod
-    ? `Cutoff: ${new Date(cutoffPeriod.periodStart).toLocaleDateString()} – ${new Date(cutoffPeriod.periodEnd).toLocaleDateString()}`
-    : null;
-
-  return (
-    <TooltipProvider delayDuration={200}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Badge variant="outline" className={`text-xs cursor-default ${meta.cls}`}>
-            {meta.icon}
-            {meta.label}
-          </Badge>
-        </TooltipTrigger>
-        <TooltipContent className="max-w-xs">
-          <div className="text-sm">{meta.tip}</div>
-          {periodLabel && <div className="text-xs text-muted-foreground mt-1 pt-1 border-t">{periodLabel}</div>}
-          {cutoffPeriod && <div className="text-xs text-muted-foreground">Period status: {cutoffPeriod.status}</div>}
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  );
-};
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 export default function PunchLogs() {
@@ -292,7 +287,6 @@ export default function PunchLogs() {
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [exporting,  setExporting]  = useState(false);
-  const [expandedRow,   setExpandedRow]   = useState(null);
 
   const [otDialogOpen,  setOtDialogOpen]  = useState(false);
   const [otForLog,      setOtForLog]      = useState(null);
@@ -327,8 +321,11 @@ export default function PunchLogs() {
   const [otSelectedLogId, setOtSelectedLogId] = useState(null);
   const [supervisors,     setSupervisors]     = useState([]);
   const [myRequests,      setMyRequests]      = useState([]);
-  const [requestsExpanded,setRequestsExpanded]= useState(true);
+  const [requestsV2Expanded,  setRequestsV2Expanded]  = useState(true);
   const [loadingRequests, setLoadingRequests] = useState(false);
+
+  // V3 table — selected row for side detail panel
+  const [selectedLogV3, setSelectedLogV3] = useState(null);
 
   const [totalPages,       setTotalPages]       = useState(1);
   const [locList,          setLocList]          = useState([]);
@@ -352,30 +349,6 @@ export default function PunchLogs() {
   const [requestStep,            setRequestStep]            = useState(1);
   const [isCheckingConflict,     setIsCheckingConflict]     = useState(false);
 
-  const columnOptions = useMemo(() => [
-    { value: "date",      label: "Date"       },
-    { value: "timeIn",    label: "Clock In"   },
-    { value: "timeOut",   label: "Clock Out"  },
-    { value: "duration",  label: "Duration"   },
-    { value: "ot",        label: "OT"         },
-    { value: "punchType",     label: "Punch Type"    },
-    { value: "cutoffApproval",label: "Cutoff Status" },
-    { value: "status",        label: "Status"        },
-  ], []);
-
-  const [columnVisibility, setColumnVisibility] = useState(() =>
-    isDayCare
-      ? columnOptions.map((c) => c.value)
-      : columnOptions.map((c) => c.value).filter((v) => v !== "punchType")
-  );
-
-  useEffect(() => {
-    setColumnVisibility((prev) => {
-      if (isDayCare && !prev.includes("punchType")) return [...prev, "punchType"];
-      return prev;
-    });
-  }, [isDayCare]);
-
   // filters removed — now driven by queryParams (server-side)
 
   const isValidTimeFormat = (t) => /^([0-1]?[0-9]|2[0-3]):([0-5][0-9])$/.test(t);
@@ -384,6 +357,8 @@ export default function PunchLogs() {
     const [h, m] = t.split(":").map(Number);
     return h + m / 60;
   };
+
+  const [cutoffStatusFilter, setCutoffStatusFilter] = useState("all");
 
   const [sortConfig, setSortConfig] = useState({ key: "timeRange", direction: "descending" });
   const requestSort = (k) =>
@@ -661,11 +636,12 @@ export default function PunchLogs() {
       const otHours    = (rawOtMins / 60).toFixed(2);
 
       // OT status display
-      let otStatus;
-      if (approvedOTHours > 0) otStatus = `Approved ${approvedOTHours.toFixed(2)}h`;
-      else if (hasPendingOT)   otStatus = "Pending";
-      else if (otEligible)     otStatus = "No Approval";
-      else                     otStatus = "—";
+      const otStatus = log.otStatus != null
+        ? log.otStatus
+        : approvedOTHours > 0 ? `Approved ${approvedOTHours.toFixed(2)}h`
+        : hasPendingOT        ? "Pending"
+        : otEligible          ? "No Approval"
+        : "—";
 
       // ── Schedule for this day — for "View Schedule" dialog & DA hints ──────
       const logDate = log.timeIn ? toLocalDateStr(log.timeIn, companyTimezone) : null;
@@ -779,9 +755,14 @@ export default function PunchLogs() {
     }
   };
 
-  // Filtering is now server-side; client only sorts the current page
+  // Client-side sort + optional cutoff-status filter
   const filteredSorted = useMemo(() => {
-    const data = [...logsWithSchedule];
+    let data = [...logsWithSchedule];
+    if (cutoffStatusFilter === "none") {
+      data = data.filter((l) => !l.cutoffApproval);
+    } else if (cutoffStatusFilter !== "all") {
+      data = data.filter((l) => l.cutoffApproval?.status === cutoffStatusFilter);
+    }
     data.sort((a, b) => {
       const aVal = getSortableValue(a, sortConfig.key);
       const bVal = getSortableValue(b, sortConfig.key);
@@ -790,10 +771,17 @@ export default function PunchLogs() {
       return 0;
     });
     return data;
-  }, [logsWithSchedule, sortConfig]);
+  }, [logsWithSchedule, sortConfig, cutoffStatusFilter]);
 
-  // Stats come from the server summary (reflects full filtered dataset, not just current page)
-  const stats = serverSummary;
+  // Cutoff-status counts from current page (reflect server-fetched batch)
+  const cutoffStats = useMemo(() => {
+    const awaiting = logsWithSchedule.filter((l) => l.cutoffApproval?.status === "pending").length;
+    const approved = logsWithSchedule.filter((l) => l.cutoffApproval?.status === "approved").length;
+    const totalOtHours = logsWithSchedule
+      .reduce((s, l) => s + (parseFloat(l.otHours) || 0), 0)
+      .toFixed(2);
+    return { awaiting, approved, totalOtHours };
+  }, [logsWithSchedule]);
 
   // All returned logs are displayed — pagination is server-side
   const displayed = filteredSorted;
@@ -879,11 +867,12 @@ export default function PunchLogs() {
       const periodHours = log.scheduledHours != null ? parseFloat(log.scheduledHours).toFixed(2) : "0.00";
 
       const otHours = (rawOtMins / 60).toFixed(2);
-      let otStatus;
-      if (approvedOTHours > 0) otStatus = `Approved ${approvedOTHours.toFixed(2)}h`;
-      else if (hasPendingOT)   otStatus = "Pending";
-      else if (rawOtMins > 0)  otStatus = "No Approval";
-      else                     otStatus = "—";
+      const otStatus = log.otStatus != null
+        ? log.otStatus
+        : approvedOTHours > 0 ? `Approved ${approvedOTHours.toFixed(2)}h`
+        : hasPendingOT        ? "Pending"
+        : rawOtMins > 0       ? "No Approval"
+        : "—";
 
       const driverAideAMHours  = isAnyDA ? (log.driverAmSegmentHours ?? null) : null;
       const regularHoursForLog = isAnyDA ? (log.regularSegmentHours  ?? null) : null;
@@ -946,515 +935,729 @@ export default function PunchLogs() {
         <Toaster position="top-center" />
 
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
-          <div>
-            <h2 className="text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-2">
-              <Clock className="h-7 w-7 text-orange-500" />
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 py-1">
+          {/* Left: title + subtitle */}
+          <div className="flex flex-col gap-0.5 min-w-0">
+            <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2 leading-tight">
+              <Clock className="h-5 w-5 text-orange-500 flex-shrink-0" />
               Punch Logs
             </h2>
-            <p className="text-sm text-muted-foreground mt-1">View and manage your time tracking records</p>
+            <p className="text-sm text-muted-foreground">View and manage your time tracking records</p>
           </div>
-          <div className="flex gap-2 flex-wrap">
-            <Button variant="outline" asChild>
-              <Link href="/dashboard/employee/punch">Punch</Link>
+
+          {/* Right: action buttons */}
+          <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-start sm:justify-end">
+            {/* Punch — desktop only, primary */}
+            <Button asChild className="hidden sm:inline-flex h-8 text-xs rounded-lg bg-orange-500 hover:bg-orange-600 text-white px-3 gap-1.5">
+              <Link href="/dashboard/employee/punch">
+                <Clock className="h-3.5 w-3.5" />
+                Punch
+              </Link>
             </Button>
 
-            <div className="flex gap-1 border rounded-md p-1">
-              <Button size="sm" variant={viewMode === "all"   ? "default" : "ghost"} onClick={() => setViewMode("all")}   className="h-8">All Logs</Button>
-              <Button size="sm" variant={viewMode === "smart" ? "default" : "ghost"} onClick={() => { setViewMode("smart"); if (!smartLogs.length) fetchSmartDetectsOT(); }} className="h-8">Smart OT</Button>
-            </div>
+            {/* Contest time — always visible, label abbreviated on mobile */}
+            <Button variant="outline" className="h-8 text-xs rounded-lg px-2.5 gap-1.5"
+              onClick={() => filteredSorted.length ? setContestDialogOpen(true) : toast.message("No logs available")}>
+              <AlertTriangle className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Contest time</span>
+              <span className="sm:hidden">Contest</span>
+            </Button>
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" size="icon" onClick={() => filteredSorted.length ? setContestDialogOpen(true) : toast.message("No logs available")}>
-                  <AlertTriangle className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Contest Times</TooltipContent>
-            </Tooltip>
+            {/* Request entry — always visible, label abbreviated on mobile */}
+            <Button variant="outline" className="h-8 text-xs rounded-lg px-2.5 gap-1.5"
+              onClick={() => setRequestPunchLogsDialog(true)}>
+              <Plus className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Request entry</span>
+              <span className="sm:hidden">Request</span>
+            </Button>
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" size="icon" onClick={() => setRequestPunchLogsDialog(true)}>
-                  <AlarmClockPlus className="h-4 w-4" />
+            {/* Export dropdown — desktop only */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="hidden sm:inline-flex h-8 text-xs rounded-lg px-2.5 gap-1.5" disabled={exporting}>
+                  <Download className="h-3.5 w-3.5" />
+                  Export
+                  <ChevronDown className="h-3 w-3 opacity-50" />
                 </Button>
-              </TooltipTrigger>
-              <TooltipContent>Request Punch Logs</TooltipContent>
-            </Tooltip>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-[210px]">
+                <DropdownMenuItem onClick={exportCSV} disabled={exporting}>
+                  <Download className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                  Export CSV (Details)
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={exportPDF} disabled={exporting}>
+                  <FileText className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                  Export PDF
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={exportGridCSV} disabled={exporting}>
+                  <LayoutTemplate className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                  Export Grid CSV (Payroll)
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" size="icon" onClick={refresh} disabled={refreshing}>
-                  <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Refresh</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" size="icon" onClick={exportCSV} disabled={exporting}>
-                  <Download className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Export CSV (Detail)</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" size="icon" onClick={exportPDF} disabled={exporting}>
-                  <FileText className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Export PDF</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" size="icon" onClick={exportGridCSV} disabled={exporting}>
-                  <LayoutTemplate className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Export Grid CSV (Payroll)</TooltipContent>
-            </Tooltip>
+            {/* Refresh — desktop only */}
+            <Button variant="outline" size="icon" className="hidden sm:inline-flex h-8 w-8 rounded-lg"
+              onClick={refresh} disabled={refreshing}>
+              <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+            </Button>
           </div>
         </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card className="border-2 dark:border-white/10">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Total Logs</p>
-                  <p className="text-3xl font-bold mt-2">{stats.total}</p>
-                </div>
-                <div className="h-12 w-12 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
-                  <Clock className="h-6 w-6 text-blue-600 dark:text-blue-400" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="border-2 dark:border-white/10">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Active</p>
-                  <p className="text-3xl font-bold mt-2 text-green-600 dark:text-green-400">{stats.active}</p>
-                </div>
-                <div className="h-12 w-12 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center">
-                  <Activity className="h-6 w-6 text-green-600 dark:text-green-400" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="border-2 dark:border-white/10">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Completed</p>
-                  <p className="text-3xl font-bold mt-2 text-orange-600 dark:text-orange-400">{stats.completed}</p>
-                </div>
-                <div className="h-12 w-12 bg-orange-100 dark:bg-orange-900/30 rounded-full flex items-center justify-center">
-                  <CheckCircle2 className="h-6 w-6 text-orange-600 dark:text-orange-400" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="border-2 dark:border-white/10">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Total Hours</p>
-                  <p className="text-3xl font-bold mt-2">{stats.totalHours}</p>
-                </div>
-                <div className="h-12 w-12 bg-purple-100 dark:bg-purple-900/30 rounded-full flex items-center justify-center">
-                  <Calendar className="h-6 w-6 text-purple-600 dark:text-purple-400" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* OT Configuration & Consumption Panel */}
-        <Card className="border-2 dark:border-white/10 overflow-hidden">
-          <div className={`h-1 w-full ${
-            otBasis === "daily"  ? "bg-blue-500"   :
-            otBasis === "weekly" ? "bg-purple-500" :
-            "bg-orange-500"
-          }`} />
-          <CardContent className="p-4 space-y-3">
-            {/* Header row */}
-            <div className="flex items-center justify-between flex-wrap gap-3">
-              <div className="flex items-center gap-3">
-                <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 border ${
-                  otBasis === "daily"  ? "bg-blue-50   border-blue-200   text-blue-600"   :
-                  otBasis === "weekly" ? "bg-purple-50 border-purple-200 text-purple-600" :
-                  "bg-orange-50 border-orange-200 text-orange-600"
-                }`}>
-                  <TrendingUp className="w-4 h-4" />
-                </div>
-                <div>
-                  <p className="text-sm font-bold">
-                    {otBasis === "daily"  && "Daily OT Configuration"}
-                    {otBasis === "weekly" && "Weekly OT Configuration"}
-                    {otBasis === "cutoff" && "Cutoff OT Configuration"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {otBasis === "daily"  && `Sessions exceeding ${dailyOtThreshold}h are eligible for OT`}
-                    {otBasis === "weekly" && `Cumulative weekly hours exceeding ${weeklyOtThreshold}h are eligible for OT`}
-                    {otBasis === "cutoff" && `Cumulative cutoff-period hours exceeding ${cutoffOtThreshold}h are eligible for OT`}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                {employeeDeptName && (
-                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300">
-                    Dept: {employeeDeptName}
+        {/* My Requests */}
+        {myRequests.length > 0 && (
+          <div className="bg-card rounded-xl border overflow-hidden">
+            {/* Header */}
+            <div
+              className="flex items-center justify-between px-4 py-3.5 cursor-pointer select-none"
+              onClick={() => setRequestsV2Expanded(!requestsV2Expanded)}
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <AlarmClockPlus className="h-4 w-4 text-orange-500 flex-shrink-0" />
+                <span className="font-semibold text-sm">Punch log entry requests</span>
+                {myRequests.filter((r) => r.status === "PENDING").length > 0 && (
+                  <span className="hidden sm:inline-flex text-xs px-2.5 py-0.5 rounded-full flex-shrink-0" style={{ background: "#faeeda", color: "#633806" }}>
+                    {myRequests.filter((r) => r.status === "PENDING").length} pending
                   </span>
                 )}
-                <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${
-                  otBasis === "daily"  ? "bg-blue-100   text-blue-700"   :
-                  otBasis === "weekly" ? "bg-purple-100 text-purple-700" :
-                  "bg-orange-100 text-orange-700"
-                }`}>
-                  {otBasis === "daily" ? "Daily OT" : otBasis === "weekly" ? "Weekly OT" : "Cutoff OT"}
-                </span>
+              </div>
+              <div className="flex items-center gap-2.5 shrink-0">
+                <span className="text-xs text-muted-foreground">{myRequests.length} total</span>
+                {requestsV2Expanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
               </div>
             </div>
 
-            {/* Consumption meter — weekly / cutoff only */}
-            {otConsumptionData.type !== "daily" && (
-              <div className="pt-2 border-t space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground font-medium">{otConsumptionData.label || "Current window"}</span>
-                  <span className="font-mono font-bold">
-                    {otConsumptionData.accumulatedHours}h <span className="text-muted-foreground font-normal">/ {otConsumptionData.threshold}h</span>
-                  </span>
-                </div>
-                <div className="h-2 w-full bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all duration-500 ${
-                      otConsumptionData.pct >= 100 ? "bg-red-500"   :
-                      otConsumptionData.pct >= 80  ? "bg-amber-500" :
-                      "bg-green-500"
-                    }`}
-                    style={{ width: `${otConsumptionData.pct}%` }}
-                  />
-                </div>
-                <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                  <span>
-                    {otConsumptionData.accumulatedHours >= otConsumptionData.threshold
-                      ? otConsumptionData.approvedHours === 0
-                        ? "Threshold met — no approved OT yet"
-                        : `${otConsumptionData.approvedHours}h approved`
-                      : `${otConsumptionData.accumulatedHours}h accumulated`}
-                    {otConsumptionData.pendingHours > 0 && (
-                      <span className="ml-2 text-amber-600 font-semibold">· {otConsumptionData.pendingHours}h pending</span>
-                    )}
-                  </span>
-                  <span>
-                    {otConsumptionData.accumulatedHours >= otConsumptionData.threshold
-                      ? `${(otConsumptionData.accumulatedHours - otConsumptionData.threshold).toFixed(2)}h over threshold`
-                      : `${(otConsumptionData.threshold - otConsumptionData.accumulatedHours).toFixed(2)}h to threshold`}
-                  </span>
-                </div>
-              </div>
-            )}
+            {/* Items */}
+            <AnimatePresence>
+              {requestsV2Expanded && (
+                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.18 }}>
+                  {loadingRequests ? (
+                    <div className="flex items-center justify-center py-8 gap-2 border-t">
+                      <OrangeLoadingSpinner />
+                      <span className="text-sm text-muted-foreground">Loading requests...</span>
+                    </div>
+                  ) : (
+                    <div>
+                      {myRequests.map((req) => {
+                        const isPending  = req.status === "PENDING";
+                        const isApproved = req.status === "APPROVED";
+                        const isRejected = req.status === "REJECTED";
 
-            {/* Smart OT detection note */}
-            {viewMode === "smart" && (
-              <div className="pt-2 border-t flex items-start gap-2">
-                <Info className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0 mt-0.5" />
-                <p className="text-[11px] text-muted-foreground">
-                  Smart OT detected logs where hours exceeded the&nbsp;
-                  <strong>
-                    {otBasis === "daily"  && `${dailyOtThreshold}h daily threshold`}
-                    {otBasis === "weekly" && `${weeklyOtThreshold}h weekly cap`}
-                    {otBasis === "cutoff" && `${cutoffOtThreshold}h cutoff cap`}
-                  </strong>
-                  {otBasis === "cutoff" && activeCutoffPeriod && (
-                    <> &nbsp;({safeDate(activeCutoffPeriod.periodStart, companyTimezone)} – {safeDate(activeCutoffPeriod.periodEnd, companyTimezone)})</>
+                        const statusPill = isPending
+                          ? { background: "#faeeda", color: "#633806" }
+                          : isApproved
+                          ? { background: "#dcf5e2", color: "#1a5e2d" }
+                          : isRejected
+                          ? { background: "#fde8e8", color: "#b91c1c" }
+                          : { background: "#f3f4f6", color: "#6b7280" };
+                        const statusLabel = isPending ? "Pending" : isApproved ? "Approved" : isRejected ? "Rejected" : req.status;
+
+                        const approverName = req.approver?.profile
+                          ? `${req.approver.profile.firstName} ${req.approver.profile.lastName}`
+                          : req.approver?.email || "Not assigned";
+
+                        const dateLabel     = new Date((req.requestedDate?.split("T")[0] ?? "") + "T12:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+                        const secondaryText = req.description || `${req.estimatedNetHours?.toFixed(2) || "0.00"}h`;
+                        const submittedLabel = new Date(req.submittedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+
+                        return (
+                          <div key={req.id} className="border-t px-4 py-3.5 space-y-2">
+                            {/* Row 1: date + hours pill + status badge */}
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <Calendar className="h-3.5 w-3.5 text-orange-500 flex-shrink-0" />
+                                <span className="font-semibold text-sm leading-tight">{dateLabel}</span>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <span className="text-xs border rounded-full px-2.5 py-0.5 tabular-nums">
+                                  {req.estimatedNetHours?.toFixed(2) || "0.00"}h
+                                </span>
+                                <span className="text-xs px-2.5 py-0.5 rounded-full font-medium" style={statusPill}>
+                                  {statusLabel}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Row 2: time range */}
+                            <div className="flex items-center gap-2">
+                              <Clock className="h-3.5 w-3.5 text-muted-foreground/50 flex-shrink-0" />
+                              <span className="text-sm text-muted-foreground tabular-nums">
+                                {safeTime(req.requestedClockIn, companyTimezone)} – {safeTime(req.requestedClockOut, companyTimezone)}
+                              </span>
+                            </div>
+
+                            {/* Row 3: reason pill + secondary info */}
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs border rounded-lg px-2.5 py-0.5 capitalize text-muted-foreground shrink-0">
+                                {req.reason?.replace(/_/g, " ") || "Not specified"}
+                              </span>
+                              <span className="text-xs text-muted-foreground">{secondaryText}</span>
+                            </div>
+
+                            {/* Row 4: approver + submitted */}
+                            <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <User className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground/50" />
+                                <span className="truncate">{approverName}</span>
+                              </div>
+                              <span className="shrink-0">Submitted {submittedLabel}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   )}
-                  .
-                </p>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
+
+        {/* ── Metric Cards ── */}
+        {loading ? (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="bg-card rounded-xl border p-3 flex flex-col gap-2.5">
+                <Skeleton className="h-3 w-16" />
+                <Skeleton className="h-7 w-10 mt-0.5" />
+                <Skeleton className="h-3 w-20 mt-0.5" />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="bg-card rounded-xl border p-3 flex flex-col gap-1">
+              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <Clock className="h-3.5 w-3.5 text-orange-500" />Total logs
+              </div>
+              <div className="text-2xl font-medium leading-none mt-0.5">{serverSummary.total}</div>
+              <div className="text-[11px] text-muted-foreground/60 mt-0.5">across date range</div>
+            </div>
+            <div className="bg-card rounded-xl border p-3 flex flex-col gap-1">
+              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <TimerOff className="h-3.5 w-3.5" style={{ color: "#633806" }} />Awaiting
+              </div>
+              <div className="text-2xl font-medium leading-none mt-0.5" style={{ color: "#633806" }}>{cutoffStats.awaiting}</div>
+              <div className="text-[11px] text-muted-foreground/60 mt-0.5">pending admin review</div>
+            </div>
+            <div className="bg-card rounded-xl border p-3 flex flex-col gap-1">
+              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <CheckCircle className="h-3.5 w-3.5" style={{ color: "#3b6d11" }} />Approved
+              </div>
+              <div className="text-2xl font-medium leading-none mt-0.5" style={{ color: "#3b6d11" }}>{cutoffStats.approved}</div>
+              <div className="text-[11px] text-muted-foreground/60 mt-0.5">confirmed for payroll</div>
+            </div>
+            <div className="bg-card rounded-xl border p-3 flex flex-col gap-1">
+              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <BarChart3 className="h-3.5 w-3.5" style={{ color: "#3C3489" }} />Total hours
+              </div>
+              <div className="text-2xl font-medium leading-none mt-0.5" style={{ color: "#3C3489" }}>{serverSummary.totalHours}</div>
+              <div className="text-[11px] text-muted-foreground/60 mt-0.5">incl. {cutoffStats.totalOtHours}h OT</div>
+            </div>
+          </div>
+        )}
+
+        {/* ── OT Banner ── */}
+        {loading ? (
+          <div className="bg-card rounded-xl border p-3.5 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-2 flex-1">
+                <Skeleton className="h-4 w-52" />
+                <Skeleton className="h-3 w-72 max-w-full" />
+              </div>
+              <Skeleton className="h-6 w-20 rounded-full flex-shrink-0" />
+            </div>
+            <Skeleton className="h-[5px] w-full rounded-full" />
+            <div className="flex justify-between">
+              <Skeleton className="h-3 w-28" />
+              <Skeleton className="h-3 w-32" />
+            </div>
+          </div>
+        ) : (
+          <OTBanner
+            otType={otBasis}
+            dailyThreshold={dailyOtThreshold}
+            weeklyThreshold={weeklyOtThreshold}
+            cutoffThreshold={cutoffOtThreshold}
+            threshold={otConsumptionData.threshold}
+            accumulatedHours={otConsumptionData.accumulatedHours}
+            pct={otConsumptionData.pct}
+            label={otConsumptionData.label}
+            deptName={employeeDeptName}
+          />
+        )}
+
+        {/* ── Filters & Controls ── */}
+        <div className="bg-card rounded-xl border p-3">
+          <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+            <div className="flex items-center gap-1.5 text-sm font-medium">
+              <SlidersHorizontal className="h-3.5 w-3.5 text-orange-500" />
+              Filters &amp; controls
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-muted-foreground">{filteredSorted.length} shown · {serverSummary.total} total</span>
+              {companyTimezone !== "UTC" && (
+                <>
+                  <span className="text-[11px] rounded-full px-2 py-0.5" style={{ background: "#faeeda", color: "#633806" }}>
+                    {getTimezoneName(companyTimezone)}
+                  </span>
+                  {userTimezone !== companyTimezone && (
+                    <span className="text-[11px] text-muted-foreground">· Detected: {getTimezoneName(userTimezone)}</span>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+          <div className="flex flex-col sm:flex-row sm:items-end flex-wrap gap-2">
+            <div className="flex flex-col gap-1 flex-1 min-w-[120px]">
+              <div className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                <Flag className="h-2.5 w-2.5" />Cutoff status
+              </div>
+              <Select value={cutoffStatusFilter} onValueChange={setCutoffStatusFilter}>
+                <SelectTrigger className="h-8 text-xs rounded-lg"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All statuses</SelectItem>
+                  <SelectItem value="approved">Approved</SelectItem>
+                  <SelectItem value="pending">Awaiting</SelectItem>
+                  <SelectItem value="none">Not included</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {isDayCare && (
+              <div className="flex flex-col gap-1 flex-1 min-w-[120px]">
+                <div className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  <User className="h-2.5 w-2.5" />Punch type
+                </div>
+                <Select value={queryParams.punchType} onValueChange={(v) => setQueryParams((p) => ({ ...p, punchType: v, page: 1 }))}>
+                  <SelectTrigger className="h-8 text-xs rounded-lg"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All types</SelectItem>
+                    <SelectItem value="REGULAR">Regular</SelectItem>
+                    <SelectItem value="DRIVER_AIDE">Driver/Aide</SelectItem>
+                    <SelectItem value="DRIVER_AIDE_AM">Driver AM</SelectItem>
+                    <SelectItem value="DRIVER_AIDE_PM">Driver PM</SelectItem>
+                    <SelectItem value="TRAINING">Training</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             )}
-          </CardContent>
-        </Card>
+            <div className="flex flex-col gap-1 flex-[2] min-w-[200px]">
+              <div className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                <Calendar className="h-2.5 w-2.5" />Date range
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Input type="date" value={pendingDates.from} onChange={(e) => setPendingDates((p) => ({ ...p, from: e.target.value }))} className="h-8 text-xs flex-1 rounded-lg" />
+                <span className="text-xs text-muted-foreground shrink-0">to</span>
+                <Input type="date" value={pendingDates.to} onChange={(e) => setPendingDates((p) => ({ ...p, to: e.target.value }))} className="h-8 text-xs flex-1 rounded-lg" />
+              </div>
+            </div>
+            <Button
+              size="sm"
+              className="h-8 bg-orange-500 hover:bg-orange-600 text-white self-end rounded-lg"
+              onClick={() => setQueryParams((p) => ({ ...p, from: pendingDates.from, to: pendingDates.to, page: 1 }))}
+            >
+              Apply
+            </Button>
+          </div>
+        </div>
 
-
-        {/* Filters */}
+        {/* Punch Logs table */}
         <Card className="border-2 shadow-md overflow-hidden dark:border-white/10">
           <div className="h-1 w-full bg-orange-500" />
           <CardHeader className="pb-4">
             <div className="flex items-center justify-between">
               <CardTitle className="flex items-center gap-2">
-                <Filter className="h-5 w-5 text-orange-500" />
-                Table Controls
-              </CardTitle>
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-muted-foreground">
-                  {filteredSorted.length} shown · {serverSummary.total} total
-                </span>
-                {companyTimezone !== "UTC" && (
-                  <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">
-                    {getTimezoneName(companyTimezone)}
-                    {userTimezone !== companyTimezone && (
-                      <span className="ml-1 opacity-60">· Detected Time Zone: {getTimezoneName(userTimezone)}</span>
-                    )}
+                <Clock className="h-5 w-5 text-orange-500" />
+                Punch Logs
+                {isDayCare && (
+                  <span className="hidden sm:inline-flex ml-2 text-xs font-normal text-muted-foreground items-center gap-1">
+                    <Car className="h-3 w-3 text-blue-500" /> Driver/Aide: 1.25 AM + Regular + 1.25 PM
                   </span>
                 )}
-              </div>
+              </CardTitle>
+              <span className="hidden sm:inline text-sm text-muted-foreground">{filteredSorted.length} shown</span>
             </div>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-3 items-center">
-              <span className="text-sm font-medium text-muted-foreground">Filter:</span>
-
-              {/* Status — auto-applies on change */}
-              <Select value={queryParams.status} onValueChange={(v) => setQueryParams((p) => ({ ...p, status: v, page: 1 }))}>
-                <SelectTrigger className="w-[150px]"><SelectValue placeholder="All status" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All status</SelectItem>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="completed">Completed</SelectItem>
-                </SelectContent>
-              </Select>
-
-              {/* DayCare punch type — auto-applies on change */}
-              {isDayCare && (
-                <Select value={queryParams.punchType} onValueChange={(v) => setQueryParams((p) => ({ ...p, punchType: v, page: 1 }))}>
-                  <SelectTrigger className="w-[170px]"><SelectValue placeholder="All types" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All types</SelectItem>
-                    <SelectItem value="REGULAR">Regular</SelectItem>
-                    <SelectItem value="DRIVER_AIDE">Driver / Aide</SelectItem>
-                    <SelectItem value="DRIVER_AIDE_AM">Driver AM</SelectItem>
-                    <SelectItem value="DRIVER_AIDE_PM">Driver PM</SelectItem>
-                  </SelectContent>
-                </Select>
-              )}
-
-              {/* Date range — pending until Apply is clicked */}
-              <Input
-                type="date"
-                value={pendingDates.from}
-                onChange={(e) => setPendingDates((p) => ({ ...p, from: e.target.value }))}
-                className="w-[160px]"
-              />
-              <Input
-                type="date"
-                value={pendingDates.to}
-                onChange={(e) => setPendingDates((p) => ({ ...p, to: e.target.value }))}
-                className="w-[160px]"
-              />
-              <Button
-                size="sm"
-                onClick={() => setQueryParams((p) => ({ ...p, from: pendingDates.from, to: pendingDates.to, page: 1 }))}
-                className="bg-orange-500 hover:bg-orange-600 text-white"
-              >
-                Apply
-              </Button>
-              {(pendingDates.from !== queryParams.from || pendingDates.to !== queryParams.to) && (
-                <span className="text-xs text-amber-500 font-medium">Unsaved date range</span>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* My Requests */}
-        {myRequests.length > 0 && (
-          <Card className="border-2 shadow-md overflow-hidden dark:border-white/10">
-            <div className="h-1 w-full bg-orange-500" />
-            <CardHeader
-              className="pb-3 cursor-pointer hover:bg-muted/50 transition-colors"
-              onClick={() => setRequestsExpanded(!requestsExpanded)}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <AlarmClockPlus className="h-5 w-5 text-orange-500 shrink-0" />
-                  <CardTitle className="text-base truncate">My Punch Log Requests</CardTitle>
-                  {myRequests.filter((r) => r.status === "PENDING").length > 0 && (
-                    <span className="shrink-0 bg-orange-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
-                      {myRequests.filter((r) => r.status === "PENDING").length} Pending
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-xs text-muted-foreground hidden sm:inline">{myRequests.length} total</span>
-                  {requestsExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                </div>
-              </div>
-            </CardHeader>
-
-            <AnimatePresence>
-              {requestsExpanded && (
-                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }}>
-                  <CardContent className="pt-0 pb-4">
-                    {loadingRequests ? (
-                      <div className="flex items-center justify-center py-8 gap-2">
-                        <OrangeLoadingSpinner />
-                        <span className="text-sm text-muted-foreground">Loading requests...</span>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {myRequests.map((req) => {
-                          const statusMeta = {
-                            PENDING:  { border: "border-l-amber-400", bg: "bg-amber-50/70 dark:bg-amber-900/10",  badge: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",  Icon: Clock,       iconColor: "text-amber-500",  label: "Pending"  },
-                            APPROVED: { border: "border-l-green-500", bg: "bg-green-50/70 dark:bg-green-900/10",  badge: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",  Icon: CheckCircle, iconColor: "text-green-500",  label: "Approved" },
-                            REJECTED: { border: "border-l-red-500",   bg: "bg-red-50/70   dark:bg-red-900/10",    badge: "bg-red-100   text-red-800   dark:bg-red-900/30   dark:text-red-400",    Icon: XCircle,     iconColor: "text-red-500",    label: "Rejected" },
-                          }[req.status] ?? { border: "border-l-muted", bg: "", badge: "bg-muted text-muted-foreground", Icon: Clock, iconColor: "text-muted-foreground", label: req.status };
-
-                          const approverName = req.approver?.profile
-                            ? `${req.approver.profile.firstName} ${req.approver.profile.lastName}`
-                            : req.approver?.email || "Not assigned";
-
-                          const { Icon: StatusIcon, iconColor } = statusMeta;
-
-                          return (
-                            <div key={req.id} className={`rounded-xl border border-l-4 ${statusMeta.border} overflow-hidden`}>
-
-                              {/* Card body */}
-                              <div className={`px-4 pt-3 pb-3 space-y-2.5 ${statusMeta.bg}`}>
-
-                                {/* Row 1: Date + status badge */}
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="flex items-center gap-2 min-w-0">
-                                    <StatusIcon className={`h-4 w-4 shrink-0 ${iconColor}`} />
-                                    <span className="font-semibold text-sm leading-tight">
-                                      {new Date((req.requestedDate?.split("T")[0] ?? "") + "T12:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
-                                    </span>
-                                  </div>
-                                  <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold shrink-0 ${statusMeta.badge}`}>
-                                    {statusMeta.label}
-                                  </span>
-                                </div>
-
-                                {/* Row 2: Time range + net hours pill */}
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                                    <Clock className="h-3.5 w-3.5 shrink-0" />
-                                    <span>{safeTime(req.requestedClockIn, companyTimezone)} – {safeTime(req.requestedClockOut, companyTimezone)}</span>
-                                  </div>
-                                  <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-orange-500 text-white shrink-0">
-                                    {req.estimatedNetHours?.toFixed(2) || "0.00"}h
-                                  </span>
-                                </div>
-
-                                {/* Row 3: Reason chip + description */}
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="text-xs px-2.5 py-0.5 rounded-full bg-black/5 dark:bg-white/10 text-muted-foreground font-medium capitalize shrink-0">
-                                    {req.reason?.replace(/_/g, " ") || "Not specified"}
-                                  </span>
-                                  {req.description && (
-                                    <p className="text-xs text-muted-foreground line-clamp-1 min-w-0">{req.description}</p>
-                                  )}
-                                </div>
-                              </div>
-
-                              {/* Footer: approver + submitted date */}
-                              <div className="flex items-center justify-between px-4 py-2 bg-background border-t border-black/5 dark:border-white/5 text-[11px] text-muted-foreground">
-                                <div className="flex items-center gap-1.5">
-                                  <User className="h-3 w-3 shrink-0" />
-                                  <span className="truncate max-w-[160px]">{approverName}</span>
-                                </div>
-                                <span className="shrink-0">
-                                  Submitted {new Date(req.submittedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                                </span>
-                              </div>
-
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </CardContent>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </Card>
-        )}
-
-        {/* Main table */}
-        <Card className="border-2 shadow-md overflow-hidden dark:border-white/10">
-          <div className="h-1 w-full bg-orange-500" />
-          <CardHeader className="pb-4">
-            <CardTitle className="flex items-center gap-2">
-              <Clock className="h-5 w-5 text-orange-500" />
-              Punch Logs
-              {isDayCare && (
-                <span className="ml-2 text-xs font-normal text-muted-foreground flex items-center gap-1">
-                  <Car className="h-3 w-3 text-blue-500" /> Driver/Aide hours: 1.25 AM + Regular + 1.25 PM
-                </span>
-              )}
-            </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <div className="rounded-md border overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-12"></TableHead>
-                    {columnOptions
-                      .filter((c) => columnVisibility.includes(c.value))
-                      .map(({ value, label }) => (
-                        <TableHead key={value} className="cursor-pointer" onClick={() => requestSort(value)}>
-                          <div className="flex items-center gap-1">
-                            {label}
-                            {sortConfig.key === value && (
-                              sortConfig.direction === "ascending"
-                                ? <ChevronUp className="h-4 w-4" />
-                                : <ChevronDown className="h-4 w-4" />
+            <div className="flex">
+              {/* ── Left: table ── */}
+              <div className={`${selectedLogV3 ? "flex-1 min-w-0" : "w-full"} overflow-x-auto transition-all duration-200`}>
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/50">
+                      <TableHead className="font-semibold pl-4 whitespace-nowrap sticky left-0 z-10 bg-muted sm:static sm:z-auto sm:bg-transparent">Date</TableHead>
+                      <TableHead className="font-semibold">Clock In</TableHead>
+                      <TableHead className="font-semibold">Clock Out</TableHead>
+                      <TableHead className="text-right font-semibold">Duration</TableHead>
+                      <TableHead className="text-right font-semibold">OT</TableHead>
+                      {isDayCare && <TableHead className="text-center font-semibold">Punch Type</TableHead>}
+                      <TableHead className="text-center font-semibold">Cutoff Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {loading ? (
+                      <TableSkeleton rows={10} cols={isDayCare ? 7 : 6} />
+                    ) : displayed.length ? (
+                      displayed.map((log) => {
+                        const isSelected = selectedLogV3?.id === log.id;
+                        const fullDate = log.timeIn
+                          ? new Date(log.timeIn).toLocaleDateString("en-US", {
+                              weekday: "short", month: "long", day: "numeric",
+                              ...(companyTimezone ? { timeZone: companyTimezone } : {}),
+                            })
+                          : "—";
+                        const locIn  = getLocation(log, "in");
+                        const locOut = getLocation(log, "out");
+                        return (
+                          <TableRow
+                            key={log.id}
+                            className={`cursor-pointer border-b transition-colors ${
+                              isSelected
+                                ? "bg-orange-50 dark:bg-orange-950/20 border-l-2 border-l-orange-500"
+                                : "hover:bg-muted/50"
+                            }`}
+                            onClick={() => setSelectedLogV3(isSelected ? null : { ...log, _locIn: locIn, _locOut: locOut })}
+                          >
+                            {/* Date */}
+                            <TableCell className={`pl-4 py-4 font-medium text-sm whitespace-nowrap sticky left-0 z-10 sm:static sm:z-auto ${isSelected ? "bg-orange-50 dark:bg-orange-950/20" : "bg-background sm:bg-transparent"}`}>{fullDate}</TableCell>
+
+                            {/* Clock In */}
+                            <TableCell className="py-4">
+                              <DualTime value={log.timeIn} companyTz={companyTimezone} userTz={userTimezone} />
+                            </TableCell>
+
+                            {/* Clock Out */}
+                            <TableCell className="py-4">
+                              {log.timeOut
+                                ? <DualTime value={log.timeOut} companyTz={companyTimezone} userTz={userTimezone} />
+                                : <span className="text-xs text-muted-foreground italic">—</span>
+                              }
+                            </TableCell>
+
+                            {/* Duration */}
+                            <TableCell className="text-right py-4">
+                              <span className="text-sm font-semibold">{log.duration}h</span>
+                            </TableCell>
+
+                            {/* OT */}
+                            <TableCell className="text-right py-4" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex flex-col items-end gap-1">
+                                {parseFloat(log.otHours) > 0 ? (
+                                  <span className="text-sm font-medium text-orange-600">{log.otHours}h</span>
+                                ) : (
+                                  <span className="text-muted-foreground text-sm">—</span>
+                                )}
+                                {log.otStatus === "No Approval" && (
+                                  <button
+                                    className="text-[10px] px-2 py-0.5 rounded border border-orange-300 text-orange-600 hover:bg-orange-50 transition-colors"
+                                    onClick={() => { setOtForLog(log); setOtSelectedLogId(log.id); setOtApprover(""); setOtHoursEdit(""); setOtReason(""); setOtDialogOpen(true); }}
+                                  >
+                                    Request
+                                  </button>
+                                )}
+                              </div>
+                            </TableCell>
+
+                            {/* Punch Type */}
+                            {isDayCare && (
+                              <TableCell className="text-center py-4">
+                                <PunchTypeBadge punchType={log.punchType} />
+                              </TableCell>
+                            )}
+
+                            {/* Cutoff Status */}
+                            <TableCell className="text-center py-4">
+                              <V3CutoffBadge cutoffApproval={log.cutoffApproval} />
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={isDayCare ? 7 : 6} className="h-32 text-center">
+                          <div className="flex flex-col items-center justify-center text-muted-foreground gap-2">
+                            <Clock className="h-8 w-8 text-orange-500/40" />
+                            <span className="text-sm">No logs match the selected filters</span>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* ── Right: detail side panel ── */}
+              <AnimatePresence>
+                {selectedLogV3 && (
+                  <motion.div
+                    initial={{ width: 0, opacity: 0 }}
+                    animate={{ width: 288, opacity: 1 }}
+                    exit={{ width: 0, opacity: 0 }}
+                    transition={{ duration: 0.2, ease: "easeInOut" }}
+                    className="border-l bg-card flex-shrink-0 overflow-hidden"
+                  >
+                    <div className="w-72 h-full overflow-y-auto">
+                      {/* Panel header */}
+                      <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/30 sticky top-0 z-10">
+                        <span className="text-sm font-semibold">Log Details</span>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setSelectedLogV3(null)}>
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+
+                      <div className="p-4 space-y-4">
+                        {/* Date + punch type */}
+                        <div>
+                          <p className="font-semibold text-sm">
+                            {selectedLogV3.timeIn
+                              ? new Date(selectedLogV3.timeIn).toLocaleDateString("en-US", {
+                                  weekday: "long", month: "long", day: "numeric", year: "numeric",
+                                  ...(companyTimezone ? { timeZone: companyTimezone } : {}),
+                                })
+                              : "—"}
+                          </p>
+                          {isDayCare && (
+                            <div className="mt-1.5">
+                              <PunchTypeBadge punchType={selectedLogV3.punchType} />
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="border-t" />
+
+                        {/* Time details */}
+                        <div>
+                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Time Details</p>
+                          <div className="space-y-1.5">
+                            {[
+                              { label: "Clock In",   value: <span className="font-mono text-xs">{safeTime(selectedLogV3.timeIn, companyTimezone)}</span> },
+                              { label: "Clock Out",  value: <span className="font-mono text-xs">{selectedLogV3.timeOut ? safeTime(selectedLogV3.timeOut, companyTimezone) : <span className="text-muted-foreground italic">—</span>}</span> },
+                              { label: "Duration",   value: <span className="font-semibold text-orange-600">{selectedLogV3.duration}h</span> },
+                              { label: "Period Hrs", value: `${selectedLogV3.periodHours}h` },
+                              ...(parseFloat(selectedLogV3.lateHours) > 0 ? [{ label: "Late", value: <span className="text-red-600 font-medium">{selectedLogV3.lateHours}h</span> }] : []),
+                            ].map(({ label, value }) => (
+                              <div key={label} className="flex items-center justify-between text-sm">
+                                <span className="text-muted-foreground">{label}</span>
+                                <span>{value}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="border-t" />
+
+                        {/* Breaks */}
+                        <div>
+                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Breaks</p>
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-muted-foreground flex items-center gap-1.5">
+                                <Coffee className="h-3 w-3" />Coffee
+                              </span>
+                              <span className="flex items-center gap-1">
+                                {selectedLogV3.coffeeMins}h
+                                {(selectedLogV3.autoCoffeeApplied || selectedLogV3.coffeeBreaks?.some(b => b.auto)) && (
+                                  <AutoBreakBadge deductible={selectedLogV3.coffeeBreaks?.find(b => b.auto)?.deductible ?? true} />
+                                )}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-muted-foreground">Lunch</span>
+                              <span className="flex items-center gap-1">
+                                {selectedLogV3.lunchMins}h
+                                {(selectedLogV3.autoLunchApplied || selectedLogV3.lunchBreak?.auto) && (
+                                  <AutoBreakBadge deductible={selectedLogV3.lunchBreak?.deductible ?? true} />
+                                )}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="border-t" />
+
+                        {/* Overtime */}
+                        <div>
+                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Overtime</p>
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-muted-foreground">OT Hours</span>
+                              <span className={parseFloat(selectedLogV3.otHours) > 0 ? "font-semibold text-orange-600" : ""}>{selectedLogV3.otHours}h</span>
+                            </div>
+                            {isDayCare && selectedLogV3.otStatus != null && (
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="text-muted-foreground">OT Status</span>
+                                {selectedLogV3.otStatus === "Approved" ? (
+                                  <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                                    <CheckCircle className="h-3 w-3" />Approved
+                                  </span>
+                                ) : selectedLogV3.otStatus === "Included" ? (
+                                  <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                                    <Clock className="h-3 w-3" />Included
+                                  </span>
+                                ) : (
+                                  <span className="text-muted-foreground">—</span>
+                                )}
+                              </div>
+                            )}
+                            {selectedLogV3.otStatus === "No Approval" && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="w-full h-7 text-xs border-orange-300 text-orange-600 hover:bg-orange-50 mt-1"
+                                onClick={() => { setOtForLog(selectedLogV3); setOtSelectedLogId(selectedLogV3.id); setOtApprover(""); setOtHoursEdit(""); setOtReason(""); setOtDialogOpen(true); }}
+                              >
+                                <AlarmClockPlus className="h-3 w-3 mr-1" />Request OT Approval
+                              </Button>
                             )}
                           </div>
-                        </TableHead>
-                      ))}
-                    <TableHead className="text-center w-24">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {loading ? (
-                    <TableSkeleton rows={6} cols={columnVisibility.length + 2} />
-                  ) : displayed.length ? (
-                    <AnimatePresence>
-                      {displayed.map((log) => (
-                        <TimelogRow
-                          key={log.id}
-                          log={log}
-                          columnVisibility={columnVisibility}
-                          isDayCare={isDayCare}
-                          companyTimezone={companyTimezone}
-                          userTimezone={userTimezone}
-                          expanded={expandedRow === log.id}
-                          onToggleExpand={() => setExpandedRow(expandedRow === log.id ? null : log.id)}
-                          onSchedule={(list) => { setSchedForDialog(list); setSchedDialogOpen(true); }}
-                          onRequestOT={(l) => {
-                            setOtForLog(l);
-                            setOtSelectedLogId(l.id);
-                            setOtApprover(""); setOtHoursEdit(""); setOtReason("");
-                            setOtDialogOpen(true);
-                          }}
-                          onLocation={(list) => { setLocDialogList(list); setLocDialogOpen(true); }}
-                        />
-                      ))}
-                    </AnimatePresence>
-                  ) : (
-                    <TableRow>
-                      <TableCell colSpan={columnVisibility.length + 2} className="h-32 text-center">
-                        <div className="flex flex-col items-center justify-center text-muted-foreground">
-                          <div className="w-16 h-16 bg-black/5 dark:bg-white/5 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <Clock className="h-8 w-8 text-orange-500/50" />
-                          </div>
-                          <p className="font-medium">No logs match the selected filters</p>
                         </div>
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
+
+                        <div className="border-t" />
+
+                        {/* Payroll Cutoff */}
+                        <div>
+                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Payroll Cutoff</p>
+                          <V3CutoffBox cutoffApproval={selectedLogV3.cutoffApproval} />
+                        </div>
+
+                        {/* DA Breakdown — DayCare only */}
+                        {selectedLogV3.isAnyDA && (
+                          <>
+                            <div className="border-t" />
+                            <div>
+                              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Hours Breakdown</p>
+                              <div className="space-y-1.5 text-sm">
+                                {(selectedLogV3.isDA || selectedLogV3.isDA_AM) && (
+                                  <div className="flex justify-between">
+                                    <span className="text-muted-foreground">Driver AM</span>
+                                    <span className="font-medium text-blue-600">{selectedLogV3.driverAideAMHours != null ? `${parseFloat(selectedLogV3.driverAideAMHours).toFixed(2)}h` : "—"}</span>
+                                  </div>
+                                )}
+                                <div className="flex justify-between">
+                                  <span className="text-muted-foreground">Regular</span>
+                                  <span className="font-medium text-purple-600">{selectedLogV3.regularHoursForLog != null ? `${parseFloat(selectedLogV3.regularHoursForLog).toFixed(2)}h` : "—"}</span>
+                                </div>
+                                {(selectedLogV3.isDA || selectedLogV3.isDA_PM) && (
+                                  <div className="flex justify-between">
+                                    <span className="text-muted-foreground">Driver PM</span>
+                                    <span className="font-medium text-blue-600">{selectedLogV3.driverAidePMHours != null ? `${parseFloat(selectedLogV3.driverAidePMHours).toFixed(2)}h` : "—"}</span>
+                                  </div>
+                                )}
+                                <div className="flex justify-between border-t pt-1.5 font-semibold">
+                                  <span>Total</span>
+                                  <span className="text-orange-600">{selectedLogV3.duration}h</span>
+                                </div>
+                              </div>
+                            </div>
+                          </>
+                        )}
+
+                        {/* Schedule */}
+                        <div className="border-t" />
+                        <div>
+                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Schedule</p>
+                          {selectedLogV3.scheduleList?.length > 0 ? (
+                            <div className="space-y-1.5">
+                              {selectedLogV3.scheduleList.map((s) => (
+                                <div key={s.id} className="flex items-center justify-between text-xs">
+                                  <span className="text-muted-foreground truncate mr-2">{s.shift?.shiftName || "Shift"}</span>
+                                  <span className="font-mono text-right shrink-0">
+                                    {s.shift?.startTime ? fmtUTCTime(s.shift.startTime) : "—"}
+                                    {" – "}
+                                    {s.shift?.endTime ? fmtUTCTime(s.shift.endTime) : "—"}
+                                  </span>
+                                </div>
+                              ))}
+                              <Button
+                                size="sm" variant="outline"
+                                className="w-full h-7 text-xs mt-1"
+                                onClick={() => { setSchedForDialog(selectedLogV3.scheduleList); setSchedDialogOpen(true); }}
+                              >
+                                <Calendar className="h-3 w-3 mr-1" />View full schedule
+                              </Button>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                              <AlertCircle className="h-3.5 w-3.5" />Unscheduled punch
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Device */}
+                        {(selectedLogV3.fullDevIn !== "—" || selectedLogV3.fullDevOut !== "—") && (
+                          <>
+                            <div className="border-t" />
+                            <div>
+                              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Device</p>
+                              <div className="space-y-1 text-xs text-muted-foreground">
+                                {selectedLogV3.fullDevIn !== "—" && (
+                                  <div className="truncate" title={selectedLogV3.fullDevIn}>In: {selectedLogV3.fullDevIn}</div>
+                                )}
+                                {selectedLogV3.fullDevOut !== "—" && (
+                                  <div className="truncate" title={selectedLogV3.fullDevOut}>Out: {selectedLogV3.fullDevOut}</div>
+                                )}
+                              </div>
+                            </div>
+                          </>
+                        )}
+
+                        {/* Location */}
+                        {(selectedLogV3._locIn?.lat || selectedLogV3._locOut?.lat) && (
+                          <>
+                            <div className="border-t" />
+                            <div>
+                              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Location</p>
+                              <div className="space-y-1.5 text-xs">
+                                {selectedLogV3._locIn?.lat && (
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-muted-foreground">In</span>
+                                    <a
+                                      href={`https://www.google.com/maps?q=${selectedLogV3._locIn.lat},${selectedLogV3._locIn.lng}`}
+                                      target="_blank" rel="noopener noreferrer"
+                                      className="text-orange-500 hover:underline flex items-center gap-1"
+                                    >
+                                      <MapPinIcon className="h-3 w-3" />View map
+                                    </a>
+                                  </div>
+                                )}
+                                {selectedLogV3._locOut?.lat && (
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-muted-foreground">Out</span>
+                                    <a
+                                      href={`https://www.google.com/maps?q=${selectedLogV3._locOut.lat},${selectedLogV3._locOut.lng}`}
+                                      target="_blank" rel="noopener noreferrer"
+                                      className="text-orange-500 hover:underline flex items-center gap-1"
+                                    >
+                                      <MapPinIcon className="h-3 w-3" />View map
+                                    </a>
+                                  </div>
+                                )}
+                              </div>
+                              {selectedLogV3.locList?.length > 0 && (
+                                <Button
+                                  size="sm" variant="outline"
+                                  className="w-full h-7 text-xs mt-2"
+                                  onClick={() => { setLocDialogList(selectedLogV3.locList); setLocDialogOpen(true); }}
+                                >
+                                  <MapPin className="h-3 w-3 mr-1" />View location restrictions
+                                </Button>
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </CardContent>
 
+          {/* Pagination — shared with main table via queryParams */}
           {totalPages > 1 && (
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 p-4">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 p-4 border-t">
               <div className="flex items-center gap-2 flex-wrap">
                 <Button size="sm" variant="outline" disabled={queryParams.page === 1} onClick={() => setQueryParams((p) => ({ ...p, page: 1 }))}>
                   <ChevronsLeft className="h-4 w-4" /> First
@@ -1462,7 +1665,17 @@ export default function PunchLogs() {
                 {[...Array(totalPages)].map((_, i) => {
                   const pg = i + 1;
                   if (pg === 1 || pg === totalPages || Math.abs(pg - queryParams.page) <= 1)
-                    return <Button key={pg} size="sm" variant={pg === queryParams.page ? "default" : "outline"} onClick={() => setQueryParams((p) => ({ ...p, page: pg }))}>{pg}</Button>;
+                    return (
+                      <Button
+                        key={pg}
+                        size="sm"
+                        variant={pg === queryParams.page ? "default" : "outline"}
+                        className={pg === queryParams.page ? "bg-orange-500 hover:bg-orange-600 text-white border-orange-500" : ""}
+                        onClick={() => setQueryParams((p) => ({ ...p, page: pg }))}
+                      >
+                        {pg}
+                      </Button>
+                    );
                   if ((pg === queryParams.page - 2 && pg > 1) || (pg === queryParams.page + 2 && pg < totalPages))
                     return <span key={pg} className="px-1 text-muted-foreground">…</span>;
                   return null;
@@ -1602,8 +1815,8 @@ export default function PunchLogs() {
           </div>
         </FormDialog>
 
-        {/* Request Punch Log — Multi-step Bottom Sheet */}
-        <Sheet
+        {/* Request Punch Log — 3-step Dialog */}
+        <Dialog
           open={requestPunchLogsDialog}
           onOpenChange={(open) => {
             if (!open) {
@@ -1615,339 +1828,242 @@ export default function PunchLogs() {
             }
           }}
         >
-          <SheetContent side="bottom" className="h-[88vh] rounded-t-2xl p-0 flex flex-col border-t-0 focus:outline-none">
+          <DialogContent className="sm:max-w-[500px] p-0 gap-0 rounded-2xl overflow-hidden [&>button]:hidden">
+            <DialogTitle className="sr-only">Request punch log entry</DialogTitle>
 
-            {/* Orange accent bar */}
-            <div className="h-1.5 w-full bg-orange-500 rounded-t-2xl shrink-0" />
-
-            {/* Drag handle */}
-            <div className="flex justify-center pt-2 pb-1 shrink-0">
-              <div className="w-10 h-1 rounded-full bg-muted-foreground/20" />
+            {/* Orange progress bar */}
+            <div className="h-[3px] w-full bg-muted overflow-hidden">
+              <div
+                className="h-full bg-orange-500 transition-all duration-300"
+                style={{ width: `${(requestStep / 3) * 100}%` }}
+              />
             </div>
 
             {/* Header */}
-            <div className="px-5 pt-2 pb-3 shrink-0">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-9 h-9 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center shrink-0">
-                  <AlarmClockPlus className="h-4.5 w-4.5 text-orange-600" />
+            <div className="flex items-start justify-between px-5 pt-4 pb-3 border-b">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="w-4 h-4 rounded-sm bg-orange-500 flex-shrink-0" />
+                  <span className="font-semibold text-[15px]">Request punch log entry</span>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-base leading-tight">Request Punch Log Entry</h3>
-                  <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                    {["Date & Times", "Approver & Reason", "Review & Submit"][requestStep - 1]}
-                  </p>
-                </div>
-                <span className="text-xs font-semibold text-muted-foreground bg-muted px-2 py-1 rounded-full shrink-0">
-                  {requestStep} / 3
-                </span>
+                <p className="text-xs text-muted-foreground mt-1 pl-6">
+                  {["Step 1 of 3 — Date & times", "Step 2 of 3 — Approver", "Step 3 of 3 — Details"][requestStep - 1]}
+                </p>
               </div>
-
-              {/* Step progress bar */}
-              <div className="flex gap-1.5">
-                {[1, 2, 3].map((s) => (
-                  <div
-                    key={s}
-                    className={`h-1.5 flex-1 rounded-full transition-all duration-300 ${
-                      s < requestStep  ? "bg-orange-400" :
-                      s === requestStep ? "bg-orange-500" :
-                      "bg-muted"
-                    }`}
-                  />
-                ))}
-              </div>
-              <div className="flex justify-between mt-1.5 text-[10px] font-medium text-muted-foreground">
-                <span className={requestStep === 1 ? "text-orange-500" : ""}>Date & Times</span>
-                <span className={requestStep === 2 ? "text-orange-500" : ""}>Approver</span>
-                <span className={requestStep === 3 ? "text-orange-500" : ""}>Details</span>
-              </div>
+              <button
+                className="w-6 h-6 rounded-sm border border-muted-foreground/30 flex items-center justify-center text-muted-foreground hover:border-muted-foreground/60 hover:text-foreground transition-colors flex-shrink-0 mt-0.5"
+                onClick={() => setRequestPunchLogsDialog(false)}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
             </div>
 
-            {/* Scrollable step content */}
-            <ScrollArea className="flex-1 min-h-0">
-              <div className="px-5 pb-6">
-
-                {/* ── Step 1: Date & Times ── */}
-                {requestStep === 1 && (
-                  <div className="space-y-5">
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold flex items-center gap-1.5">
-                        <Calendar className="h-3.5 w-3.5 text-orange-500" />
-                        Date <span className="text-orange-500">*</span>
-                      </label>
-                      <Input
-                        type="date"
-                        value={requestPunchDate}
-                        max={getDefaultTo(companyTimezone)}
-                        onChange={(e) => {
-                          const d = e.target.value;
-                          setRequestPunchDate(d);
-                          setRequestErrors((p) => ({ ...p, date: undefined, conflict: undefined }));
-                          if (d && defaultHours) { setRequestClockIn(`${d}T09:00`); setRequestClockOut(`${d}T${String(9 + defaultHours).padStart(2, "0")}:00`); }
-                        }}
-                        className={`h-12 text-base ${requestErrors.date ? "border-red-500" : ""}`}
-                      />
-                      {requestErrors.date && (
-                        <p className="text-red-500 text-xs flex items-center gap-1">
-                          <AlertCircle className="h-3 w-3" />{requestErrors.date}
-                        </p>
+            {/* Stepper */}
+            <div className="flex items-start gap-0 px-5 py-3.5 border-b">
+              {[
+                { n: 1, label: "Date &\ntimes" },
+                { n: 2, label: "Approver" },
+                { n: 3, label: "Details" },
+              ].map(({ n, label }, idx) => {
+                const isDone   = n < requestStep;
+                const isActive = n === requestStep;
+                return (
+                  <div key={n} className="flex items-start flex-1">
+                    <div className="flex flex-col items-center gap-1 flex-shrink-0">
+                      {isDone ? (
+                        <span className="w-6 h-6 rounded-sm flex items-center justify-center" style={{ background: "#dcf5e2" }}>
+                          <Check className="h-3.5 w-3.5" style={{ color: "#1a5e2d" }} />
+                        </span>
+                      ) : (
+                        <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold ${isActive ? "bg-orange-500 text-white" : "bg-muted text-muted-foreground"}`}>
+                          {n}
+                        </span>
                       )}
+                      <span className={`text-[10px] font-medium text-center leading-tight whitespace-pre-line ${isActive || isDone ? "text-foreground" : "text-muted-foreground"}`}>
+                        {label}
+                      </span>
                     </div>
-
-                    {requestPunchDate && !requestErrors.date && (
-                      <>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-2">
-                            <label className="text-sm font-semibold flex items-center gap-1.5">
-                              <Clock className="h-3.5 w-3.5 text-green-500" />
-                              Clock In <span className="text-orange-500">*</span>
-                            </label>
-                            <Input
-                              type="time"
-                              value={requestClockIn.split("T")[1] || ""}
-                              onChange={(e) => {
-                                const inTime = e.target.value;
-                                setRequestClockIn(`${requestPunchDate}T${inTime}`);
-                                if (requestClockOut) {
-                                  const outTime = requestClockOut.split("T")[1] || "";
-                                  const isCrossMidnight = outTime && inTime && outTime < inTime;
-                                  let outDate = requestPunchDate;
-                                  if (isCrossMidnight) {
-                                    const d = new Date(`${requestPunchDate}T12:00`);
-                                    d.setDate(d.getDate() + 1);
-                                    outDate = d.toLocaleDateString("en-CA");
-                                  }
-                                  setRequestClockOut(`${outDate}T${outTime}`);
-                                }
-                                setRequestErrors((p) => ({ ...p, clockIn: undefined, conflict: undefined }));
-                              }}
-                              className={`h-12 text-base ${requestErrors.clockIn ? "border-red-500" : ""}`}
-                            />
-                            {requestErrors.clockIn && (
-                              <p className="text-red-500 text-xs flex items-center gap-1">
-                                <AlertCircle className="h-3 w-3" />{requestErrors.clockIn}
-                              </p>
-                            )}
-                          </div>
-                          <div className="space-y-2">
-                            <label className="text-sm font-semibold flex items-center gap-1.5">
-                              <Clock className="h-3.5 w-3.5 text-red-500" />
-                              Clock Out <span className="text-orange-500">*</span>
-                            </label>
-                            <Input
-                              type="time"
-                              value={requestClockOut.split("T")[1] || ""}
-                              onChange={(e) => {
-                                const outTime = e.target.value;
-                                const inTime = requestClockIn.split("T")[1] || "";
-                                const isCrossMidnight = outTime && inTime && outTime < inTime;
-                                let outDate = requestPunchDate;
-                                if (isCrossMidnight) {
-                                  const d = new Date(`${requestPunchDate}T12:00`);
-                                  d.setDate(d.getDate() + 1);
-                                  outDate = d.toLocaleDateString("en-CA");
-                                }
-                                setRequestClockOut(`${outDate}T${outTime}`);
-                                setRequestErrors((p) => ({ ...p, clockOut: undefined, conflict: undefined }));
-                              }}
-                              className={`h-12 text-base ${requestErrors.clockOut ? "border-red-500" : ""}`}
-                            />
-                            {requestClockOut.split("T")[0] > requestPunchDate && (
-                              <p className="text-amber-600 dark:text-amber-400 text-xs font-semibold flex items-center gap-1">
-                                <span className="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 font-bold">+1</span>
-                                Clock-out on the next day
-                              </p>
-                            )}
-                            {requestErrors.clockOut && (
-                              <p className="text-red-500 text-xs flex items-center gap-1">
-                                <AlertCircle className="h-3 w-3" />{requestErrors.clockOut}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-
-                        {requestClockIn && requestClockOut && !requestErrors.clockIn && !requestErrors.clockOut && (
-                          <div className="flex items-center justify-between p-4 bg-orange-50 dark:bg-orange-900/20 rounded-xl border border-orange-200 dark:border-orange-800">
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                              <Clock className="h-4 w-4 text-orange-500" />
-                              Estimated Net Hours
-                            </div>
-                            <span className="text-xl font-bold text-orange-600">
-                              {toHour(Math.max(0, diffMins(requestClockIn, requestClockOut) - minLunchMins))}h
-                            </span>
-                          </div>
-                        )}
-                        {requestErrors.conflict && (
-                          <p className="text-red-500 text-xs flex items-center gap-1 pt-1">
-                            <AlertCircle className="h-3 w-3 shrink-0" />{requestErrors.conflict}
-                          </p>
-                        )}
-                      </>
+                    {idx < 2 && (
+                      <div className="flex-1 h-[1px] bg-border mt-3 mx-2" />
                     )}
                   </div>
-                )}
+                );
+              })}
+            </div>
 
-                {/* ── Step 2: Approver & Reason ── */}
-                {requestStep === 2 && (
-                  <div className="space-y-5">
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold flex items-center gap-1.5">
-                        <User className="h-3.5 w-3.5 text-orange-500" />
-                        Approver <span className="text-orange-500">*</span>
-                      </label>
-                      <Select value={requestApproverId} onValueChange={(v) => { setRequestApproverId(v); setRequestErrors((p) => ({ ...p, approverId: undefined })); }}>
-                        <SelectTrigger className={`w-full h-12 text-base ${requestErrors.approverId ? "border-red-500" : ""}`}>
-                          <SelectValue placeholder="Select approver" />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-60">
-                          {(supervisors.length > 0 ? supervisors : approvers).map((a) => (
-                            <SelectItem key={a.id} value={a.id}>
-                              <div className="flex items-center gap-2">
-                                <User className="h-3.5 w-3.5 text-muted-foreground" />
-                                <span>{a.name || a.email}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {requestErrors.approverId && (
-                        <p className="text-red-500 text-xs flex items-center gap-1">
-                          <AlertCircle className="h-3 w-3" />{requestErrors.approverId}
-                        </p>
-                      )}
-                    </div>
+            {/* Step body */}
+            <div className="px-5 py-5 space-y-4">
 
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold flex items-center gap-1.5">
-                        <AlertTriangle className="h-3.5 w-3.5 text-orange-500" />
-                        Reason <span className="text-orange-500">*</span>
-                      </label>
-                      <Select value={requestReason} onValueChange={(v) => { setRequestReason(v); setRequestErrors((p) => ({ ...p, reason: undefined })); }}>
-                        <SelectTrigger className={`w-full h-12 text-base ${requestErrors.reason ? "border-red-500" : ""}`}>
-                          <SelectValue placeholder="Select reason" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {["forgot_to_clock", "system_malfunction", "network_issues", "emergency", "remote_work", "power_outage", "meeting_offsite", "other"].map((v) => (
-                            <SelectItem key={v} value={v}>
-                              {v.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {requestErrors.reason && (
-                        <p className="text-red-500 text-xs flex items-center gap-1">
-                          <AlertCircle className="h-3 w-3" />{requestErrors.reason}
-                        </p>
-                      )}
-                    </div>
+              {/* ── Step 1: Date & Times ── */}
+              {requestStep === 1 && (
+                <>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                      <Calendar className="h-3 w-3" />Date <span className="text-orange-500">*</span>
+                    </label>
+                    <Input
+                      type="date"
+                      value={requestPunchDate}
+                      max={getDefaultTo(companyTimezone)}
+                      onChange={(e) => {
+                        const d = e.target.value;
+                        setRequestPunchDate(d);
+                        setRequestErrors((p) => ({ ...p, date: undefined, conflict: undefined }));
+                        if (d && defaultHours) { setRequestClockIn(`${d}T09:00`); setRequestClockOut(`${d}T${String(9 + defaultHours).padStart(2, "0")}:00`); }
+                      }}
+                      className={`h-9 text-sm ${requestErrors.date ? "border-red-500" : ""}`}
+                    />
+                    {requestErrors.date && <p className="text-red-500 text-xs flex items-center gap-1"><AlertCircle className="h-3 w-3" />{requestErrors.date}</p>}
                   </div>
-                )}
 
-                {/* ── Step 3: Details & Confirm ── */}
-                {requestStep === 3 && (
-                  <div className="space-y-5">
-                    {/* Summary card */}
-                    <div className="rounded-xl border-2 border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-900/20 p-4 space-y-3">
-                      <p className="text-[11px] font-bold text-orange-600 dark:text-orange-400 uppercase tracking-widest">Request Summary</p>
-                      <div className="space-y-2.5 text-sm">
-                        <div className="flex justify-between items-center">
-                          <span className="text-muted-foreground flex items-center gap-1.5"><Calendar className="h-3.5 w-3.5" />Date</span>
-                          <span className="font-semibold">
-                            {requestPunchDate ? new Date(requestPunchDate + "T12:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" }) : "—"}
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-muted-foreground flex items-center gap-1.5"><Clock className="h-3.5 w-3.5 text-green-500" />Clock In</span>
-                          <span className="font-semibold text-green-600">{requestClockIn.split("T")[1] || "—"}</span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-muted-foreground flex items-center gap-1.5"><Clock className="h-3.5 w-3.5 text-red-500" />Clock Out</span>
-                          <span className="font-semibold text-red-600 flex items-center gap-1.5">
-                            {requestClockOut.split("T")[1] || "—"}
-                            {requestClockOut.split("T")[0] > requestPunchDate && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">+1 day</span>
-                            )}
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center border-t pt-2">
-                          <span className="text-muted-foreground">Net Hours</span>
-                          <span className="font-bold text-orange-600 text-base">
-                            {toHour(Math.max(0, diffMins(requestClockIn, requestClockOut) - minLunchMins))}h
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-muted-foreground flex items-center gap-1.5"><User className="h-3.5 w-3.5" />Approver</span>
-                          <span className="font-semibold truncate max-w-[55%] text-right">
-                            {(supervisors.length > 0 ? supervisors : approvers).find((a) => a.id === requestApproverId)?.name || "—"}
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-muted-foreground flex items-center gap-1.5"><AlertTriangle className="h-3.5 w-3.5" />Reason</span>
-                          <span className="font-semibold capitalize">{requestReason.replace(/_/g, " ") || "—"}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Description */}
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold flex items-center gap-1.5">
-                        <FileText className="h-3.5 w-3.5 text-orange-500" />
-                        Detailed Explanation <span className="text-orange-500">*</span>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                        <LogIn className="h-3 w-3" />Clock in <span className="text-orange-500">*</span>
                       </label>
-                      <Textarea
-                        value={requestDescription}
-                        onChange={(e) => { setRequestDescription(e.target.value); setRequestErrors((p) => ({ ...p, description: undefined })); }}
-                        placeholder="Please explain why you need this entry..."
-                        className={`min-h-[120px] resize-none text-base ${requestErrors.description ? "border-red-500" : ""}`}
-                        maxLength={500}
+                      <Input
+                        type="time"
+                        value={requestClockIn.split("T")[1] || ""}
+                        onChange={(e) => {
+                          const inTime = e.target.value;
+                          setRequestClockIn(`${requestPunchDate}T${inTime}`);
+                          if (requestClockOut) {
+                            const outTime = requestClockOut.split("T")[1] || "";
+                            const isCrossMidnight = outTime && inTime && outTime < inTime;
+                            let outDate = requestPunchDate;
+                            if (isCrossMidnight) { const d = new Date(`${requestPunchDate}T12:00`); d.setDate(d.getDate() + 1); outDate = d.toLocaleDateString("en-CA"); }
+                            setRequestClockOut(`${outDate}T${outTime}`);
+                          }
+                          setRequestErrors((p) => ({ ...p, clockIn: undefined, conflict: undefined }));
+                        }}
+                        className={`h-9 text-sm ${requestErrors.clockIn ? "border-red-500" : ""}`}
                       />
-                      <div className="flex justify-between text-xs">
-                        <span className={requestDescription.trim().length < 20 ? "text-amber-500 font-medium" : "text-green-600 font-medium"}>
-                          {requestDescription.length}/500
-                          {requestDescription.trim().length < 20 && requestDescription.length > 0 && (
-                            <span className="ml-1">({20 - requestDescription.trim().length} more needed)</span>
-                          )}
-                        </span>
-                        {requestErrors.description && <span className="text-red-500">{requestErrors.description}</span>}
-                      </div>
+                      {requestErrors.clockIn && <p className="text-red-500 text-xs flex items-center gap-1"><AlertCircle className="h-3 w-3" />{requestErrors.clockIn}</p>}
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                        <LogOut className="h-3 w-3" />Clock out <span className="text-orange-500">*</span>
+                      </label>
+                      <Input
+                        type="time"
+                        value={requestClockOut.split("T")[1] || ""}
+                        onChange={(e) => {
+                          const outTime = e.target.value;
+                          const inTime = requestClockIn.split("T")[1] || "";
+                          const isCrossMidnight = outTime && inTime && outTime < inTime;
+                          let outDate = requestPunchDate;
+                          if (isCrossMidnight) { const d = new Date(`${requestPunchDate}T12:00`); d.setDate(d.getDate() + 1); outDate = d.toLocaleDateString("en-CA"); }
+                          setRequestClockOut(`${outDate}T${outTime}`);
+                          setRequestErrors((p) => ({ ...p, clockOut: undefined, conflict: undefined }));
+                        }}
+                        className={`h-9 text-sm ${requestErrors.clockOut ? "border-red-500" : ""}`}
+                      />
+                      {requestClockOut.split("T")[0] > requestPunchDate && (
+                        <p className="text-amber-600 text-xs font-medium flex items-center gap-1">
+                          <span className="px-1 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px] font-bold">+1</span>
+                          Next day
+                        </p>
+                      )}
+                      {requestErrors.clockOut && <p className="text-red-500 text-xs flex items-center gap-1"><AlertCircle className="h-3 w-3" />{requestErrors.clockOut}</p>}
                     </div>
                   </div>
-                )}
 
-              </div>
-            </ScrollArea>
+                  {requestClockIn && requestClockOut && !requestErrors.clockIn && !requestErrors.clockOut && (
+                    <div className="flex items-center justify-between px-3 py-2.5 rounded-lg border" style={{ background: "#faeeda", borderColor: "#ef9f27" }}>
+                      <span className="text-xs font-medium" style={{ color: "#633806" }}>Estimated net hours</span>
+                      <span className="text-sm font-bold" style={{ color: "#633806" }}>
+                        {toHour(Math.max(0, diffMins(requestClockIn, requestClockOut) - minLunchMins))}h
+                      </span>
+                    </div>
+                  )}
+                  {requestErrors.conflict && <p className="text-red-500 text-xs flex items-center gap-1"><AlertCircle className="h-3 w-3 shrink-0" />{requestErrors.conflict}</p>}
+                </>
+              )}
 
-            {/* Footer navigation */}
-            <div className="px-5 py-4 border-t bg-background shrink-0 flex gap-3">
+              {/* ── Step 2: Approver ── */}
+              {requestStep === 2 && (
+                <>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                      <User className="h-3 w-3" />Select approver <span className="text-orange-500">*</span>
+                    </label>
+                    <Select value={requestApproverId} onValueChange={(v) => { setRequestApproverId(v); setRequestErrors((p) => ({ ...p, approverId: undefined })); }}>
+                      <SelectTrigger className={`h-9 text-sm ${requestErrors.approverId ? "border-red-500" : ""}`}>
+                        <SelectValue placeholder="Choose an approver…" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-60">
+                        {supervisors.length > 0 ? (
+                          supervisors.map((s) => <SelectItem key={s.id} value={s.id}>{s.name} — {s.department}</SelectItem>)
+                        ) : (
+                          approvers.map((a) => <SelectItem key={a.id} value={a.id}>{a.name || a.email}</SelectItem>)
+                        )}
+                      </SelectContent>
+                    </Select>
+                    {requestErrors.approverId && <p className="text-red-500 text-xs flex items-center gap-1"><AlertCircle className="h-3 w-3" />{requestErrors.approverId}</p>}
+                  </div>
+
+                  <div className="flex items-start gap-2.5 rounded-lg px-3 py-2.5 text-xs" style={{ background: "#faeeda", border: "0.5px solid #ef9f27", color: "#633806" }}>
+                    <Info className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" style={{ color: "#ef9f27" }} />
+                    <span>The selected approver will review your request before it is added to your punch logs.</span>
+                  </div>
+                </>
+              )}
+
+              {/* ── Step 3: Details ── */}
+              {requestStep === 3 && (
+                <>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                      <Flag className="h-3 w-3" />Reason <span className="text-orange-500">*</span>
+                    </label>
+                    <Select value={requestReason} onValueChange={(v) => { setRequestReason(v); setRequestErrors((p) => ({ ...p, reason: undefined })); }}>
+                      <SelectTrigger className={`h-9 text-sm ${requestErrors.reason ? "border-red-500" : ""}`}>
+                        <SelectValue placeholder="Select a reason…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {["forgot_to_clock", "system_malfunction", "network_issues", "emergency", "remote_work", "power_outage", "meeting_offsite", "other"].map((v) => (
+                          <SelectItem key={v} value={v}>
+                            {v.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {requestErrors.reason && <p className="text-red-500 text-xs flex items-center gap-1"><AlertCircle className="h-3 w-3" />{requestErrors.reason}</p>}
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                      <FileText className="h-3 w-3" />Notes
+                    </label>
+                    <Textarea
+                      value={requestDescription}
+                      onChange={(e) => { setRequestDescription(e.target.value); setRequestErrors((p) => ({ ...p, description: undefined })); }}
+                      placeholder="Any additional context for your approver…"
+                      className="min-h-[100px] resize-none text-sm"
+                      maxLength={500}
+                    />
+                  </div>
+                </>
+              )}
+
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-2 px-5 py-3.5 border-t">
               {requestStep > 1 ? (
-                <Button
-                  variant="outline"
-                  className="flex-1 h-12"
-                  onClick={() => setRequestStep((s) => s - 1)}
-                  disabled={requestSubmitting}
-                >
-                  ← Back
+                <Button variant="outline" className="h-8 text-xs rounded-lg px-3 gap-1.5" onClick={() => setRequestStep((s) => s - 1)} disabled={requestSubmitting}>
+                  <ArrowLeft className="h-3 w-3" />Back
                 </Button>
               ) : (
-                <Button
-                  variant="outline"
-                  className="flex-1 h-12"
-                  onClick={() => {
-                    setRequestPunchLogsDialog(false);
-                    setRequestStep(1);
-                    setRequestPunchDate(""); setRequestClockIn(""); setRequestClockOut("");
-                    setRequestApproverId(""); setRequestReason(""); setRequestDescription("");
-                    setRequestErrors({});
-                  }}
-                  disabled={requestSubmitting}
-                >
-                  Cancel
+                <Button variant="outline" className="h-8 text-xs rounded-lg px-3 gap-1.5" onClick={() => setRequestPunchLogsDialog(false)} disabled={requestSubmitting}>
+                  <X className="h-3 w-3" />Cancel
                 </Button>
               )}
 
               {requestStep < 3 ? (
                 <Button
-                  className="flex-1 h-12 bg-orange-500 hover:bg-orange-600 text-white font-semibold"
-                  disabled={(requestStep === 1 && !!requestErrors.date) || isCheckingConflict}
+                  className="h-8 text-xs rounded-lg px-3 gap-1.5 bg-orange-500 hover:bg-orange-600 text-white"
+                  disabled={isCheckingConflict}
                   onClick={async () => {
                     const errors = {};
                     if (requestStep === 1) {
@@ -1958,7 +2074,6 @@ export default function PunchLogs() {
                     }
                     if (requestStep === 2) {
                       if (!requestApproverId) errors.approverId = "Please select an approver";
-                      if (!requestReason)     errors.reason     = "Please select a reason";
                     }
                     setRequestErrors(errors);
                     if (Object.keys(errors).length > 0) return;
@@ -1975,7 +2090,7 @@ export default function PunchLogs() {
                         if (!res.ok) { setRequestErrors((p) => ({ ...p, conflict: j.message || "Could not verify availability. Please try again." })); return; }
                         if (j.hasConflict) {
                           const fmt = (iso) => iso ? safeTime(iso, companyTimezone) : "ongoing";
-                          setRequestErrors((p) => ({ ...p, conflict: `Your selected time overlaps with an existing punch log (${fmt(j.conflictingTimeIn)} – ${fmt(j.conflictingTimeOut)}). Please adjust the times.` }));
+                          setRequestErrors((p) => ({ ...p, conflict: `Overlaps with an existing log (${fmt(j.conflictingTimeIn)} – ${fmt(j.conflictingTimeOut)}). Please adjust the times.` }));
                           return;
                         }
                       } catch {
@@ -1985,22 +2100,20 @@ export default function PunchLogs() {
                         setIsCheckingConflict(false);
                       }
                     }
-
                     setRequestStep((s) => s + 1);
                   }}
                 >
-                  {isCheckingConflict ? <><OrangeLoadingSpinner /><span className="ml-2">Checking...</span></> : "Next →"}
+                  {isCheckingConflict ? <><OrangeLoadingSpinner /><span>Checking…</span></> : <>Next <ArrowRight className="h-3 w-3" /></>}
                 </Button>
               ) : (
                 <Button
-                  className="flex-1 h-12 bg-orange-500 hover:bg-orange-600 text-white font-semibold"
+                  className="h-8 text-xs rounded-lg px-3 gap-1.5 bg-orange-500 hover:bg-orange-600 text-white"
                   disabled={requestSubmitting}
                   onClick={async () => {
                     const errors = {};
-                    if (!requestDescription.trim()) errors.description = "Please provide a detailed explanation";
-                    else if (requestDescription.trim().length < 20) errors.description = "Please provide more detail (at least 20 chars)";
+                    if (!requestReason) errors.reason = "Please select a reason";
                     setRequestErrors(errors);
-                    if (Object.keys(errors).length > 0) { toast.error("Please fill in all required fields"); return; }
+                    if (Object.keys(errors).length > 0) return;
                     setRequestSubmitting(true);
                     try {
                       const res = await fetch(`${API_URL}/api/request-punch-log/submit`, {
@@ -2023,13 +2136,13 @@ export default function PunchLogs() {
                     finally { setRequestSubmitting(false); }
                   }}
                 >
-                  {requestSubmitting ? <><OrangeLoadingSpinner /><span className="ml-2">Submitting...</span></> : "Submit Request"}
+                  {requestSubmitting ? <><OrangeLoadingSpinner /><span>Submitting…</span></> : <><Send className="h-3 w-3" />Submit request</>}
                 </Button>
               )}
             </div>
 
-          </SheetContent>
-        </Sheet>
+          </DialogContent>
+        </Dialog>
 
         <ContestDialog
           open={contestDialogOpen}
@@ -2061,6 +2174,72 @@ export default function PunchLogs() {
   );
 }
 
+// ── OTBanner ───────────────────────────────────────────────────────────────────
+function OTBanner({ otType, dailyThreshold, weeklyThreshold, cutoffThreshold, threshold, accumulatedHours, pct, label, deptName }) {
+  const isDaily  = otType === "daily";
+  const isWeekly = otType === "weekly";
+  const isCutoff = otType === "cutoff";
+
+  const accentColor = isCutoff ? "#f97316" : isWeekly ? "#7F77DD" : "#378ADD";
+  const barClass    = isCutoff ? "bg-orange-500" : isWeekly ? "bg-[#7F77DD]" : "bg-[#378ADD]";
+  const pillStyle   = isCutoff
+    ? { background: "#faeeda", color: "#633806" }
+    : isWeekly
+    ? { background: "#EEEDFE", color: "#3C3489" }
+    : { background: "#E6F1FB", color: "#0C447C" };
+  const pillLabel = isCutoff ? "Cutoff OT" : isWeekly ? "Weekly OT" : "Daily OT";
+  const titleText = isCutoff ? "Cutoff OT configuration" : isWeekly ? "Weekly OT configuration" : "Daily OT configuration";
+  const subtitle  = isCutoff
+    ? `Cumulative cutoff-period hours exceeding ${cutoffThreshold}h are eligible for OT`
+    : isWeekly
+    ? `Cumulative weekly hours exceeding ${weeklyThreshold}h are eligible for OT`
+    : `Sessions exceeding ${dailyThreshold}h per session are eligible for OT`;
+
+  const pctClamped  = Math.min(100, pct ?? 0);
+  const accumulated = accumulatedHours ?? 0;
+  const diff        = threshold - accumulated;
+
+  return (
+    <div className="bg-card rounded-xl border p-3.5 flex flex-col gap-2.5">
+      <div className="flex items-start justify-between gap-2.5 flex-wrap">
+        <div>
+          <div className="flex items-center gap-1.5 text-sm font-medium">
+            <TrendingUp className="h-3.5 w-3.5 flex-shrink-0" style={{ color: accentColor }} />
+            {titleText}
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-0.5">{subtitle}</p>
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap justify-end">
+          {isWeekly && deptName && (
+            <span className="text-[11px] text-muted-foreground">Dept: {deptName}</span>
+          )}
+          <span className="text-[11px] font-medium rounded-full px-2.5 py-0.5 whitespace-nowrap" style={pillStyle}>
+            {pillLabel}
+          </span>
+        </div>
+      </div>
+
+      {!isDaily ? (
+        <div className="space-y-1">
+          <div className="flex justify-between text-[11px] text-muted-foreground">
+            <span>{label || "No active period"}</span>
+            <span className="font-mono tabular-nums">{accumulated}h / {threshold}h</span>
+          </div>
+          <div className="h-[5px] rounded-full bg-neutral-100 dark:bg-neutral-800 overflow-hidden">
+            <div className={`h-full rounded-full transition-all duration-500 ${barClass}`} style={{ width: `${pctClamped}%` }} />
+          </div>
+          <div className="flex justify-between text-[11px] text-muted-foreground">
+            <span>{accumulated}h accumulated</span>
+            <span>{diff > 0 ? `${diff.toFixed(2)}h to threshold` : `${Math.abs(diff).toFixed(2)}h over threshold`}</span>
+          </div>
+        </div>
+      ) : (
+        <p className="text-[11px] text-muted-foreground italic">OT is calculated per session, not accumulated.</p>
+      )}
+    </div>
+  );
+}
+
 // ── DualTime ───────────────────────────────────────────────────────────────────
 function DualTime({ value, companyTz, userTz }) {
   if (!value) return <span>—</span>;
@@ -2077,338 +2256,62 @@ function DualTime({ value, companyTz, userTz }) {
   );
 }
 
-// ── TimelogRow ─────────────────────────────────────────────────────────────────
-function TimelogRow({ log, columnVisibility, isDayCare, companyTimezone, userTimezone, expanded, onToggleExpand, onSchedule, onRequestOT, onLocation }) {
-  const locIn  = getLocation(log, "in");
-  const locOut = getLocation(log, "out");
-
-  // DA breakdown — schedule-derived time ranges and pre-schedule gap detection
-  const regularShiftEntry  = log.scheduleList?.find((s) => s.shift?.shiftName?.toLowerCase().includes("regular"));
-  const schedStartStr      = regularShiftEntry?.shift?.startTime ? fmtUTCTime(regularShiftEntry.shift.startTime) : null;
-  const schedEndStr        = regularShiftEntry?.shift?.endTime   ? fmtUTCTime(regularShiftEntry.shift.endTime)   : null;
-  const schedStartMins     = regularShiftEntry?.shift?.startTime
-    ? new Date(regularShiftEntry.shift.startTime).getUTCHours() * 60 + new Date(regularShiftEntry.shift.startTime).getUTCMinutes()
-    : null;
-  const timeInLocalMins    = log.timeIn ? toLocalMinutes(log.timeIn, companyTimezone) : null;
-  const preScheduleGapMins = (schedStartMins != null && timeInLocalMins != null && timeInLocalMins < schedStartMins)
-    ? schedStartMins - timeInLocalMins
-    : 0;
-  const driverPMShiftEntry = log.scheduleList?.find((s) => s.shift?.shiftName?.toLowerCase().includes("pm"));
-  const driverPMEndStr     = driverPMShiftEntry?.shift?.endTime ? fmtUTCTime(driverPMShiftEntry.shift.endTime) : null;
-
-  return (
-    <>
-      <motion.tr
-        initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0 }}
-        transition={{ duration: 0.2 }}
-        className="border-b hover:bg-muted/50 cursor-pointer group"
-        onClick={onToggleExpand}
-      >
-        <TableCell className="w-12">
-          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-            <ChevronRight className={`h-4 w-4 transition-transform ${expanded ? "rotate-90" : ""}`} />
-          </Button>
-        </TableCell>
-
-        {columnVisibility.includes("date") && (
-          <TableCell className="font-medium">
-            <span className="text-sm">
-              {log.timeIn ? new Date(log.timeIn).toLocaleDateString("en-US", {
-                weekday: "short", year: "numeric", month: "long", day: "numeric",
-                ...(companyTimezone ? { timeZone: companyTimezone } : {}),
-              }) : "—"}
-            </span>
-          </TableCell>
-        )}
-        {columnVisibility.includes("timeIn")  && <TableCell><DualTime value={log.timeIn}  companyTz={companyTimezone} userTz={userTimezone} /></TableCell>}
-        {columnVisibility.includes("timeOut") && <TableCell><DualTime value={log.timeOut} companyTz={companyTimezone} userTz={userTimezone} /></TableCell>}
-        {columnVisibility.includes("duration") && <TableCell className="text-sm font-medium">{log.duration}h</TableCell>}
-
-        {columnVisibility.includes("ot") && (
-          <TableCell>
-            <div className="flex flex-col gap-1">
-              <div className="text-sm font-medium">{log.otHours}h</div>
-              {log.otStatus === "No Approval" ? (
-                <Button size="sm" variant="outline" className="h-6 text-xs" onClick={(e) => { e.stopPropagation(); onRequestOT(log); }}>
-                  Request
-                </Button>
-              ) : (
-                <span className="text-xs text-muted-foreground">{log.otStatus}</span>
-              )}
-            </div>
-          </TableCell>
-        )}
-
-        {columnVisibility.includes("punchType") && (
-          <TableCell>
-            {isDayCare ? <PunchTypeBadge punchType={log.punchType} /> : null}
-          </TableCell>
-        )}
-
-        {columnVisibility.includes("cutoffApproval") && (
-          <TableCell className="text-center">
-            <CutoffApprovalBadge cutoffApproval={log.cutoffApproval} />
-          </TableCell>
-        )}
-
-        {columnVisibility.includes("status") && (
-          <TableCell>
-            <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${
-              log.status
-                ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
-                : "bg-gray-100  text-gray-800  dark:bg-gray-900/30  dark:text-gray-400"
-            }`}>
-              {log.status ? "Active" : "Completed"}
-            </span>
-          </TableCell>
-        )}
-
-        <TableCell className="text-center">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={(e) => e.stopPropagation()}>
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onSchedule(log.scheduleList); }}>
-                <Calendar className="h-4 w-4 mr-2" /> View Schedule
-              </DropdownMenuItem>
-              {log.isLocRestricted && (
-                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onLocation(log.locList); }}>
-                  <MapPin className="h-4 w-4 mr-2" /> View Location
-                </DropdownMenuItem>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </TableCell>
-      </motion.tr>
-
-      {/* Expanded row */}
-      {expanded && (
-        <motion.tr
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          className="bg-muted/30"
-        >
-          <TableCell colSpan={columnVisibility.length + 2} className="p-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-              {/* Break Times / Hours Breakdown */}
-              <div className="space-y-3">
-                <h4 className="font-semibold text-sm flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-orange-500" />
-                  {log.isAnyDA ? "Hours Breakdown" : "Break Times"}
-                </h4>
-
-                {log.isAnyDA ? (
-                  /* ── Driver/Aide breakdown — adapts to AM/PM/full variants ── */
-                  <div className="space-y-1 text-sm">
-                    {/* Pre-schedule inline note */}
-                    {preScheduleGapMins > 0 && schedStartStr && (
-                      <p className="text-xs text-muted-foreground mb-2">
-                        Clock-in {safeTime(log.timeIn, companyTimezone)} · {preScheduleGapMins} min before schedule ({schedStartStr}), excluded
-                      </p>
-                    )}
-                    {/* AM row — only for DRIVER_AIDE and DRIVER_AIDE_AM */}
-                    {(log.isDA || log.isDA_AM) && (
-                      <div className="flex justify-between items-baseline py-1">
-                        <span className="text-muted-foreground">Driver/Aide AM</span>
-                        <span className="font-medium tabular-nums">
-                          {log.driverAideAMHours != null ? `${log.driverAideAMHours.toFixed(2)}h` : "—"}
-                        </span>
-                      </div>
-                    )}
-                    {/* Regular row — always shown */}
-                    <div className="flex justify-between items-baseline py-1">
-                      <div>
-                        <span className="text-muted-foreground">Regular</span>
-                        {schedStartStr && schedEndStr && (
-                          <span className="text-xs text-muted-foreground/60 ml-2">{schedStartStr} → {schedEndStr}</span>
-                        )}
-                      </div>
-                      <span className="font-medium tabular-nums">
-                        {log.regularHoursForLog != null ? `${log.regularHoursForLog.toFixed(2)}h` : "—"}
-                      </span>
-                    </div>
-                    {/* PM row — only for DRIVER_AIDE and DRIVER_AIDE_PM */}
-                    {(log.isDA || log.isDA_PM) && (
-                      <div className="flex justify-between items-baseline py-1">
-                        <div>
-                          <span className="text-muted-foreground">Driver/Aide PM</span>
-                          {schedEndStr && driverPMEndStr && (
-                            <span className="text-xs text-muted-foreground/60 ml-2">{schedEndStr} → {driverPMEndStr}</span>
-                          )}
-                        </div>
-                        <span className="font-medium tabular-nums">
-                          {log.driverAidePMHours != null ? `${log.driverAidePMHours.toFixed(2)}h` : "—"}
-                        </span>
-                      </div>
-                    )}
-                    {/* OT row — only for DA/DA_PM when server-detected OT > 0 */}
-                    {(log.isDA || log.isDA_PM) && log.daRawOtHours > 0 && (
-                      <div className="flex justify-between items-baseline py-1">
-                        <div>
-                          <span className="text-muted-foreground">Overtime</span>
-                          {driverPMEndStr && log.timeOut && (
-                            <span className="text-xs text-muted-foreground/60 ml-2">{driverPMEndStr} → {safeTime(log.timeOut, companyTimezone)}</span>
-                          )}
-                        </div>
-                        <span className="font-medium tabular-nums text-orange-500">{log.daRawOtHours.toFixed(2)}h</span>
-                      </div>
-                    )}
-                    {/* Separator + Total */}
-                    <div className="border-t pt-2 mt-1 flex justify-between items-baseline">
-                      <span className="font-semibold">Total Net Hours</span>
-                      <span className="font-bold tabular-nums text-orange-500">{log.duration}h</span>
-                    </div>
-                    {/* Deducted breaks */}
-                    <div className="pt-2 space-y-1">
-                      <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>Coffee Break</span>
-                        <span className="flex items-center gap-1">
-                          {log.coffeeMins}h
-                          {(log.autoCoffeeApplied || log.coffeeBreaks?.some(b => b.auto)) && <AutoBreakBadge deductible={log.coffeeBreaks?.find(b => b.auto)?.deductible ?? true} />}
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>Lunch Break</span>
-                        <span className="flex items-center gap-1">
-                          {log.lunchMins}h
-                          {(log.autoLunchApplied || log.lunchBreak?.auto) && <AutoBreakBadge deductible={log.lunchBreak?.deductible ?? true} />}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  /* ── Regular breakdown ── */
-                  <div className="space-y-1 text-sm">
-                    <div className="flex justify-between py-1"><span className="text-muted-foreground">Coffee Break</span><span className="font-medium tabular-nums flex items-center gap-1">{log.coffeeMins}h{(log.autoCoffeeApplied || log.coffeeBreaks?.some(b => b.auto)) && <AutoBreakBadge deductible={log.coffeeBreaks?.find(b => b.auto)?.deductible ?? true} />}</span></div>
-                    <div className="flex justify-between py-1"><span className="text-muted-foreground">Lunch Break</span><span className="font-medium tabular-nums flex items-center gap-1">{log.lunchMins}h{(log.autoLunchApplied || log.lunchBreak?.auto) && <AutoBreakBadge deductible={log.lunchBreak?.deductible ?? true} />}</span></div>
-                    <div className="flex justify-between py-1"><span className="text-muted-foreground">Late Hours</span><span className="font-medium tabular-nums">{parseFloat(log.lateHours) > 0 ? `${log.lateHours}h` : "—"}</span></div>
-                    <div className="flex justify-between py-1"><span className="text-muted-foreground">Period Hours</span><span className="font-medium tabular-nums">{log.periodHours}h</span></div>
-                  </div>
-                )}
-              </div>
-
-              {/* Device & Location */}
-              <div className="space-y-3">
-                <h4 className="font-semibold text-sm flex items-center gap-2">
-                  <Activity className="h-4 w-4 text-orange-500" />
-                  Device &amp; Location
-                </h4>
-                <div className="space-y-2 text-sm">
-                  <div>
-                    <span className="text-muted-foreground block mb-1">Device In:</span>
-                    <code className="text-xs bg-muted px-2 py-1 rounded block">{log.fullDevIn}</code>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground block mb-1">Device Out:</span>
-                    <code className="text-xs bg-muted px-2 py-1 rounded block">{log.fullDevOut}</code>
-                  </div>
-                  {locIn.lat && (
-                    <div>
-                      <span className="text-muted-foreground block mb-1">Location In:</span>
-                      <a href={`https://www.google.com/maps?q=${locIn.lat},${locIn.lng}`} target="_blank" rel="noopener noreferrer" className="text-xs text-orange-500 hover:underline">{locIn.txt}</a>
-                    </div>
-                  )}
-                  {locOut.lat && (
-                    <div>
-                      <span className="text-muted-foreground block mb-1">Location Out:</span>
-                      <a href={`https://www.google.com/maps?q=${locOut.lat},${locOut.lng}`} target="_blank" rel="noopener noreferrer" className="text-xs text-orange-500 hover:underline">{locOut.txt}</a>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </TableCell>
-        </motion.tr>
-      )}
-    </>
-  );
-}
-
 // ── ScheduleDialog ─────────────────────────────────────────────────────────────
-// Colour + label config keyed on shift name keywords
-const SHIFT_STYLE = (name = "") => {
-  const n = name.toLowerCase();
-  if (n.includes("am") || n.includes("driver") && n.includes("am"))
-    return { bg: "bg-blue-50 dark:bg-blue-950", border: "border-blue-300 dark:border-blue-700", dot: "bg-blue-500", text: "text-blue-700 dark:text-blue-300", label: "Driver / Aide AM" };
-  if (n.includes("pm") || n.includes("driver") && n.includes("pm"))
-    return { bg: "bg-indigo-50 dark:bg-indigo-950", border: "border-indigo-300 dark:border-indigo-700", dot: "bg-indigo-500", text: "text-indigo-700 dark:text-indigo-300", label: "Driver / Aide PM" };
-  if (n.includes("driver") || n.includes("aide"))
-    return { bg: "bg-blue-50 dark:bg-blue-950", border: "border-blue-300 dark:border-blue-700", dot: "bg-blue-500", text: "text-blue-700 dark:text-blue-300", label: "Driver / Aide" };
-  // Default — regular shift
-  return { bg: "bg-orange-50 dark:bg-orange-950", border: "border-orange-300 dark:border-orange-700", dot: "bg-orange-500", text: "text-orange-700 dark:text-orange-300", label: "Regular Shift" };
-};
-
 function ScheduleDialog({ open, onOpenChange, scheduleList }) {
-  // Sort shifts chronologically by startTime UTC hours
   const sorted = [...scheduleList].sort((a, b) => {
-    const aH = a.shift?.startTime ? new Date(a.shift.startTime).getUTCHours() * 60 + new Date(a.shift.startTime).getUTCMinutes() : 0;
-    const bH = b.shift?.startTime ? new Date(b.shift.startTime).getUTCHours() * 60 + new Date(b.shift.startTime).getUTCMinutes() : 0;
-    return aH - bH;
+    const toMins = (t) => t ? new Date(t).getUTCHours() * 60 + new Date(t).getUTCMinutes() : 0;
+    return toMins(a.shift?.startTime) - toMins(b.shift?.startTime);
   });
 
-  // Compute total day span for the progress bar
-  const allMins = sorted.map((s) => {
-    const start = s.shift?.startTime ? new Date(s.shift.startTime).getUTCHours() * 60 + new Date(s.shift.startTime).getUTCMinutes() : 0;
-    const end   = s.shift?.endTime   ? new Date(s.shift.endTime).getUTCHours()   * 60 + new Date(s.shift.endTime).getUTCMinutes()   : 0;
-    return { start, end };
-  });
-  const dayStart = allMins.length ? Math.min(...allMins.map((m) => m.start)) : 0;
-  const dayEnd   = allMins.length ? Math.max(...allMins.map((m) => m.end))   : 0;
-  const daySpan  = dayEnd - dayStart || 1;
+  const allMins = sorted.map((s) => ({
+    start: s.shift?.startTime ? new Date(s.shift.startTime).getUTCHours() * 60 + new Date(s.shift.startTime).getUTCMinutes() : 0,
+    end:   s.shift?.endTime   ? new Date(s.shift.endTime).getUTCHours()   * 60 + new Date(s.shift.endTime).getUTCMinutes()   : 0,
+  }));
+  const dayStart   = allMins.length ? Math.min(...allMins.map((m) => m.start)) : 0;
+  const dayEnd     = allMins.length ? Math.max(...allMins.map((m) => m.end))   : 0;
+  const totalHours = toHour(dayEnd - dayStart);
+  const startLabel = sorted[0]?.shift?.startTime ? fmtUTCTime(sorted[0].shift.startTime) : "—";
+  const endLabel   = sorted[sorted.length - 1]?.shift?.endTime ? fmtUTCTime(sorted[sorted.length - 1].shift.endTime) : "—";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md border-2 dark:border-white/30">
-        <div className="h-1 w-full bg-orange-500 -mt-6 mb-4" />
+      <DialogContent className="sm:max-w-sm rounded-2xl border dark:border-white/10 gap-4">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Calendar className="h-5 w-5 text-orange-600" />
-            Schedule Details
+          <DialogTitle className="flex items-center gap-2 text-[15px]">
+            <span className="w-7 h-7 rounded-lg bg-orange-50 dark:bg-orange-950/30 flex items-center justify-center flex-shrink-0">
+              <Calendar className="h-3.5 w-3.5 text-orange-500" />
+            </span>
+            Schedule details
           </DialogTitle>
         </DialogHeader>
 
         {sorted.length ? (
-          <ScrollArea className="max-h-[65vh]">
-            <div className="px-1 pb-2 space-y-5">
-
-              {/* ── Visual timeline bar ── */}
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>{fmtUTCTime(sorted[0].shift?.startTime)}</span>
-                  <span>{fmtUTCTime(sorted[sorted.length - 1].shift?.endTime)}</span>
+          <div className="space-y-4">
+            {/* Timeline */}
+            <div>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-muted-foreground whitespace-nowrap tabular-nums">{startLabel}</span>
+                <div className="flex-1 relative flex items-center h-4">
+                  <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-0.5 bg-orange-500 rounded-full" />
+                  <div className="absolute left-0 w-2.5 h-2.5 rounded-full bg-orange-500" />
+                  <div className="absolute right-0 w-2.5 h-2.5 rounded-full bg-orange-500" />
                 </div>
-                <div className="relative h-5 rounded-full bg-muted overflow-hidden flex">
-                  {allMins.map((m, i) => {
-                    const style = SHIFT_STYLE(sorted[i].shift?.shiftName);
-                    const left  = ((m.start - dayStart) / daySpan) * 100;
-                    const width = ((m.end - m.start) / daySpan) * 100;
-                    return (
-                      <div
-                        key={sorted[i].id}
-                        className={`absolute h-full ${style.dot} opacity-80`}
-                        style={{ left: `${left}%`, width: `${width}%` }}
-                      />
-                    );
-                  })}
-                </div>
-                <p className="text-xs text-center text-muted-foreground">
-                  Total: {toHour(dayEnd - dayStart)}h
-                </p>
+                <span className="text-xs text-muted-foreground whitespace-nowrap tabular-nums">{endLabel}</span>
               </div>
+              <div className="flex justify-center mt-2">
+                <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground border rounded-full px-2.5 py-1">
+                  <Clock className="h-3 w-3" />{totalHours}h total
+                </span>
+              </div>
+            </div>
 
-              {/* ── Shift cards with connector lines ── */}
-              <div className="relative">
-                {/* vertical connector */}
-                {sorted.length > 1 && (
-                  <div className="absolute left-[18px] top-6 bottom-6 w-0.5 bg-gradient-to-b from-muted-foreground/20 to-muted-foreground/20 z-0" />
-                )}
-
-                <div className="space-y-3 relative z-10">
-                  {sorted.map((s, i) => {
-                    const style    = SHIFT_STYLE(s.shift?.shiftName);
+            {/* Shifts */}
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 mb-2">Shifts</p>
+              <ScrollArea className="max-h-64">
+                <div className="space-y-2">
+                  {sorted.map((s) => {
+                    const isBreak  = /(lunch|break)/i.test(s.shift?.shiftName || "");
                     const startStr = s.shift?.startTime ? fmtUTCTime(s.shift.startTime) : "—";
                     const endStr   = s.shift?.endTime   ? fmtUTCTime(s.shift.endTime)   : "—";
                     let durMins    = 0;
@@ -2419,57 +2322,35 @@ function ScheduleDialog({ open, onOpenChange, scheduleList }) {
                     const durStr = durMins ? `${toHour(durMins)}h` : "—";
 
                     return (
-                      <div key={s.id} className="flex items-start gap-3">
-                        {/* Timeline dot */}
-                        <div className={`mt-3.5 h-4 w-4 rounded-full border-2 border-white dark:border-neutral-900 shadow-sm flex-shrink-0 ${style.dot}`} />
-
-                        {/* Card */}
-                        <div className={`flex-1 rounded-xl border ${style.bg} ${style.border} p-3`}>
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <p className={`font-semibold text-sm ${style.text}`}>
-                                {s.shift?.shiftName || style.label}
-                              </p>
-                              <p className="text-xs text-muted-foreground mt-0.5">
-                                {startStr} — {endStr}
-                              </p>
-                            </div>
-                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${style.bg} ${style.text} border ${style.border}`}>
-                              {durStr}
-                            </span>
+                      <div key={s.id} className="flex items-center justify-between rounded-xl bg-muted/50 dark:bg-muted/20 px-3 py-2.5 gap-3">
+                        <div className="flex items-start gap-2.5 min-w-0">
+                          <span className={`mt-[3px] h-2 w-2 rounded-full flex-shrink-0 ${isBreak ? "bg-neutral-400 dark:bg-neutral-500" : "bg-orange-500"}`} />
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold leading-tight truncate">{s.shift?.shiftName || "Shift"}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5 tabular-nums">{startStr} — {endStr}</p>
                           </div>
-
-                          {/* Connector hint between cards */}
-                          {i < sorted.length - 1 && (() => {
-                            const nextStart = sorted[i + 1].shift?.startTime
-                              ? fmtUTCTime(sorted[i + 1].shift.startTime) : null;
-                            return nextStart ? (
-                              <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
-                                <span className="inline-block w-3 border-t border-dashed border-muted-foreground/40" />
-                                Continues at {nextStart}
-                              </p>
-                            ) : null;
-                          })()}
                         </div>
+                        {isBreak ? (
+                          <span className="text-[11px] text-muted-foreground border rounded-full px-2 py-0.5 shrink-0 tabular-nums">{durStr}</span>
+                        ) : (
+                          <span className="text-sm font-semibold text-orange-500 dark:text-orange-400 shrink-0 tabular-nums">{durStr}</span>
+                        )}
                       </div>
                     );
                   })}
                 </div>
-              </div>
-
+              </ScrollArea>
             </div>
-          </ScrollArea>
+          </div>
         ) : (
-          <div className="flex flex-col items-center justify-center py-10 text-muted-foreground gap-2">
+          <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
             <Calendar className="h-8 w-8 opacity-30" />
             <p className="text-sm">No schedule for this day</p>
           </div>
         )}
 
         <DialogFooter>
-          <Button onClick={() => onOpenChange(false)} className="bg-orange-500 hover:bg-orange-600 text-white">
-            Close
-          </Button>
+          <Button variant="outline" className="rounded-xl" onClick={() => onOpenChange(false)}>Close</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

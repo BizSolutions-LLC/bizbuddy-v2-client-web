@@ -5,12 +5,12 @@ import { useState } from "react";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { FiMessageSquare, FiSend } from "react-icons/fi";
 import { MdOutlineContactSupport, MdOutlineEmail } from "react-icons/md";
 import { AiOutlinePhone } from "react-icons/ai";
-import LandingCtaButton from "@/components/common/LandingCtaButton";
 
 export default function Contact() {
   const [subject, setSubject] = useState("");
@@ -42,9 +42,9 @@ export default function Contact() {
       >
         Get in Touch
       </motion.h2>
-      <div className="flex flex-col items-stretch w-full mt-10">
-        <motion.div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-4xl mx-auto">
-          <motion.div variants={itemVariants} className="w-full">
+      <div className="flex flex-col items-center w-full mt-10">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-4xl">
+          <motion.div variants={itemVariants}>
             <Card className="rounded-xl p-2 border-none shadow-xl  h-full">
               <CardHeader>
                 <h3 className="flex items-center text-xl sm:text-2xl font-bold dark:text-neutral-200 text-neutral-800">
@@ -73,7 +73,7 @@ export default function Contact() {
               </CardContent>
             </Card>
           </motion.div>
-          <motion.div variants={itemVariants} className="w-full">
+          <motion.div variants={itemVariants}>
             <Card className="rounded-xl p-2 border-none shadow-xl bg-orange-50 dark:bg-neutral-900 h-full">
               <CardHeader>
                 <h3 className="flex items-center text-xl sm:text-2xl font-bold dark:text-neutral-200 text-neutral-800">
@@ -99,15 +99,20 @@ export default function Contact() {
                     className=""
                     required
                   />
-                  <LandingCtaButton type="submit">
-                    Send Message
-                    <FiSend className="landing-cta-icon" aria-hidden />
-                  </LandingCtaButton>
+                  <Button
+                    type="submit"
+                    className="py-3 px-4 w-full font-semibold text-white rounded-lg text-sm bg-gradient-to-r from-orange-500 to-orange-600"
+                  >
+                    <span className="flex items-center justify-center">
+                      <span className="mr-2">Send Message</span>
+                      <FiSend />
+                    </span>
+                  </Button>
                 </form>
               </CardContent>
             </Card>
           </motion.div>
-        </motion.div>
+        </div>
       </div>
     </motion.div>
   );

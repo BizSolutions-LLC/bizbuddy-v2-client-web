@@ -3,7 +3,7 @@
 import "./globals.css";
 import { ThemeProvider } from "@/components/Theme/ThemeProvider";
 import NavBar from "@/components/Partial/Navbar";
-import BizChat from "@/components/Home/BizChat";
+import BizChatLoader from "@/components/Home/BizChatLoader";
 import VersionCheck from "@/components/VersionCheck";
 
 export const metadata = {
@@ -20,7 +20,7 @@ export default function RootLayout({ children }) {
           <VersionCheck />
           <NavBar />
           <main className="pt-16">{children}</main>
-          <BizChat clientId="socckVI7VnKfbO5Jf6f6" />
+          {/* <BizChatLoader clientId="socckVI7VnKfbO5Jf6f6" /> */}
         </ThemeProvider>
       </body>
     </html>

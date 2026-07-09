@@ -2,36 +2,30 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback } from "react";
-import { format, isSameDay, isValid, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isToday } from "date-fns";
+import { format, isSameMonth } from "date-fns";
 import ModernCalendar from "@/components/common/ModernCalendar";
-import { toZonedTime, formatInTimeZone } from 'date-fns-tz';
+import { formatInTimeZone } from 'date-fns-tz';
 import Link from "next/link";
 import useAuthStore from "@/store/useAuthStore";
 import { toast, Toaster } from "sonner";
-import { motion, AnimatePresence } from "framer-motion";
-import { 
-  CalendarIcon, 
-  Clock, 
-  ArrowRight, 
-  RefreshCw, 
-  Timer, 
-  TrendingUp, 
-  ChevronLeft, 
-  ChevronRight,
+import { motion } from "framer-motion";
+import {
+  CalendarIcon,
+  Clock,
+  ArrowRight,
+  RefreshCw,
+  Timer,
+  TrendingUp,
   MapPin,
   Building,
   Users,
-  Zap,
   Globe,
-  Info
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 // Timezone utility functions
@@ -360,7 +354,7 @@ export default function ModernSchedule() {
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="hidden sm:flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={goToToday} className="gap-2">
               <CalendarIcon className="h-4 w-4" />
               Today
@@ -607,129 +601,6 @@ export default function ModernSchedule() {
           </motion.div>
         </div>
 
-        {/* Enhanced Shift Details Table */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-        >
-          <Card className="border-2 shadow-lg">
-            <div className="h-1 w-full bg-orange-500" />
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <Zap className="h-5 w-5 text-orange-500" />
-                    Shift Details
-                  </CardTitle>
-                  <CardDescription>
-                    Detailed information for {format(selectedDate, 'MMM d, yyyy')}
-                  </CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Shift Name</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Timezone</TableHead>
-                      <TableHead>Start Time</TableHead>
-                      <TableHead>End Time</TableHead>
-                      {showLocalTime && hasMultipleTimezones && (
-                        <TableHead>Local Time</TableHead>
-                      )}
-                      <TableHead className="text-right">Total Hours</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {loading ? (
-                      Array(3).fill(0).map((_, i) => (
-                        <TableRow key={i}>
-                          <TableCell colSpan={showLocalTime && hasMultipleTimezones ? 7 : 6}>
-                            <Skeleton className="h-8 w-full" />
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    ) : shiftsToday.length > 0 ? (
-                      <AnimatePresence>
-                        {shiftsToday.map((shift, index) => {
-                          const timezone = shift.shift?.timeZone || 'UTC';
-                          const isDifferentTz = timezone !== userTimezone;
-                          
-                          return (
-                            <motion.tr
-                              key={shift.id}
-                              initial={{ opacity: 0, y: 5 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              transition={{ delay: index * 0.03 }}
-                              className="hover:bg-gray-50 dark:hover:bg-gray-900/20"
-                            >
-                              <TableCell className="font-medium capitalize">
-                                {shift.shift.shiftName}
-                              </TableCell>
-                              <TableCell className="font-mono text-sm">
-                                {format(toLocalDate(shift.assignedDate), 'MMM d, yyyy')}
-                              </TableCell>
-                              <TableCell>
-                                <TimezoneBadge timezone={timezone} compact />
-                              </TableCell>
-                              <TableCell className="font-mono text-sm">
-                                {formatNaiveTime(shift.shift.startTime, timezone, 'HH:mm')}
-                              </TableCell>
-                              <TableCell className="font-mono text-sm">
-                                {formatNaiveTime(shift.shift.endTime, timezone, 'HH:mm')}
-                              </TableCell>
-                              {showLocalTime && hasMultipleTimezones && (
-                                <TableCell className="text-sm">
-                                  {isDifferentTz ? (
-                                    <div className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
-                                      <MapPin className="h-3 w-3" />
-                                      <span className="font-mono">
-                                        {formatNaiveTime(shift.shift.startTime, userTimezone, 'HH:mm')}
-                                        {' - '}
-                                        {formatNaiveTime(shift.shift.endTime, userTimezone, 'HH:mm')}
-                                      </span>
-                                    </div>
-                                  ) : (
-                                    <span className="text-gray-400">—</span>
-                                  )}
-                                </TableCell>
-                              )}
-                              <TableCell className="text-right">
-                                <Badge variant="secondary">
-                                  {hoursBetween(shift.shift.startTime, shift.shift.endTime, timezone)} hrs
-                                </Badge>
-                              </TableCell>
-                            </motion.tr>
-                          );
-                        })}
-                      </AnimatePresence>
-                    ) : (
-                      <TableRow>
-                        <TableCell colSpan={showLocalTime && hasMultipleTimezones ? 7 : 6} className="py-12 text-center">
-                          <div className="flex flex-col items-center justify-center">
-                            <div className="w-12 h-12 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mb-3">
-                              <Clock className="h-6 w-6 text-gray-400" />
-                            </div>
-                            <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
-                              No shifts scheduled
-                            </p>
-                            <p className="text-xs text-gray-500">
-                              {format(selectedDate, 'MMM d, yyyy')}
-                            </p>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
       </div>
     </TooltipProvider>
   );

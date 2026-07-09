@@ -724,7 +724,7 @@ export default function Punch() {
                 Punch
               </h2>
             </div>
-            <div className="flex gap-3 items-center">
+            <div className="hidden md:flex gap-3 items-center">
               <Button
                 variant="outline"
                 className="flex items-center gap-2 hover:bg-neutral-100 dark:hover:bg-black"
@@ -754,7 +754,7 @@ export default function Punch() {
               }`} />
 
               <CardHeader className="pb-4">
-                <CardTitle className="flex items-center justify-between">
+                <CardTitle className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div className="flex items-center gap-3">
                     <motion.div
                       animate={{ scale: isTimedIn ? [1, 1.1, 1] : 1 }}

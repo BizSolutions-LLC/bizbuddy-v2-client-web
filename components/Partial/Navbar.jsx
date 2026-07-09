@@ -9,7 +9,7 @@ import { ThemeToggle } from "../Theme/ThemeToggle";
 import useAuthStore from "@/store/useAuthStore";
 import UserMenu from "./Navbar/UserMenu";
 import MobileMenu from "./Navbar/MobileMenu";
-import NotificationBell from "@/components/common/NotificationBell";
+import NotificationBell from '@/components/common/NotificationBell';
 
 const navLinks = [
   { href: "/", label: "Home" },
@@ -52,10 +52,10 @@ function SignInButton() {
     <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
       <Link
         href="/sign-in"
-        className="inline-flex items-center justify-center px-3 py-2 md:px-6 md:py-2.5 font-semibold text-white 
-                   rounded-lg md:rounded-xl text-xs md:text-sm whitespace-nowrap bg-gradient-to-r from-orange-500 to-orange-600 
+        className="inline-flex items-center justify-center px-6 py-2.5 font-semibold text-white 
+                   rounded-xl text-sm bg-gradient-to-r from-orange-500 to-orange-600 
                    hover:from-orange-600 hover:to-orange-700 transition-all duration-200 
-                   shadow-md md:shadow-lg hover:shadow-lg md:hover:shadow-xl md:hover:-translate-y-0.5"
+                   shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
       >
         Sign in
       </Link>

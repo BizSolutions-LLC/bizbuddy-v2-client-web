@@ -56,14 +56,14 @@ function DataDisplay() {
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               transition={{ delay: 0.8, duration: 0.6 }}
-              className="flex flex-wrap items-center justify-center lg:justify-start gap-3 sm:gap-4 lg:pt-4 pt-2 w-full max-w-sm lg:max-w-none mx-auto lg:mx-0"
+              className="flex flex-col md:flex-row items-center justify-center lg:justify-start lg:gap-4 gap-2 lg:pt-4 pt-2"
             >
               <Image
                 src="/download-app-store.png"
                 alt="Download on App Store"
                 width={180}
                 height={54}
-                className="w-[calc(50%-0.375rem)] sm:w-44 md:w-48 max-w-[11rem] h-auto hover:scale-105 transition-transform cursor-pointer"
+                className="w-20 sm:w-48 hover:scale-105 transition-transform cursor-pointer"
                 onClick={() => handleOpenQrModal("app")}
               />
               <Image
@@ -71,7 +71,7 @@ function DataDisplay() {
                 alt="Get it on Google Play"
                 width={180}
                 height={54}
-                className="w-[calc(50%-0.375rem)] sm:w-44 md:w-48 max-w-[11rem] h-auto hover:scale-105 transition-transform cursor-pointer"
+                className="w-20 sm:w-48 hover:scale-105 transition-transform cursor-pointer"
                 onClick={() => handleOpenQrModal("play")}
               />
             </motion.div>

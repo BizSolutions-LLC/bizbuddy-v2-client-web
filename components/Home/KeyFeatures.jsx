@@ -17,58 +17,101 @@ function KeyFeatures() {
       setCurrentImageIndex((prevIndex) => (prevIndex + 1) % images.length);
     }, 3000);
     return () => clearInterval(interval);
-  }, [images.length]);
+  }, []);
+
+  const imageVariants = {
+    initial: { x: 100, opacity: 0 },
+    animate: { x: 0, opacity: 1 },
+    exit: { x: -100, opacity: 0 },
+  };
+
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.1,
+      },
+    },
+  };
+
+  const itemVariants = {
+    hidden: { y: 20, opacity: 0 },
+    visible: {
+      y: 0,
+      opacity: 1,
+    },
+  };
 
   return (
-    <section className="w-full px-4 py-8 sm:px-6 sm:py-14 lg:px-8 lg:py-28">
-      <h2 className="mb-8 text-center text-xl font-bold capitalize text-orange-500 sm:mb-10 sm:text-2xl md:text-4xl lg:text-5xl">
-        Key Features
-      </h2>
-
-      <motion.div className="mx-auto flex w-full max-w-7xl flex-col items-stretch gap-8 lg:flex-row lg:items-center lg:gap-16">
-        <div className="relative h-[32vh] w-full overflow-hidden rounded-3xl sm:h-[40vh] lg:h-[60vh] lg:w-3/5">
+    <motion.div
+      className="w-full py-2 md:py-14 px-4 sm:px-6 lg:px-8 lg:py-28 lg:my-6 "
+      initial="hidden"
+      animate="visible"
+      variants={containerVariants}
+    >
+      <motion.div className="mb-8" variants={itemVariants}>
+        <h2 className="text-orange-500 mb-10 font-bold text-center pb-2 max-w-7xl mx-auto text-xl sm:text-2xl md:text-4xl lg:text-5xl capitalize">
+          Key Features
+        </h2>
+      </motion.div>
+      <div className="flex flex-col lg:flex-row gap-8 lg:gap-16 items-center justify-center">
+        <motion.div
+          className="w-full lg:w-3/5 h-[30vh] sm:h-[40vh] lg:h-[60vh] relative overflow-hidden rounded-3xl"
+          variants={itemVariants}
+        >
           <AnimatePresence mode="wait">
             <motion.img
               key={currentImageIndex}
               src={images[currentImageIndex]}
               alt={`Feature Image ${currentImageIndex + 1}`}
-              initial={{ opacity: 0, x: 40 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -40 }}
-              transition={{ duration: 0.6, ease: "easeInOut" }}
-              className="h-full w-full object-cover"
+              variants={imageVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={{ duration: 0.8, ease: "easeInOut" }}
+              className="w-full h-full object-cover"
             />
           </AnimatePresence>
-        </div>
-
-        <motion.div className="flex w-full min-w-0 flex-col lg:w-3/5">
+        </motion.div>
+        <div className="w-full lg:w-3/5 flex flex-col items-start justify-center lg:shadow-2xl  shadow-none p-2 md:rounded-xl dark:shadow-neutral-900  ">
           <motion.div
-            role="tablist"
-            aria-label="Key features"
-            className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-center sm:gap-3"
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4 }}
+            className="
+              w-full max-w-7xl mx-auto
+              px-4
+              flex flex-nowrap items-center justify-center
+              gap-2 sm:gap-4 md:gap-6
+              "
+            variants={itemVariants}
           >
             {featureDetails.map((feature) => {
               const Icon = feature.icon;
-              const isActive = activeFeature === feature.id;
               return (
-                <button
+                <motion.button
                   key={feature.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={isActive}
                   onClick={() => setActiveFeature(feature.id)}
-                  className={`key-feature-tab rounded-lg px-4 py-3 text-sm font-semibold transition-colors ${
-                    isActive
-                      ? "bg-orange-500 text-white shadow-md"
-                      : "bg-neutral-100 text-neutral-700 hover:bg-orange-500 hover:text-white dark:bg-neutral-800 dark:text-neutral-200"
-                  }`}
+                  className={`
+          inline-flex items-center justify-center
+          gap-1 sm:gap-2
+          px-2 sm:px-3 md:px-4
+          py-1 sm:py-2
+          rounded-lg md:rounded-xl
+          text-xs sm:text-sm md:text-base lg:text-sm font-semibold
+          shrink-0
+          border-none outline-none
+          transition-colors duration-300
+          ${
+            activeFeature === feature.id
+              ? "bg-gradient-to-r from-orange-500 to-orange-600 text-white hover:bg-orange-500"
+              : "hover:bg-gradient-to-r from-orange-500 to-orange-600 hover:text-white"
+          }
+        `}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
                 >
-                  <Icon className="h-4 w-4 shrink-0" aria-hidden />
-                  <span>{feature.name}</span>
-                </button>
+                  <Icon className="w-3 h-3 sm:w-4 sm:h-4 md:w-5 md:h-5 lg:w-6 lg:h-6" />
+                  <span className="leading-tight">{feature.name}</span>
+                </motion.button>
               );
             })}
           </motion.div>
@@ -76,29 +119,33 @@ function KeyFeatures() {
           <AnimatePresence mode="wait">
             <motion.div
               key={activeFeature}
-              role="tabpanel"
-              className="mt-6 w-full rounded-xl p-4 sm:mt-8"
-              initial={{ opacity: 0, y: 12 }}
+              className="p-4 rounded-xl w-full mt-10 "
+              initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
-              transition={{ duration: 0.25 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3 }}
             >
-              <p className="text-sm font-semibold sm:text-base lg:text-2xl">{activeDetail?.details}</p>
+              <p className="text-sm sm:text-base lg:text-2xl font-semibold">{activeDetail?.details}</p>
               {activeDetail?.moreDetails && (
-                <ul className="mt-4 space-y-2 text-left text-xs sm:text-sm lg:text-xl">
+                <motion.ul
+                  className="mt-4 space-y-2 text-left text-xs sm:text-sm lg:text-xl "
+                  variants={containerVariants}
+                  initial="hidden"
+                  animate="visible"
+                >
                   {Object.values(activeDetail.moreDetails).map((detail, index) => (
-                    <li key={index} className="flex items-start gap-2">
-                      <Check className="mt-0.5 h-4 w-4 shrink-0 sm:h-5 sm:w-5" color="#f97316" />
+                    <motion.li key={index} className="flex items-start gap-2" variants={itemVariants}>
+                      <Check className="w-4 h-4 sm:w-5 sm:h-5 mt-1" color="#f97316" />
                       <span>{detail}</span>
-                    </li>
+                    </motion.li>
                   ))}
-                </ul>
+                </motion.ul>
               )}
             </motion.div>
           </AnimatePresence>
-        </motion.div>
-      </motion.div>
-    </section>
+        </div>
+      </div>
+    </motion.div>
   );
 }
 

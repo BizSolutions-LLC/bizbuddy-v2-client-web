@@ -6,7 +6,7 @@ import Footer from "@/components/Partial/Footer";
 import React from "react";
 function page() {
   return (
-    <div className="flex flex-col justify-between items-stretch w-full bg-white dark:bg-black">
+    <div className="flex flex-col justify-between items-center bg-white dark:bg-black">
       <Contact />
       <Footer />
     </div>

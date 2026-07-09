@@ -26,7 +26,7 @@ export default function Home() {
   }, [user, router]);
 
   return (
-    <div className="flex flex-col items-center w-full px-4 pt-10 md:pt-16 lg:pt-18">
+    <div className="flex flex-col justify-center items-center w-full md:pt-16 lg:pt-18 pt-10">
       <LandingHero />
       <FeaturesIcon />
       <KeyFeatures />

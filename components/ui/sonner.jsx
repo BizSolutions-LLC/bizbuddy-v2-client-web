@@ -1,20 +1,13 @@
 // components/ui/sonner.jsx
 "use client";
 
-import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
 import { useTheme } from "next-themes";
 import { Toaster as Sonner } from "sonner";
 
 const Toaster = ({ ...props }) => {
   const { theme = "system" } = useTheme();
-  const [mounted, setMounted] = useState(false);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  const toaster = (
+  return (
     <Sonner
       theme={theme}
       className="toaster group"
@@ -30,10 +23,6 @@ const Toaster = ({ ...props }) => {
       {...props}
     />
   );
-
-  if (!mounted) return null;
-
-  return createPortal(toaster, document.body);
 };
 
 export { Toaster };

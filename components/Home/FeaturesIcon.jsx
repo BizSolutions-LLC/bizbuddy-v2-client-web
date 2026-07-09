@@ -31,7 +31,7 @@ export default function FeaturesIcon() {
         animate(
           element,
           { opacity: [0, 1], y: [100, 0], scale: [0.5, 1] },
-          { duration: 0.6, delay: index * 0.1, ease: "easeOut" },
+          { duration: 0.6, delay: index * 0.1, ease: "easeOut" }
         );
       }
     });

@@ -39,6 +39,7 @@ import {
   LayoutTemplate,
   Trash2,
   Tag,
+  X,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast, Toaster } from "sonner";
@@ -76,6 +77,12 @@ const fmtLastFirst = (firstName = "", lastName = "") => {
 
 const safeDate = (d, timezone = "UTC") =>
   d ? new Date(d).toLocaleDateString("en-US", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: timezone }) : "—";
+// For date-only values (e.g. a requested calendar date) — avoids off-by-one shifts from converting midnight UTC into a behind-UTC timezone.
+const safeCalendarDate = (d) => {
+  if (!d) return "—";
+  const [y, m, day] = d.slice(0, 10).split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, day, 12)).toLocaleDateString("en-US", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: "UTC" });
+};
 const safeTime = (d, timezone = "UTC") =>
   d ? new Date(d).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: timezone }) : "—";
 const safeDateTime = (d, timezone = "UTC") =>
@@ -118,11 +125,30 @@ const fmtLoc = (loc) => {
   return { txt: `${lat.toFixed(5)}, ${lng.toFixed(5)}`, lat, lng };
 };
 
-const z = (n) => String(n).padStart(2, "0");
-const toLocalInputValue = (iso) => {
+const toCompanyInputValue = (iso, tz = "UTC") => {
   if (!iso) return "";
-  const d = new Date(iso);
-  return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}T${z(d.getHours())}:${z(d.getMinutes())}`;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(new Date(iso));
+  const get = (type) => parts.find(p => p.type === type)?.value ?? "00";
+  const h = get("hour") === "24" ? "00" : get("hour");
+  return `${get("year")}-${get("month")}-${get("day")}T${h}:${get("minute")}`;
+};
+const fromCompanyInputToISO = (localStr, tz = "UTC") => {
+  if (!localStr) return null;
+  const [datePart, timePart] = localStr.split("T");
+  const [year, month, day] = datePart.split("-").map(Number);
+  const [hour, minute] = (timePart || "00:00").split(":").map(Number);
+  const nominalUTC = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const tzParts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(new Date(nominalUTC));
+  const g = (type) => Number(tzParts.find(p => p.type === type)?.value ?? 0);
+  const tzH = g("hour") === 24 ? 0 : g("hour");
+  const tzNominal = Date.UTC(g("year"), g("month") - 1, g("day"), tzH, g("minute"), 0);
+  return new Date(nominalUTC + (nominalUTC - tzNominal)).toISOString();
 };
 
 // ── FIX 2: PunchTypeBadge — config-map for all 4 punch types ──────────────────
@@ -255,23 +281,31 @@ const StatusBadge = ({ status }) => (
 const OvertimeBadge = ({ otStatus, overtimeRec, onClick }) => {
   const defs = {
     approved:      "Approved: Extra hours will be paid at overtime rate.",
+    Approved:      "Approved: Period overtime has been reviewed and approved.",
     pending:       "Pending: Awaiting supervisor approval.",
+    Included:      "Included: Overtime has been computed for this period and is pending admin approval.",
     rejected:      "Rejected: Request was denied.",
     "No Approval": "No Approval: Employee worked extra hours without a request.",
     "—":           "No overtime recorded for this shift.",
+    "-":           "No overtime detected for this employee this period.",
   };
-  const variants = { approved: "default", pending: "secondary", rejected: "destructive" };
-  const icons    = {
-    approved: <CheckCircle className="w-3 h-3 mr-1" />,
-    pending:  <AlertCircle className="w-3 h-3 mr-1" />,
-    rejected: <XCircle className="w-3 h-3 mr-1" />,
+  const getConfig = (s) => {
+    switch (s) {
+      case "Approved":
+      case "approved":  return { variant: "default",      icon: <CheckCircle className="w-3 h-3 mr-1" />, cls: "" };
+      case "Included":  return { variant: "outline",      icon: <Clock className="w-3 h-3 mr-1" />,       cls: "bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" };
+      case "pending":   return { variant: "secondary",    icon: <AlertCircle className="w-3 h-3 mr-1" />, cls: "" };
+      case "rejected":  return { variant: "destructive",  icon: <XCircle className="w-3 h-3 mr-1" />,     cls: "" };
+      default:          return { variant: "outline",      icon: <Timer className="w-3 h-3 mr-1" />,       cls: "" };
+    }
   };
+  const { variant, icon, cls } = getConfig(otStatus);
   return (
     <TooltipProvider delayDuration={200}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Badge variant={variants[otStatus] || "outline"} className="cursor-pointer hover:opacity-80 capitalize text-xs" onClick={onClick}>
-            {icons[otStatus] || <Timer className="w-3 h-3 mr-1" />}{otStatus}
+          <Badge variant={variant} className={`cursor-pointer hover:opacity-80 capitalize text-xs ${cls}`} onClick={onClick}>
+            {icon}{otStatus}
           </Badge>
         </TooltipTrigger>
         <TooltipContent className="max-w-xs">
@@ -706,6 +740,415 @@ const ScheduleDialog = ({ open, onOpenChange, scheduleList }) => {
   );
 };
 
+// ── Module-level export column map (shared by main + modal) ───────────────────
+const COLUMN_MAP_FOR_EXPORT = {
+  id: "Log ID", schedule: "Scheduled", locationRestricted: "Location Required",
+  employee: "Employee", dateTimeIn: "Time In", dateTimeOut: "Time Out",
+  duration: "Duration", gross: "Gross Hours", coffee: "Coffee Break", lunch: "Lunch Break",
+  ot: "Overtime", otStatus: "OT Status", late: "Late Hours", undertime: "Undertime Hours",
+  deviceIn: "Device In", deviceOut: "Device Out",
+  locationIn: "Location In", locationOut: "Location Out",
+  period: "Period Hours", status: "Status", punchType: "Punch Type",
+  cutoffApproval: "Cutoff Status",
+};
+
+// ── Timelog enrichment (shared by fetchTimelogs + handleGenerateReport) ────────
+function enrichTimelogs(rawData, { companyTimezone, isDayCare, otBasis, locMap, defaultHours }) {
+  return rawData.map((t) => {
+    const coffeeMinsStr = coffeeMinutes(t.coffeeBreaks);
+    const lunchMinsStr  = (!t.lunchBreak?.start && (t.lunchDeductionMinutes ?? 0) > 0)
+      ? (t.lunchDeductionMinutes / 60).toFixed(2)
+      : lunchMinutesStr(t.lunchBreak);
+
+    const dateKey   = toLocalDateStr(t.timeIn, companyTimezone) ?? "";
+    const punchType = t.punchType ?? "REGULAR";
+    const isDA    = punchType === "DRIVER_AIDE";
+    const isDA_AM = punchType === "DRIVER_AIDE_AM";
+    const isDA_PM = punchType === "DRIVER_AIDE_PM";
+    const isAnyDA = isDA || isDA_AM || isDA_PM;
+
+    const netWorkedHours = parseFloat(t.netWorkedHours ?? 0);
+    const rawOtMins      = parseFloat(t.rawOtMinutes   ?? 0);
+
+    const daAMHours      = isAnyDA ? (t.driverAmSegmentHours != null ? parseFloat(t.driverAmSegmentHours) : null) : null;
+    const daRegularHours = isAnyDA ? (t.regularSegmentHours  != null ? parseFloat(t.regularSegmentHours)  : null) : null;
+    const daPMHours      = isAnyDA ? (t.driverPmSegmentHours != null ? parseFloat(t.driverPmSegmentHours) : null) : null;
+    const daRawOtHours   = rawOtMins / 60;
+    const daTotalHours   = isAnyDA && daAMHours != null && daRegularHours != null && daPMHours != null
+      ? +((daAMHours) + (daRegularHours) + (daPMHours)).toFixed(2) : null;
+
+    const overtimeArr     = Array.isArray(t.overtime) ? t.overtime : [];
+    const approvedOTHours = overtimeArr
+      .filter((ot) => ot.status === "approved")
+      .reduce((sum, ot) => sum + (parseFloat(ot.requestedHours) || 0), 0);
+    const hasPendingOT    = overtimeArr.some((ot) => ot.status === "pending");
+    const daApprovedOT    = approvedOTHours;
+
+    const duration = t.netWorkedHours != null
+      ? (isAnyDA && daTotalHours != null ? String(daTotalHours) : netWorkedHours.toFixed(2))
+      : t.grossHours != null
+        ? parseFloat(t.grossHours).toFixed(2)
+        : toHour(t.timeIn && t.timeOut ? diffMins(t.timeIn, t.timeOut) : 0);
+
+    const otHours = (rawOtMins / 60).toFixed(2);
+
+    const otStatus = t.otStatus != null
+      ? t.otStatus
+      : approvedOTHours > 0 ? `Approved ${approvedOTHours.toFixed(2)}h`
+      : hasPendingOT        ? "pending"
+      : rawOtMins > 0       ? "No Approval"
+      : "—";
+
+    const periodHours    = t.scheduledHours != null ? parseFloat(t.scheduledHours).toFixed(2) : "0.00";
+    const lateHours      = t.lateHours      != null ? parseFloat(t.lateHours).toFixed(2)      : "0.00";
+    const undertimeHours = t.undertimeHours != null ? parseFloat(t.undertimeHours).toFixed(2) : "0.00";
+    const grossHours     = t.grossHours     != null ? parseFloat(t.grossHours).toFixed(2)     : null;
+
+    const isMissingClockOut = (() => {
+      if (!isDayCare || t.status !== "active") return false;
+      const expectedEndMs = new Date(t.timeIn).getTime() + defaultHours * 60 * 60 * 1000;
+      return Date.now() > expectedEndMs;
+    })();
+
+    const locList = locMap[t.userId] ?? [];
+
+    return {
+      ...t,
+      dateKey, punchType,
+      isDA, isDA_AM, isDA_PM, isAnyDA,
+      scheduleList: (() => {
+        const raw = t.userShifts?.length ? t.userShifts : (t.userShift ? [t.userShift] : []);
+        const seen = new Set();
+        return raw.filter((s) => {
+          const key = s.shift?.id ?? s.id;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      })(),
+      isScheduled:    !!(t.userShifts?.length || t.userShift),
+      duration, lateHours, undertimeHours, grossHours, otHours, otStatus, periodHours,
+      coffeeMins:  coffeeMinsStr,
+      lunchMins:   lunchMinsStr,
+      locIn:       fmtLoc(t.locIn),
+      locOut:      fmtLoc(t.locOut),
+      overtimeRec: overtimeArr[0] ?? null,
+      fullDevIn:   fmtDevice(t.deviceIn)  || "—",
+      fullDevOut:  fmtDevice(t.deviceOut) || "—",
+      shiftName:   t.userShift?.shift?.shiftName ?? "—",
+      schedOut:    "—",
+      isLocRestricted: locList.length > 0,
+      locList,
+      daAMHours, daPMHours, daRegularHours, daApprovedOT, daTotalHours, daRawOtHours,
+      pmStartDT: null, pmEndDT: null, isD4Flag: false,
+      isDailyBasis: otBasis === "daily",
+      otBasis,
+      isMissingClockOut,
+      isAutoClockOut: t.autoClockOut === true,
+      cutoffApproval: t.cutoffApproval ?? null,
+    };
+  });
+}
+
+// ── GenerateReportModal ────────────────────────────────────────────────────────
+const REPORT_EXCLUDED_COLS = new Set(["deviceIn", "deviceOut", "locationIn", "locationOut", "locationRestricted"]);
+
+const REPORT_GROUPS = [
+  { key: "basic",    label: "Basic Info" },
+  { key: "schedule", label: "Schedule"   },
+  { key: "time",     label: "Time"       },
+  { key: "breaks",   label: "Breaks"     },
+  { key: "location", label: "Location"   },
+  { key: "device",   label: "Device"     },
+  { key: "meta",     label: "Other"      },
+];
+
+const BNC_FORCED_COLS = [
+  { value: "ot",         label: "OT (Daily)"  },
+  { value: "lunchStart", label: "Lunch Start" },
+  { value: "lunchEnd",   label: "Lunch End"   },
+];
+
+const GenerateReportModal = ({
+  open, onOpenChange,
+  isDayCare,
+  columnOptions,
+  defaultFrom,
+  defaultTo,
+  defaultColumns,
+  cutoffPeriods = [],
+  generating,
+  onGenerate,
+}) => {
+  const [reportType,    setReportType]    = useState("csv-detail");
+  const [reportFrom,    setReportFrom]    = useState(defaultFrom);
+  const [reportTo,      setReportTo]      = useState(defaultTo);
+  const [selectedCols,  setSelectedCols]  = useState(defaultColumns || []);
+  const [cutoffId,      setCutoffId]      = useState("all");
+
+  useEffect(() => {
+    if (open) {
+      setReportType("csv-detail");
+      setReportFrom(defaultFrom);
+      setReportTo(defaultTo);
+      setSelectedCols((defaultColumns || []).filter((v) => !REPORT_EXCLUDED_COLS.has(v)));
+      setCutoffId("all");
+    }
+  }, [open]);
+
+  const handleCutoffSelect = (value) => {
+    setCutoffId(value);
+    if (value === "all") return;
+    const period = cutoffPeriods.find((p) => p.id === value);
+    if (!period) return;
+    setReportFrom(period.periodStart.slice(0, 10));
+    setReportTo(period.periodEnd.slice(0, 10));
+  };
+
+  const fmtCutoffDate = (iso) => {
+    if (!iso) return "—";
+    const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
+
+  const selectableCols = useMemo(
+    () => columnOptions.filter((c) => c.value !== "actions" && !REPORT_EXCLUDED_COLS.has(c.value)),
+    [columnOptions]
+  );
+
+  const forcedCols = isDayCare ? [] : BNC_FORCED_COLS;
+
+  const toggleCol = (val) =>
+    setSelectedCols((prev) =>
+      prev.includes(val) ? prev.filter((x) => x !== val) : [...prev, val]
+    );
+
+  const toggleGroup = (groupKey) => {
+    const vals = selectableCols.filter((c) => c.group === groupKey).map((c) => c.value);
+    const allOn = vals.every((v) => selectedCols.includes(v));
+    setSelectedCols((prev) =>
+      allOn ? prev.filter((v) => !vals.includes(v)) : [...new Set([...prev, ...vals])]
+    );
+  };
+
+  const isPayroll = reportType === "csv-payroll";
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg border-2 dark:border-white/10">
+        <div className="h-1 w-full bg-orange-500 -mt-6 mb-4" />
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-orange-500 text-white shadow">
+              <Download className="h-4 w-4" />
+            </div>
+            Generate Report
+          </DialogTitle>
+        </DialogHeader>
+
+        <ScrollArea className="max-h-[60vh]">
+          <div className="px-1 pb-2 space-y-5">
+
+            {/* Report Type */}
+            <div className="space-y-1.5">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5" /> Report Type
+              </p>
+              <Select value={reportType} onValueChange={setReportType}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="csv-detail">
+                    <span className="flex items-center gap-2">
+                      <Download className="h-3.5 w-3.5 text-green-600" /> CSV — Detail
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="pdf">
+                    <span className="flex items-center gap-2">
+                      <FileText className="h-3.5 w-3.5 text-red-500" /> PDF
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="csv-payroll">
+                    <span className="flex items-center gap-2">
+                      <LayoutTemplate className="h-3.5 w-3.5 text-blue-500" /> CSV — Payroll Grid
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              {isPayroll && (
+                <p className="text-xs bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded px-2 py-1.5">
+                  Payroll Grid uses a fixed format — column selection does not apply.
+                </p>
+              )}
+            </div>
+
+            {/* Date Range */}
+            <div className="space-y-3">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5" /> Date Range
+              </p>
+
+              {/* Cutoff period quick-select */}
+              {cutoffPeriods.length > 0 && (
+                <div className="space-y-1">
+                  <Select value={cutoffId} onValueChange={handleCutoffSelect}>
+                    <SelectTrigger className="h-9 w-full">
+                      <SelectValue placeholder="Quick-select cutoff period…" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-60">
+                      <SelectItem value="all">Custom range</SelectItem>
+                      {cutoffPeriods
+                        .filter((p) => (p.periodStart?.slice(0, 10) ?? "") <= new Date().toLocaleDateString("en-CA"))
+                        .map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {fmtCutoffDate(p.periodStart)} – {fmtCutoffDate(p.periodEnd)}
+                            {p.status ? ` (${p.status})` : ""}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[10px] text-muted-foreground">Selecting a period auto-fills the dates below.</p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <p className="text-xs text-muted-foreground">Start Date</p>
+                  <Input
+                    type="date"
+                    value={reportFrom}
+                    onChange={(e) => { setReportFrom(e.target.value); setCutoffId("all"); }}
+                    className="h-9"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <p className="text-xs text-muted-foreground">End Date</p>
+                  <Input
+                    type="date"
+                    value={reportTo}
+                    onChange={(e) => { setReportTo(e.target.value); setCutoffId("all"); }}
+                    className="h-9"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Column Selection */}
+            {!isPayroll && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                    <Eye className="w-3.5 h-3.5" /> Columns to Include
+                  </p>
+                  <div className="flex gap-2 text-xs">
+                    <button
+                      onClick={() => setSelectedCols(selectableCols.map((c) => c.value))}
+                      className="text-orange-600 hover:text-orange-700 hover:underline"
+                    >
+                      All
+                    </button>
+                    <span className="text-muted-foreground">·</span>
+                    <button
+                      onClick={() => setSelectedCols(selectableCols.filter((c) => c.essential).map((c) => c.value))}
+                      className="text-orange-600 hover:text-orange-700 hover:underline"
+                    >
+                      Essential only
+                    </button>
+                  </div>
+                </div>
+
+                <div className="border rounded-lg overflow-hidden divide-y">
+                  {REPORT_GROUPS.map((g) => {
+                    const cols = selectableCols.filter((c) => c.group === g.key);
+                    if (!cols.length) return null;
+                    const allGroupOn = cols.every((c) => selectedCols.includes(c.value));
+                    return (
+                      <div key={g.key} className="px-3 py-2.5">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{g.label}</span>
+                          <button
+                            onClick={() => toggleGroup(g.key)}
+                            className="text-[10px] text-orange-600 hover:text-orange-700 hover:underline"
+                          >
+                            {allGroupOn ? "Deselect all" : "Select all"}
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {cols.map((c) => {
+                            const on = selectedCols.includes(c.value);
+                            return (
+                              <button
+                                key={c.value}
+                                onClick={() => toggleCol(c.value)}
+                                className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border transition-all ${
+                                  on
+                                    ? "bg-orange-100 border-orange-300 text-orange-700 dark:bg-orange-950/40 dark:border-orange-700 dark:text-orange-300"
+                                    : "bg-transparent border-muted-foreground/30 text-muted-foreground hover:border-orange-300 hover:text-orange-600"
+                                }`}
+                              >
+                                {on && <CheckCircle className="w-2.5 h-2.5" />}
+                                {c.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {/* BNC forced columns */}
+                  {forcedCols.length > 0 && (
+                    <div className="px-3 py-2.5 bg-muted/20">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Always Included</span>
+                        <span className="text-[10px] text-muted-foreground">Required for BNC</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {forcedCols.map((c) => (
+                          <span
+                            key={c.value}
+                            className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-950/30 dark:border-blue-700 dark:text-blue-300 cursor-not-allowed opacity-80"
+                          >
+                            <CheckCircle className="w-2.5 h-2.5" />
+                            {c.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <p className="text-xs text-muted-foreground">
+                  {selectedCols.length} of {selectableCols.length} columns selected
+                  {forcedCols.length > 0 && ` · +${forcedCols.length} always included`}
+                </p>
+              </div>
+            )}
+          </div>
+        </ScrollArea>
+
+        <div className="border-t pt-3 space-y-3">
+          <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+            <Info className="w-3 h-3 shrink-0" />
+            Fresh data is fetched for the exact dates above, using your current Employee / Department / Status filters.
+          </p>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={generating}>Cancel</Button>
+            <Button
+              onClick={() => onGenerate({ type: reportType, from: reportFrom, to: reportTo, columns: selectedCols })}
+              disabled={generating || !reportFrom || !reportTo}
+              className="bg-orange-500 hover:bg-orange-600 text-white"
+            >
+              {generating
+                ? <><RefreshCw className="h-4 w-4 mr-1.5 animate-spin" />Generating…</>
+                : <><Download className="h-4 w-4 mr-1.5" />Generate Report</>}
+            </Button>
+          </DialogFooter>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 // ════════════════════════════════════════════════════════════════════════════════
 // Main Component
 // ════════════════════════════════════════════════════════════════════════════════
@@ -723,6 +1166,7 @@ export default function EmployeesPunchLogs() {
   const [bncDailyOtThreshold, setBncDailyOtThreshold] = useState(8);
   const [cutoffPeriods,    setCutoffPeriods]    = useState([]);
   const [selectedCutoffId, setSelectedCutoffId] = useState("all");
+  const [approvedLeaves,   setApprovedLeaves]   = useState([]);
 
   const [timelogs,       setTimelogs]       = useState([]);
   const [departments,    setDepartments]    = useState([]);
@@ -735,17 +1179,18 @@ export default function EmployeesPunchLogs() {
   const [weeklyOtThreshold,setWeeklyOtThreshold]= useState(40);
   const [cutoffOtThreshold,setCutoffOtThreshold]= useState(80);
   // ── G-2: Grace period from company settings ────────────────────────────────
-  const [gracePeriodMins, setGracePeriodMins] = useState(15);
+  const [gracePeriodMins,        setGracePeriodMins]        = useState(15);
+  const [earlyClockInGraceMins,  setEarlyClockInGraceMins]  = useState(0);
   const [companyName,    setCompanyName]    = useState("");
   const [currentUserName,  setCurrentUserName]  = useState("");
   const [currentUserEmail, setCurrentUserEmail] = useState("");
   const [currentUserRole,  setCurrentUserRole]  = useState("");
 
-  const [loading,      setLoading]      = useState(false);
-  const [refreshing,   setRefreshing]   = useState(false);
-  const [exporting,    setExporting]    = useState(false);
-  const [pdfExporting, setPdfExporting] = useState(false);
-  const [expandedRow,  setExpandedRow]  = useState(null);
+  const [loading,           setLoading]           = useState(false);
+  const [refreshing,        setRefreshing]        = useState(false);
+  const [generateModalOpen, setGenerateModalOpen] = useState(false);
+  const [generating,        setGenerating]        = useState(false);
+  const [expandedRow,       setExpandedRow]       = useState(null);
 
   const [totalRows, setTotalRows] = useState(0);
 
@@ -858,16 +1303,7 @@ export default function EmployeesPunchLogs() {
     { value: "actions",            label: "Actions",            essential: true,  group: "basic"    },
   ], [isDayCare]);
 
-  const columnMapForExport = {
-    id: "Log ID", schedule: "Scheduled", locationRestricted: "Location Required",
-    employee: "Employee", dateTimeIn: "Time In", dateTimeOut: "Time Out",
-    duration: "Duration", gross: "Gross Hours", coffee: "Coffee Break", lunch: "Lunch Break",
-    ot: "Overtime", otStatus: "OT Status", late: "Late Hours", undertime: "Undertime Hours",
-    deviceIn: "Device In", deviceOut: "Device Out",
-    locationIn: "Location In", locationOut: "Location Out",
-    period: "Period Hours", status: "Status", punchType: "Punch Type",
-    cutoffApproval: "Cutoff Status",
-  };
+  const columnMapForExport = COLUMN_MAP_FOR_EXPORT;
 
   const [columnVisibility, setColumnVisibility] = useState(
     columnOptions.filter((c) => c.essential).map((c) => c.value)
@@ -914,6 +1350,7 @@ export default function EmployeesPunchLogs() {
         if (cJ.data?.id) setCompanyId(cJ.data.id);
         // ── G-2: Read grace period from settings ──────────────────────────────
         setGracePeriodMins(cJ.data?.gracePeriodMinutes ?? 15);
+        setEarlyClockInGraceMins(cJ.data?.earlyClockInGraceMinutes ?? 0);
         setOtBasis(cJ.data?.otBasis ?? "daily");
         setDailyOtThreshold(parseFloat(cJ.data?.dailyOtThresholdHours  ?? 8));
         setWeeklyOtThreshold(parseFloat(cJ.data?.weeklyOtThresholdHours ?? 40));
@@ -986,6 +1423,17 @@ export default function EmployeesPunchLogs() {
     } catch { /* silent */ }
   }, [token, API_URL]);
 
+  const fetchApprovedLeaves = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/api/leaves`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const j = await res.json();
+      if (res.ok) setApprovedLeaves((j.data || []).filter((l) => l.status === "approved"));
+    } catch { /* silent */ }
+  }, [token, API_URL]);
+
   const handleCutoffSelect = (value) => {
     setSelectedCutoffId(value);
     if (value === "all") return;
@@ -1050,120 +1498,8 @@ export default function EmployeesPunchLogs() {
         setBncOtBlocks(tlJ.otBlocks || []);
         if (tlJ.dailyOtThresholdHours != null) setBncDailyOtThreshold(tlJ.dailyOtThresholdHours);
 
-        const enriched = (tlJ.data || []).map((t) => {
-          // ── Break display strings (UI only) ───────────────────────────────
-          const coffeeMinsStr = coffeeMinutes(t.coffeeBreaks);
-          const lunchMinsStr  = (!t.lunchBreak?.start && (t.lunchDeductionMinutes ?? 0) > 0)
-            ? (t.lunchDeductionMinutes / 60).toFixed(2)
-            : lunchMinutesStr(t.lunchBreak);
-
-          // ── Timezone-aware date key ────────────────────────────────────────
-          const dateKey = toLocalDateStr(t.timeIn, companyTimezone) ?? "";
-
-          // ── Punch type flags ───────────────────────────────────────────────
-          const punchType = t.punchType ?? "REGULAR";
-          const isDA    = punchType === "DRIVER_AIDE";
-          const isDA_AM = punchType === "DRIVER_AIDE_AM";
-          const isDA_PM = punchType === "DRIVER_AIDE_PM";
-          const isAnyDA = isDA || isDA_AM || isDA_PM;
-
-          // ── Server-computed hour fields ────────────────────────────────────
-          const netWorkedHours = parseFloat(t.netWorkedHours ?? 0);
-          const rawOtMins      = parseFloat(t.rawOtMinutes   ?? 0);
-
-          // ── DA segments — read directly from server ────────────────────────
-          const daAMHours      = isAnyDA ? (t.driverAmSegmentHours != null ? parseFloat(t.driverAmSegmentHours) : null) : null;
-          const daRegularHours = isAnyDA ? (t.regularSegmentHours  != null ? parseFloat(t.regularSegmentHours)  : null) : null;
-          const daPMHours      = isAnyDA ? (t.driverPmSegmentHours != null ? parseFloat(t.driverPmSegmentHours) : null) : null;
-          const daRawOtHours   = rawOtMins / 60;
-          const daTotalHours   = isAnyDA && daAMHours != null && daRegularHours != null && daPMHours != null
-            ? +((daAMHours) + (daRegularHours) + (daPMHours)).toFixed(2) : null;
-
-          // ── OT records — reduce over full array ───────────────────────────
-          const overtimeArr     = Array.isArray(t.overtime) ? t.overtime : [];
-          const approvedOTHours = overtimeArr
-            .filter((ot) => ot.status === "approved")
-            .reduce((sum, ot) => sum + (parseFloat(ot.requestedHours) || 0), 0);
-          const hasPendingOT    = overtimeArr.some((ot) => ot.status === "pending");
-          const daApprovedOT    = approvedOTHours;
-
-          // ── Duration — server netWorkedHours, fallback to raw clock diff ───
-          const duration = t.netWorkedHours != null
-            ? (isAnyDA && daTotalHours != null ? String(daTotalHours) : netWorkedHours.toFixed(2))
-            : t.grossHours != null
-              ? parseFloat(t.grossHours).toFixed(2)
-              : toHour(t.timeIn && t.timeOut ? diffMins(t.timeIn, t.timeOut) : 0);
-
-          // ── OT hours ──────────────────────────────────────────────────────
-          const otHours = (rawOtMins / 60).toFixed(2);
-
-          // ── OT status ─────────────────────────────────────────────────────
-          let otStatus = "—";
-          if (approvedOTHours > 0) otStatus = `Approved ${approvedOTHours.toFixed(2)}h`;
-          else if (hasPendingOT)   otStatus = "pending";
-          else if (rawOtMins > 0)  otStatus = "No Approval";
-
-          // ── Period hours — scheduled shift duration for the day ──────────
-          const periodHours = t.scheduledHours != null ? parseFloat(t.scheduledHours).toFixed(2) : "0.00";
-
-          // ── Late / undertime / gross — server-computed ────────────────────
-          const lateHours      = t.lateHours      != null ? parseFloat(t.lateHours).toFixed(2)      : "0.00";
-          const undertimeHours = t.undertimeHours != null ? parseFloat(t.undertimeHours).toFixed(2) : "0.00";
-          const grossHours     = t.grossHours     != null ? parseFloat(t.grossHours).toFixed(2)     : null;
-
-          // ── DayCare: missing clock-out (active session past expected end) ──
-          const isMissingClockOut = (() => {
-            if (!isDayCare || t.status !== "active") return false;
-            const expectedEndMs = new Date(t.timeIn).getTime() + defaultHours * 60 * 60 * 1000;
-            return Date.now() > expectedEndMs;
-          })();
-
-          const locList = locMap[t.userId] ?? [];
-
-          return {
-            ...t,
-            dateKey,
-            punchType,
-            isDA, isDA_AM, isDA_PM, isAnyDA,
-            scheduleList: (() => {
-              const raw = t.userShifts?.length ? t.userShifts : (t.userShift ? [t.userShift] : []);
-              const seen = new Set();
-              return raw.filter((s) => { const key = s.shift?.id ?? s.id; if (seen.has(key)) return false; seen.add(key); return true; });
-            })(),
-            isScheduled: !!(t.userShifts?.length || t.userShift),
-            duration,
-            lateHours,
-            undertimeHours,
-            grossHours,
-            otHours,
-            otStatus,
-            periodHours,
-            coffeeMins: coffeeMinsStr,
-            lunchMins:  lunchMinsStr,
-            locIn:  fmtLoc(t.locIn),
-            locOut: fmtLoc(t.locOut),
-            overtimeRec: overtimeArr[0] ?? null,
-            fullDevIn:  fmtDevice(t.deviceIn)  || "—",
-            fullDevOut: fmtDevice(t.deviceOut) || "—",
-            shiftName:  t.userShift?.shift?.shiftName ?? "—",
-            schedOut:   "—",
-            isLocRestricted: locList.length > 0,
-            locList,
-            daAMHours,
-            daPMHours,
-            daRegularHours,
-            daApprovedOT,
-            daTotalHours,
-            daRawOtHours,
-            pmStartDT:  null,
-            pmEndDT:    null,
-            isD4Flag:   false,
-            isDailyBasis: otBasis === "daily",
-            otBasis,
-            isMissingClockOut,
-            isAutoClockOut: t.autoClockOut === true,
-            cutoffApproval: t.cutoffApproval ?? null,
-          };
+        const enriched = enrichTimelogs(tlJ.data || [], {
+          companyTimezone, isDayCare, otBasis, locMap, defaultHours,
         });
 
         setTotalRows(tlJ.meta?.total || enriched.length);
@@ -1175,8 +1511,8 @@ export default function EmployeesPunchLogs() {
   );
 
   useEffect(() => {
-    if (token) { bootstrap(); fetchPendingRequests(); fetchCutoffPeriods(); }
-  }, [token, bootstrap, fetchPendingRequests, fetchCutoffPeriods]);
+    if (token) { bootstrap(); fetchPendingRequests(); fetchCutoffPeriods(); fetchApprovedLeaves(); }
+  }, [token, bootstrap, fetchPendingRequests, fetchCutoffPeriods, fetchApprovedLeaves]);
 
   useEffect(() => {
     if (!token) return;
@@ -1230,47 +1566,93 @@ export default function EmployeesPunchLogs() {
     [displayed]
   );
 
-  // ── Export ────────────────────────────────────────────────────────────────────
-  const exportCSV = async () => {
-    if (!displayed.length) { toast.error("No data to export"); return; }
-    setExporting(true);
+  // ── Generate report (modal handler) ──────────────────────────────────────────
+  const handleGenerateReport = async ({ type, from, to, columns }) => {
+    setGenerating(true);
     try {
-      const { exportEmployeePunchLogsCSV } = await import("@/lib/exports/employeePunchLogs");
-      const result = await exportEmployeePunchLogsCSV({
-        data: displayed, visibleColumns: columnVisibility,
-        columnMap: columnMapForExport, filters, userTimezone, companyTimezone, isDayCare,
-        bncOtBlocks, bncDailyOtThreshold,
-      });
-      if (result.success) toast.success(result.filename);
-    } catch (e) { toast.error(`Export failed: ${e.message}`); }
-    finally { setExporting(false); }
-  };
+      const qs = new URLSearchParams();
+      qs.append("page", 1);
+      qs.append("limit", 10000);
+      if (filters.departmentId !== "all") qs.append("departmentId", filters.departmentId);
+      if (from) qs.append("from", from);
+      if (to)   qs.append("to",   to);
+      if (filters.status !== "all") qs.append("status", filters.status);
+      if (filters.employeeIds.length === 1 && filters.employeeIds[0] !== "all")
+        qs.append("employeeId", filters.employeeIds[0]);
 
-  const exportPDF = async () => {
-    if (!displayed.length) { toast.error("No data to export"); return; }
-    setPdfExporting(true);
-    try {
-      const { exportEmployeePunchLogsPDF } = await import("@/lib/exports/employeePunchLogs");
-      const result = await exportEmployeePunchLogsPDF({
-        data: displayed, visibleColumns: columnVisibility,
-        columnMap: columnMapForExport, filters, userTimezone, companyTimezone, isDayCare,
-        bncOtBlocks, bncDailyOtThreshold,
+      const res = await fetch(`${API_URL}/api/timelogs?${qs.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
-      if (result.success) toast.success(result.filename);
-    } catch (e) { toast.error(`Export failed: ${e.message}`); }
-    finally { setPdfExporting(false); }
-  };
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Fetch failed");
 
-  const exportGridCSV = async () => {
-    if (!displayed.length) { toast.error("No data to export"); return; }
-    setExporting(true);
-    try {
-      // displayed already contains all enriched records (no pagination) — use directly
-      const { exportEmployeePunchLogsCSV_v2 } = await import("@/lib/exports/employeePunchLogs");
-      const result = await exportEmployeePunchLogsCSV_v2({ data: displayed, companyTimezone });
-      if (result.success) toast.success(result.filename);
-    } catch (e) { toast.error(`Grid export failed: ${e.message}`); }
-    finally { setExporting(false); }
+      const freshOtBlocks    = j.otBlocks || [];
+      const freshOtThreshold = j.dailyOtThresholdHours ?? bncDailyOtThreshold;
+      const freshIsDayCare   = j.companyType ? j.companyType === "DAYCARE" : isDayCare;
+
+      let enriched = enrichTimelogs(j.data || [], {
+        companyTimezone, isDayCare: freshIsDayCare, otBasis, locMap, defaultHours,
+      });
+
+      if (!filters.employeeIds.includes("all"))
+        enriched = enriched.filter((t) => filters.employeeIds.includes(t.userId));
+      if (filters.search) {
+        const q = filters.search.toLowerCase();
+        enriched = enriched.filter((t) =>
+          t.employeeName?.toLowerCase().includes(q) || t.email?.toLowerCase().includes(q)
+        );
+      }
+
+      // Sort: Last name → First name → date asc
+      enriched.sort((a, b) => {
+        const aN = employeeNameMap[a.userId] ?? {};
+        const bN = employeeNameMap[b.userId] ?? {};
+        const aLast  = (aN.lastName  || "").toLowerCase();
+        const bLast  = (bN.lastName  || "").toLowerCase();
+        const aFirst = (aN.firstName || "").toLowerCase();
+        const bFirst = (bN.firstName || "").toLowerCase();
+        if (aLast  !== bLast)  return aLast.localeCompare(bLast);
+        if (aFirst !== bFirst) return aFirst.localeCompare(bFirst);
+        return new Date(a.timeIn || 0) - new Date(b.timeIn || 0);
+      });
+
+      const exportFilters = { ...filters, from, to };
+
+      if (type === "pdf") {
+        const { exportEmployeePunchLogsPDF } = await import("@/lib/exports/employeePunchLogs");
+        const result = await exportEmployeePunchLogsPDF({
+          data: enriched, visibleColumns: columns, columnMap: columnMapForExport,
+          filters: exportFilters, userTimezone, companyTimezone, isDayCare: freshIsDayCare,
+          bncOtBlocks: freshOtBlocks, bncDailyOtThreshold: freshOtThreshold,
+          otBasis, cutoffOtThreshold, employeeNameMap,
+        });
+        if (result.success) toast.success(result.filename);
+      } else if (type === "csv-detail") {
+        const { exportEmployeePunchLogsCSV } = await import("@/lib/exports/employeePunchLogs");
+        const result = await exportEmployeePunchLogsCSV({
+          data: enriched, visibleColumns: columns, columnMap: columnMapForExport,
+          filters: exportFilters, userTimezone, companyTimezone, isDayCare: freshIsDayCare,
+          bncOtBlocks: freshOtBlocks, bncDailyOtThreshold: freshOtThreshold,
+          otBasis, cutoffOtThreshold, employeeNameMap,
+        });
+        if (result.success) toast.success(result.filename);
+      } else if (type === "csv-payroll") {
+        const { exportEmployeePunchLogsCSV_v2 } = await import("@/lib/exports/employeePunchLogs");
+        const result = await exportEmployeePunchLogsCSV_v2({
+          data: enriched, companyTimezone, employeeNameMap,
+          approvedLeaves, defaultShiftHours: defaultHours,
+          fromDate: from, toDate: to,
+          cutoffOtThreshold,
+        });
+        if (result.success) toast.success(result.filename);
+      }
+
+      setGenerateModalOpen(false);
+    } catch (e) {
+      toast.error(`Report generation failed: ${e.message}`);
+    } finally {
+      setGenerating(false);
+    }
   };
 
   const refreshAll = async () => {
@@ -1283,8 +1665,8 @@ export default function EmployeesPunchLogs() {
   // ── Edit dialog ───────────────────────────────────────────────────────────────
   const openEditDialog = (log) => {
     setEditLog(log);
-    setEditTimeIn(toLocalInputValue(log.timeIn));
-    setEditTimeOut(toLocalInputValue(log.timeOut));
+    setEditTimeIn(toCompanyInputValue(log.timeIn, companyTimezone));
+    setEditTimeOut(toCompanyInputValue(log.timeOut, companyTimezone));
     setEditDialogOpen(true);
   };
 
@@ -1292,8 +1674,8 @@ export default function EmployeesPunchLogs() {
     try {
       if (!editLog) return;
       const payload = {
-        timeIn:  editTimeIn  ? new Date(editTimeIn).toISOString()  : null,
-        timeOut: editTimeOut ? new Date(editTimeOut).toISOString() : null,
+        timeIn:  fromCompanyInputToISO(editTimeIn,  companyTimezone),
+        timeOut: fromCompanyInputToISO(editTimeOut, companyTimezone),
       };
       const res = await fetch(`${API_URL}/api/timelogs/${editLog.id}/datetime`, {
         method: "PATCH",
@@ -1390,10 +1772,8 @@ export default function EmployeesPunchLogs() {
           </div>
         </div>
         <div className="flex gap-2">
-          <IconBtn icon={RefreshCw} tooltip="Refresh data"   spinning={refreshing}   onClick={refreshAll} />
-          <IconBtn icon={Download}        tooltip="Export CSV (Detail)"    spinning={exporting}    onClick={exportCSV}      disabled={exporting    || !displayed.length} />
-          <IconBtn icon={FileText}        tooltip="Export PDF"             spinning={pdfExporting} onClick={exportPDF}      disabled={pdfExporting || !displayed.length} />
-          <IconBtn icon={LayoutTemplate}  tooltip="Export Grid CSV (Payroll)" spinning={exporting} onClick={exportGridCSV}  disabled={exporting || !displayed.length} />
+          <IconBtn icon={RefreshCw} tooltip="Refresh data" spinning={refreshing} onClick={refreshAll} />
+          <IconBtn icon={Download} tooltip="Generate Report" onClick={() => setGenerateModalOpen(true)} />
           <IconBtn
             icon={BookOpen}
             tooltip="Punch Log Rules Guide"
@@ -1558,8 +1938,7 @@ export default function EmployeesPunchLogs() {
                   onChange={(e) => { setPendingDates((prev) => ({ ...prev, to: e.target.value })); setSelectedCutoffId("all"); }}
                   className="h-9 w-full sm:w-auto" />
               </div>
-              <Button size="sm" onClick={applyDates}
-                className={datesAreDirty ? "bg-orange-500 hover:bg-orange-600 text-white" : "bg-primary hover:bg-primary/90 text-primary-foreground"}>
+              <Button size="sm" onClick={applyDates} className="bg-orange-500 hover:bg-orange-600 text-white">
                 Apply
               </Button>
               {datesAreDirty && (
@@ -1643,20 +2022,20 @@ export default function EmployeesPunchLogs() {
                                       </div>
                                     </div>
                                     <div className="flex items-center gap-2">
-                                      {isUrgent && <Badge variant="destructive" className="animate-pulse">🔥 {daysAgo}d ago</Badge>}
+                                      {isUrgent && <Badge variant="destructive" className="animate-pulse">{daysAgo}d overdue</Badge>}
                                       <Badge className={
                                         req.status === "PENDING"  ? "bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-400" :
                                         req.status === "APPROVED" ? "bg-green-100  text-green-800  border-green-300  dark:bg-green-900/30  dark:text-green-400"  :
                                                                     "bg-red-100    text-red-800    border-red-300    dark:bg-red-900/30    dark:text-red-400"
                                       }>
-                                        {req.status === "PENDING" ? "🟡 " : req.status === "APPROVED" ? "✅ " : "❌ "}{req.status}
+                                        {req.status}
                                       </Badge>
                                     </div>
                                   </div>
                                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                                     <div className="space-y-1">
                                       <div className="text-xs text-muted-foreground flex items-center gap-1"><Calendar className="h-3 w-3" />Date</div>
-                                      <div className="font-medium">{safeDate(req.requestedDate, companyTimezone)}</div>
+                                      <div className="font-medium">{safeCalendarDate(req.requestedDate)}</div>
                                     </div>
                                     <div className="space-y-1">
                                       <div className="text-xs text-muted-foreground flex items-center gap-1"><Clock className="h-3 w-3" />Time In</div>
@@ -2259,6 +2638,10 @@ export default function EmployeesPunchLogs() {
                                           <span className="text-xs text-muted-foreground">{gracePeriodMins} min</span>
                                         </div>
                                         <div className="flex justify-between">
+                                          <span className="text-muted-foreground">Early Clock-In Grace:</span>
+                                          <span className="text-xs text-muted-foreground">{earlyClockInGraceMins} min</span>
+                                        </div>
+                                        <div className="flex justify-between">
                                           <span className="text-muted-foreground">Cutoff:</span>
                                           <CutoffApprovalBadge cutoffApproval={t.cutoffApproval} />
                                         </div>
@@ -2340,6 +2723,19 @@ export default function EmployeesPunchLogs() {
 
       {/* ── Dialogs ── */}
 
+      <GenerateReportModal
+        open={generateModalOpen}
+        onOpenChange={setGenerateModalOpen}
+        isDayCare={isDayCare}
+        columnOptions={columnOptions}
+        defaultFrom={filters.from}
+        defaultTo={filters.to}
+        defaultColumns={columnOptions.filter((c) => c.value !== "actions").map((c) => c.value)}
+        cutoffPeriods={cutoffPeriods}
+        generating={generating}
+        onGenerate={handleGenerateReport}
+      />
+
       <ScheduleDialog open={schedDialogOpen} onOpenChange={setSchedDialogOpen} scheduleList={scheduleList} />
 
       {/* Reject Dialog */}
@@ -2353,7 +2749,7 @@ export default function EmployeesPunchLogs() {
             <div className="space-y-4">
               <div className="p-3 bg-muted rounded-lg space-y-2 text-sm">
                 <div><span className="font-medium">Employee:</span> {rejectingRequest.userDisplayName}</div>
-                <div><span className="font-medium">Date:</span> {safeDate(rejectingRequest.requestedDate)}</div>
+                <div><span className="font-medium">Date:</span> {safeCalendarDate(rejectingRequest.requestedDate)}</div>
                 <div><span className="font-medium">Time:</span> {safeTime(rejectingRequest.requestedClockIn)} - {safeTime(rejectingRequest.requestedClockOut)}</div>
               </div>
               <div className="space-y-2">
