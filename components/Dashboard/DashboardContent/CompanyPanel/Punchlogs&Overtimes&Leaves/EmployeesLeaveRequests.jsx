@@ -38,6 +38,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import CutoffDateRangeFilter, { periodRangeKey } from "@/components/common/CutoffDateRangeFilter";
+import { normalizeLeaveMatrixRow } from "@/lib/leaveBalanceUtils";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
@@ -104,9 +105,13 @@ export default function SupervisorLeaveRequests() {
   const [leaveTypes, setLeaveTypes] = useState([]);
   const [matrixLoading, setMatrixLoading] = useState(false);
 
-  // Per-request balance fetched when approval dialog opens
-  const [actionBalance, setActionBalance] = useState([]); // [{ leaveType, balanceHours, usedHours }]
-  const [actionBalanceLoading, setActionBalanceLoading] = useState(false);
+  // Per-request paid/unpaid breakdown — GET /:id/preview, fetched when the approve/reject dialog opens
+  const [preview, setPreview] = useState(null); // { isPaid, availableBalance, paidHours, unpaidHours, days: [{date,hours,isPaid}] }
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  // Actual day-by-day paid/unpaid outcome — GET /:id/days, fetched when the detail dialog opens on a decided request
+  const [dayBreakdown, setDayBreakdown] = useState([]);
+  const [dayBreakdownLoading, setDayBreakdownLoading] = useState(false);
 
   const matrixByEmail = useMemo(() => {
     const map = {};
@@ -303,15 +308,7 @@ export default function SupervisorLeaveRequests() {
       const types = Array.isArray(pData.data) ? pData.data.map((p) => p.leaveType) : [];
       const rows  = Array.isArray(mData.data) ? mData.data : [];
       setLeaveTypes(types);
-      setLeaveMatrix(rows.map((row) => {
-        const balances = {};
-        types.forEach((t) => {
-          const credits   = Number(row.balances?.[t]    || 0);
-          const used      = Number(row.usedBalances?.[t] || 0);
-          balances[t] = { credits, used, available: Math.max(credits - used, 0) };
-        });
-        return { ...row, balances };
-      }));
+      setLeaveMatrix(rows.map((row) => normalizeLeaveMatrixRow(row, types)));
     } catch (_) {
       // silently fail — credits are supplemental info
     } finally {
@@ -324,20 +321,35 @@ export default function SupervisorLeaveRequests() {
     setComment("");
     setRequireSecondApproval(false);
     setEscalateTo("");
-    setActionBalance([]);
+    setPreview(null);
   };
 
+  // GET /api/leaves/:id/preview — read-only, computes the day-by-day paid/unpaid
+  // split against current balance so the approver sees the real outcome before acting.
   useEffect(() => {
     if (!actionDialog.open || !actionDialog.request || !token) return;
-    const userId = actionDialog.request.requester?.id || actionDialog.request.User?.id;
-    if (!userId) return;
-    setActionBalanceLoading(true);
-    fetch(`${API_URL}/api/leaves/balances?userId=${userId}`, { headers: { Authorization: `Bearer ${token}` } })
+    setPreviewLoading(true);
+    fetch(`${API_URL}/api/leaves/${actionDialog.request.id}/preview`, { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => r.ok ? r.json() : Promise.reject())
-      .then((data) => setActionBalance(Array.isArray(data.data) ? data.data : []))
-      .catch(() => setActionBalance([]))
-      .finally(() => setActionBalanceLoading(false));
+      .then((data) => setPreview(data.data ?? null))
+      .catch(() => setPreview(null))
+      .finally(() => setPreviewLoading(false));
   }, [actionDialog.open, actionDialog.request, token]);
+
+  // GET /api/leaves/:id/days — post-decision actual outcome, shown in the detail dialog
+  useEffect(() => {
+    const status = detailDialog.request?.status;
+    if (!detailDialog.open || !detailDialog.request || !token || !["approved", "rejected"].includes(status)) {
+      setDayBreakdown([]);
+      return;
+    }
+    setDayBreakdownLoading(true);
+    fetch(`${API_URL}/api/leaves/${detailDialog.request.id}/days`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.ok ? r.json() : Promise.reject())
+      .then((data) => setDayBreakdown(Array.isArray(data.data) ? data.data : []))
+      .catch(() => setDayBreakdown([]))
+      .finally(() => setDayBreakdownLoading(false));
+  }, [detailDialog.open, detailDialog.request, token]);
 
   const handleAction = async () => {
     if (!actionDialog.request || !actionDialog.type) return;
@@ -355,7 +367,17 @@ export default function SupervisorLeaveRequests() {
       const data = await res.json();
       if (!res.ok) {
         closeActionDialog();
-        if (data.debug?.available !== undefined) {
+        if (res.status === 409) {
+          // Someone else in the eligible approver pool already acted — not an error,
+          // just stale state. Refresh so the list reflects the real outcome.
+          toast("Already handled", {
+            description: data.message || "This leave request was already actioned by someone else.",
+            icon: <AlertCircle className="h-5 w-5 text-blue-500" />,
+            duration: 6000,
+          });
+          fetchLeaves();
+          fetchLeaveMatrix();
+        } else if (data.debug?.available !== undefined) {
           toast("Insufficient Leave Balance", {
             description: `${employeeEmail} has ${data.debug.available}h available but needs ${data.debug.requested}h for ${data.debug.leaveType || "this leave"}.`,
             icon: <AlertCircle className="h-5 w-5 text-amber-500" />,
@@ -1081,6 +1103,34 @@ export default function SupervisorLeaveRequests() {
                   );
                 })()}
 
+                {/* Actual day-by-day outcome — GET /:id/days, only meaningful once a decision has been made */}
+                {["approved", "rejected"].includes(detailDialog.request.status) && (dayBreakdownLoading || dayBreakdown.length > 0) && (
+                  <div className="bg-muted/40 p-4 rounded-lg border border-border">
+                    <div className="flex items-center gap-2 mb-3">
+                      <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                      <div className="font-medium text-foreground">Actual Day-by-Day Outcome</div>
+                      {dayBreakdownLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground ml-auto" />}
+                    </div>
+                    {!dayBreakdownLoading && (
+                      <div className="border rounded-md overflow-hidden bg-white dark:bg-neutral-900">
+                        <div className="max-h-40 overflow-y-auto divide-y divide-neutral-100 dark:divide-neutral-800">
+                          {dayBreakdown.map((d) => (
+                            <div key={d.date} className="flex items-center justify-between px-3 py-1.5 text-xs">
+                              <span>{toLocalDate(d.date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-muted-foreground">{d.hours}h</span>
+                                <Badge variant="outline" className={d.isPaid ? "text-green-700 border-green-300 bg-green-50" : "text-amber-700 border-amber-300 bg-amber-50"}>
+                                  {d.isPaid ? "Paid" : "Unpaid"}
+                                </Badge>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="bg-muted/40 p-4 rounded-lg border border-border">
                   <div className="flex items-center gap-2 mb-3">
                     <Calendar className="h-4 w-4 text-muted-foreground" />
@@ -1232,62 +1282,66 @@ export default function SupervisorLeaveRequests() {
               </>
             )}
 
-            {/* Credit balance for the requested leave type */}
-            {actionDialog.request && (() => {
-              const type  = actionDialog.request.leaveType;
-              const entry = actionBalance.find((e) => e.leaveType === type);
-              if (!entry && !actionBalanceLoading) return null;
-              const s = toLocalDate(actionDialog.request.startDate);
-              const e = toLocalDate(actionDialog.request.endDate);
-              const days = Math.floor((e - s) / 86400000) + 1;
-              const requestedHours = actionDialog.request.requestedHours ?? (days * 8);
-              const used       = entry ? Number(entry.usedHours)    : 0;
-              const left       = entry ? Number(entry.balanceHours) : 0;
-              const total      = used + left;
-              const willExceed = entry && left < requestedHours;
-              return (
-                <div className={`p-4 rounded-md border ${willExceed ? "bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800" : "bg-purple-50 border-purple-200 dark:bg-purple-900/20 dark:border-purple-800"}`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <CreditCard className={`h-4 w-4 ${willExceed ? "text-red-600" : "text-purple-600"}`} />
-                      <div className={`font-semibold text-sm ${willExceed ? "text-red-700 dark:text-red-300" : "text-purple-700 dark:text-purple-300"}`}>
-                        {type} Balance
-                      </div>
-                    </div>
-                    {actionBalanceLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+            {/* Paid/unpaid breakdown — GET /:id/preview, the real outcome if approved now */}
+            {actionDialog.request && (
+              previewLoading ? (
+                <div className="p-4 rounded-md border bg-muted/30 flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Computing paid/unpaid breakdown…
+                </div>
+              ) : !preview ? null : preview.isPaid === false ? (
+                <div className="p-4 rounded-md border bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-800">
+                  <div className="flex items-center gap-2 mb-1">
+                    <CreditCard className="h-4 w-4 text-amber-600" />
+                    <div className="font-semibold text-sm text-amber-700 dark:text-amber-300">Unpaid by employee's choice</div>
                   </div>
-                  {entry ? (
-                    <div className="space-y-1.5 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Total Credits:</span>
-                        <span className="font-medium">{total}h</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Already Used:</span>
-                        <span className="font-medium text-amber-600">{used}h</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Available:</span>
-                        <span className={`font-bold ${left > 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>{left}h</span>
-                      </div>
-                      <div className="h-px bg-current opacity-10 my-1" />
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">This Request:</span>
-                        <span className="font-semibold">{requestedHours}h ({days}d)</span>
-                      </div>
-                      {willExceed && (
-                        <div className="flex items-center gap-1.5 text-red-600 dark:text-red-400 text-xs mt-1 font-medium">
-                          <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
-                          Exceeds available balance by {requestedHours - left}h
-                        </div>
-                      )}
+                  <p className="text-xs text-muted-foreground">The employee requested this as unpaid — no balance will be checked or deducted.</p>
+                </div>
+              ) : (
+                <div className="p-4 rounded-md border bg-purple-50 border-purple-200 dark:bg-purple-900/20 dark:border-purple-800 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <CreditCard className="h-4 w-4 text-purple-600" />
+                    <div className="font-semibold text-sm text-purple-700 dark:text-purple-300">{actionDialog.request.leaveType} Balance</div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                    <div>
+                      <div className="text-muted-foreground">Available</div>
+                      <div className="font-bold text-purple-700 dark:text-purple-300">{preview.availableBalance ?? 0}h</div>
                     </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">Loading credits...</p>
+                    <div>
+                      <div className="text-muted-foreground">Will Be Paid</div>
+                      <div className="font-bold text-green-600">{preview.paidHours ?? 0}h</div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground">Auto-Unpaid</div>
+                      <div className={`font-bold ${preview.unpaidHours > 0 ? "text-amber-600" : "text-muted-foreground"}`}>{preview.unpaidHours ?? 0}h</div>
+                    </div>
+                  </div>
+                  {preview.unpaidHours > 0 && (
+                    <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400 text-xs font-medium">
+                      <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                      Balance runs out partway through — {preview.unpaidHours}h of this request will fall back to unpaid.
+                    </div>
+                  )}
+                  {Array.isArray(preview.days) && preview.days.length > 0 && (
+                    <div className="border rounded-md overflow-hidden bg-white dark:bg-neutral-900">
+                      <div className="max-h-40 overflow-y-auto divide-y divide-neutral-100 dark:divide-neutral-800">
+                        {preview.days.map((d) => (
+                          <div key={d.date} className="flex items-center justify-between px-3 py-1.5 text-xs">
+                            <span>{toLocalDate(d.date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-muted-foreground">{d.hours}h</span>
+                              <Badge variant="outline" className={d.isPaid ? "text-green-700 border-green-300 bg-green-50" : "text-amber-700 border-amber-300 bg-amber-50"}>
+                                {d.isPaid ? "Paid" : "Unpaid"}
+                              </Badge>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
-              );
-            })()}
+              )
+            )}
 
             <div className="space-y-2">
               <label className="text-sm font-medium">Comments <span className="text-muted-foreground">(optional)</span></label>

@@ -144,6 +144,10 @@ export default function EmployeeLeaveRequests() {
   const [pendingFrom, setPendingFrom] = useState("");
   const [pendingTo,   setPendingTo]   = useState("");
 
+  // Actual day-by-day paid/unpaid outcome — GET /:id/days, only meaningful once decided
+  const [dayBreakdown,        setDayBreakdown]        = useState([]);
+  const [dayBreakdownLoading, setDayBreakdownLoading] = useState(false);
+
   // ── Form modal ────────────────────────────────────────────────────────────
   const [modalOpen,        setModalOpen]        = useState(false);
   const [policies,         setPolicies]         = useState([]);
@@ -168,7 +172,19 @@ export default function EmployeeLeaveRequests() {
     () => policies.find(p => p.leaveType === leaveType) ?? null,
     [leaveType, policies]
   );
-  const derivedIsPaid = selectedPolicy?.isPaid ?? true;
+  // "paid" | "unpaid" — the employee's free choice, only meaningful when the
+  // policy permits both (see docs/CLIENT_LEAVE_CONTRACT.md Phase 2 §2).
+  const [payMode, setPayMode] = useState("paid");
+  useEffect(() => { setPayMode("paid"); }, [leaveType]);
+
+  const policyAllowsPaid   = selectedPolicy ? selectedPolicy.isPaid !== false   : true;
+  const policyAllowsUnpaid = selectedPolicy ? selectedPolicy.isNotPaid !== false : false;
+  const bothPayModesAllowed = policyAllowsPaid && policyAllowsUnpaid;
+  const resolvedIsPaid = !selectedPolicy
+    ? true
+    : bothPayModesAllowed
+      ? payMode === "paid"
+      : policyAllowsPaid;
 
   const duration = useMemo(() => {
     if (!startDate || !endDate) return null;
@@ -397,6 +413,20 @@ export default function EmployeeLeaveRequests() {
 
   useEffect(() => { fetchLeaves(); fetchPolicies(); fetchCutoffPeriods(); }, [fetchLeaves, fetchPolicies, fetchCutoffPeriods]);
 
+  // Fetch actual paid/unpaid day breakdown when a decided request is selected
+  useEffect(() => {
+    if (!token || !selectedRow || !["approved", "rejected"].includes(selectedRow.status)) {
+      setDayBreakdown([]);
+      return;
+    }
+    setDayBreakdownLoading(true);
+    fetch(`${API_URL}/api/leaves/${selectedRow.id}/days`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(data => setDayBreakdown(Array.isArray(data.data) ? data.data : []))
+      .catch(() => setDayBreakdown([]))
+      .finally(() => setDayBreakdownLoading(false));
+  }, [token, selectedRow]);
+
   useEffect(() => {
     const h = () => fetchPolicies();
     socketService.on("leaveBalanceUpdated", h);
@@ -404,7 +434,7 @@ export default function EmployeeLeaveRequests() {
   }, [fetchPolicies]);
 
   function resetForm() {
-    setLeaveType(""); setApproverId(""); setReason("");
+    setLeaveType(""); setApproverId(""); setReason(""); setPayMode("paid");
     setStartDate(""); setStartTime("08:00");
     setEndDate("");   setEndTime("17:00");
     setAffectedSchedules([]); setLoadingSchedules(false);
@@ -454,7 +484,7 @@ export default function EmployeeLeaveRequests() {
           leaveReason: reason,
           fromDate,
           toDate,
-          isPaid: derivedIsPaid,
+          isPaid: resolvedIsPaid,
           affectedShiftIds,
         }),
       });
@@ -730,6 +760,37 @@ export default function EmployeeLeaveRequests() {
                   </span>
                 </div>
 
+                {(dayBreakdownLoading || dayBreakdown.length > 0) && (
+                  <>
+                    <div style={SEC_LBL}>Actual day-by-day outcome</div>
+                    {dayBreakdownLoading ? (
+                      <div style={{ fontSize: 11, color: "#bbb", display: "flex", alignItems: "center", gap: 5, marginBottom: 6 }}>
+                        <Loader2 size={11} className="animate-spin" /> Loading…
+                      </div>
+                    ) : (
+                      <div style={{ border: "0.5px solid #e5e5e5", borderRadius: 8, overflow: "hidden", marginBottom: 6 }}>
+                        <div style={{ maxHeight: 140, overflowY: "auto" }}>
+                          {dayBreakdown.map((d, i) => (
+                            <div key={d.date} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 10px", borderBottom: i < dayBreakdown.length - 1 ? "0.5px solid #f0f0ee" : "none" }}>
+                              <span style={{ fontSize: 11, color: "#555" }}>{fmtDate(d.date)}</span>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <span style={{ fontSize: 11, color: "#bbb" }}>{d.hours}h</span>
+                                <span style={{
+                                  fontSize: 10, fontWeight: 500, padding: "2px 7px", borderRadius: 20,
+                                  background: d.isPaid ? "#eaf3de" : "#faeeda",
+                                  color:      d.isPaid ? "#3b6d11" : "#633806",
+                                }}>
+                                  {d.isPaid ? "Paid" : "Unpaid"}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+
                 <div style={SEC_LBL}>Approver</div>
                 {[
                   ["Name",  selectedRow.approver?.name ?? selectedRow.approver?.email ?? "Not assigned"],
@@ -883,29 +944,59 @@ export default function EmployeeLeaveRequests() {
               </div>
             </div>
 
-            {/* Pay info block — shown after leave type selected */}
+            {/* Pay mode — toggle shown only when the policy allows both; otherwise fixed */}
             {leaveType && selectedPolicy && (
-              derivedIsPaid ? (
-                <div style={{ background: "#eaf3de", border: "0.5px solid #97c459", borderRadius: 8, padding: "10px 12px", display: "flex", alignItems: "flex-start", gap: 8 }}>
-                  <CheckCircle2 size={15} color="#3b6d11" style={{ flexShrink: 0, marginTop: 1 }} />
-                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                    <div style={{ fontSize: 12, fontWeight: 500, color: "#3b6d11" }}>Paid leave</div>
-                    <div style={{ fontSize: 11, color: "#888" }}>You will be compensated for this leave period.</div>
-                    <div style={{ fontSize: 11, fontWeight: 500, color: "#f97316", marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
-                      <Clock size={11} />
-                      {Number(selectedPolicy.balanceHours) || 0}h available balance
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {bothPayModesAllowed && (
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button
+                      type="button"
+                      onClick={() => setPayMode("paid")}
+                      style={{
+                        flex: 1, padding: "8px 10px", borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: "pointer",
+                        border: `0.5px solid ${payMode === "paid" ? "#3b6d11" : "#d0d0d0"}`,
+                        background: payMode === "paid" ? "#eaf3de" : "#fff",
+                        color: payMode === "paid" ? "#3b6d11" : "#888",
+                      }}
+                    >
+                      Paid
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPayMode("unpaid")}
+                      style={{
+                        flex: 1, padding: "8px 10px", borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: "pointer",
+                        border: `0.5px solid ${payMode === "unpaid" ? "#633806" : "#d0d0d0"}`,
+                        background: payMode === "unpaid" ? "#faeeda" : "#fff",
+                        color: payMode === "unpaid" ? "#633806" : "#888",
+                      }}
+                    >
+                      Unpaid
+                    </button>
+                  </div>
+                )}
+                {resolvedIsPaid ? (
+                  <div style={{ background: "#eaf3de", border: "0.5px solid #97c459", borderRadius: 8, padding: "10px 12px", display: "flex", alignItems: "flex-start", gap: 8 }}>
+                    <CheckCircle2 size={15} color="#3b6d11" style={{ flexShrink: 0, marginTop: 1 }} />
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                      <div style={{ fontSize: 12, fontWeight: 500, color: "#3b6d11" }}>Paid leave</div>
+                      <div style={{ fontSize: 11, color: "#888" }}>You will be compensated for this leave period.</div>
+                      <div style={{ fontSize: 11, fontWeight: 500, color: "#f97316", marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
+                        <Clock size={11} />
+                        {Number(selectedPolicy.balanceHours) || 0}h available balance
+                      </div>
                     </div>
                   </div>
-                </div>
-              ) : (
-                <div style={{ background: "#faeeda", border: "0.5px solid #ef9f27", borderRadius: 8, padding: "10px 12px", display: "flex", alignItems: "flex-start", gap: 8 }}>
-                  <AlertCircle size={15} color="#633806" style={{ flexShrink: 0, marginTop: 1 }} />
-                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                    <div style={{ fontSize: 12, fontWeight: 500, color: "#633806" }}>Unpaid leave</div>
-                    <div style={{ fontSize: 11, color: "#888" }}>This leave will not be compensated by your employer.</div>
+                ) : (
+                  <div style={{ background: "#faeeda", border: "0.5px solid #ef9f27", borderRadius: 8, padding: "10px 12px", display: "flex", alignItems: "flex-start", gap: 8 }}>
+                    <AlertCircle size={15} color="#633806" style={{ flexShrink: 0, marginTop: 1 }} />
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                      <div style={{ fontSize: 12, fontWeight: 500, color: "#633806" }}>Unpaid leave</div>
+                      <div style={{ fontSize: 11, color: "#888" }}>This leave will not be compensated by your employer.</div>
+                    </div>
                   </div>
-                </div>
-              )
+                )}
+              </div>
             )}
 
             {/* Start date + time */}
