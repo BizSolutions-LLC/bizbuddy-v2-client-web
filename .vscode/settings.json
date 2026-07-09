@@ -1,0 +1,5 @@
+{
+    "editor.inlayHints.fontSize": 6,
+    "editor.fontSize": 14,
+    "prettier.printWidth": 130
+}

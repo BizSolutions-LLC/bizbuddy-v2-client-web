@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BizBuddy — Punch Log Rules v1.0.0</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --orange:#f97316;--orange-light:#fff7ed;--orange-border:#fed7aa;--orange-dark:#c2410c;
+      --red:#ef4444;--red-light:#fef2f2;--red-border:#fecaca;
+      --amber:#f59e0b;--amber-light:#fffbeb;--amber-border:#fde68a;
+      --purple:#8b5cf6;--purple-light:#f5f3ff;--purple-border:#ddd6fe;
+      --blue:#3b82f6;--blue-light:#eff6ff;--blue-border:#bfdbfe;--blue-dark:#1d4ed8;
+      --green:#22c55e;--green-light:#f0fdf4;--green-border:#bbf7d0;
+      --gray-50:#f9fafb;--gray-100:#f3f4f6;--gray-200:#e5e7eb;--gray-300:#d1d5db;
+      --gray-400:#9ca3af;--gray-500:#6b7280;--gray-600:#4b5563;--gray-700:#374151;
+      --gray-800:#1f2937;--gray-900:#111827;
+      --font-sans:'IBM Plex Sans',sans-serif;--font-mono:'IBM Plex Mono',monospace;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:var(--font-sans);background:var(--gray-50);color:var(--gray-800);line-height:1.6;font-size:15px}
+    .topbar{background:var(--gray-900);color:white;padding:10px 40px;display:flex;align-items:center;justify-content:space-between;font-size:12px;font-family:var(--font-mono);letter-spacing:.05em;position:sticky;top:0;z-index:100;border-bottom:2px solid var(--orange)}
+    .topbar-left{display:flex;align-items:center;gap:16px}
+    .topbar-logo{color:var(--orange);font-weight:600;font-size:13px}
+    .topbar-sep{color:var(--gray-600)}
+    .topbar-title{color:var(--gray-300)}
+    .topbar-right{display:flex;align-items:center;gap:12px}
+    .badge-version{background:var(--orange);color:white;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+    .layout{display:grid;grid-template-columns:260px 1fr;min-height:calc(100vh - 41px)}
+    .sidebar{background:white;border-right:1px solid var(--gray-200);padding:32px 20px;position:sticky;top:41px;height:calc(100vh - 41px);overflow-y:auto}
+    .sidebar-section{margin-bottom:28px}
+    .sidebar-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--gray-400);margin-bottom:8px;padding:0 8px}
+    .sidebar-link{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:6px;text-decoration:none;color:var(--gray-600);font-size:13px;transition:all .15s;cursor:pointer}
+    .sidebar-link:hover{background:var(--gray-100);color:var(--gray-900)}
+    .sidebar-link.active{background:var(--orange-light);color:var(--orange-dark);font-weight:500}
+    .sidebar-link.active .sidebar-code{background:var(--orange-border);color:var(--orange-dark)}
+    .sidebar-code{font-family:var(--font-mono);font-size:11px;background:var(--gray-100);padding:1px 5px;border-radius:3px;color:var(--gray-500)}
+    .sidebar-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+    .main{padding:48px 56px;max-width:900px}
+    .page-header{margin-bottom:48px}
+    .page-eyebrow{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+    .eyebrow-tag{font-family:var(--font-mono);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--orange)}
+    .eyebrow-sep{color:var(--gray-300);font-size:12px}
+    .eyebrow-meta{font-size:12px;color:var(--gray-400);font-family:var(--font-mono)}
+    .page-title{font-size:32px;font-weight:700;color:var(--gray-900);line-height:1.2;margin-bottom:12px;letter-spacing:-.02em}
+    .page-title span{color:var(--orange)}
+    .page-subtitle{font-size:15px;color:var(--gray-500);max-width:620px;line-height:1.6}
+    .page-meta-row{display:flex;gap:24px;margin-top:20px;padding-top:20px;border-top:1px solid var(--gray-200);flex-wrap:wrap}
+    .meta-item{display:flex;flex-direction:column;gap:2px}
+    .meta-label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--gray-400);font-weight:600}
+    .meta-value{font-size:13px;color:var(--gray-700);font-family:var(--font-mono)}
+    .section{margin-bottom:56px;scroll-margin-top:60px}
+    .section-header{display:flex;align-items:flex-start;gap:16px;margin-bottom:24px;padding-bottom:16px;border-bottom:2px solid var(--gray-100)}
+    .rule-badge{font-family:var(--font-mono);font-size:13px;font-weight:600;padding:4px 10px;border-radius:6px;white-space:nowrap;flex-shrink:0;margin-top:2px}
+    .rule-badge.orange{background:var(--orange-light);color:var(--orange-dark);border:1px solid var(--orange-border)}
+    .rule-badge.amber{background:var(--amber-light);color:#92400e;border:1px solid var(--amber-border)}
+    .rule-badge.purple{background:var(--purple-light);color:#6d28d9;border:1px solid var(--purple-border)}
+    .rule-badge.blue{background:var(--blue-light);color:var(--blue-dark);border:1px solid var(--blue-border)}
+    .rule-badge.gray{background:var(--gray-100);color:var(--gray-600);border:1px solid var(--gray-200)}
+    .section-title-block{flex:1}
+    .section-title{font-size:20px;font-weight:700;color:var(--gray-900);margin-bottom:4px;letter-spacing:-.01em}
+    .section-desc{font-size:13px;color:var(--gray-500)}
+    .who-row{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+    .who-pill{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:500}
+    .who-pill.all{background:var(--orange-light);color:var(--orange-dark);border:1px solid var(--orange-border)}
+    .who-pill.sv{background:var(--amber-light);color:#92400e;border:1px solid var(--amber-border)}
+    .who-pill.emp{background:var(--green-light);color:#15803d;border:1px solid var(--green-border)}
+    .who-pill.auto{background:var(--gray-100);color:var(--gray-600);border:1px solid var(--gray-200)}
+    p{margin-bottom:12px;color:var(--gray-700)}
+    p:last-child{margin-bottom:0}
+    strong{font-weight:600;color:var(--gray-900)}
+    .rule-table{width:100%;border-collapse:collapse;font-size:13px;margin:16px 0;border:1px solid var(--gray-200);border-radius:8px;overflow:hidden}
+    .rule-table th{background:var(--gray-50);padding:10px 14px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--gray-500);border-bottom:1px solid var(--gray-200)}
+    .rule-table td{padding:11px 14px;border-bottom:1px solid var(--gray-100);vertical-align:top;color:var(--gray-700)}
+    .rule-table tr:last-child td{border-bottom:none}
+    .rule-table tr:hover td{background:var(--gray-50)}
+    .callout{padding:14px 16px;border-radius:8px;margin:16px 0;font-size:13px;line-height:1.6}
+    .callout-header{display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;margin-bottom:6px}
+    .callout.warn{background:var(--amber-light);border-left:3px solid var(--amber)}
+    .callout.warn .callout-header{color:#92400e}
+    .callout.danger{background:var(--red-light);border-left:3px solid var(--red)}
+    .callout.danger .callout-header{color:#b91c1c}
+    .callout p{color:inherit;margin-bottom:6px}
+    .callout p:last-child{margin-bottom:0}
+    .condition-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0}
+    .condition-card{padding:14px;border-radius:8px;border:1px solid var(--gray-200);font-size:13px}
+    .condition-card .label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
+    .condition-card.when{background:#fefce8;border-color:var(--amber-border)}
+    .condition-card.when .label{color:#92400e}
+    .condition-card.then{background:var(--blue-light);border-color:var(--blue-border)}
+    .condition-card.then .label{color:var(--blue-dark)}
+    .basis-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0}
+    .basis-card{padding:14px;border-radius:8px;border:1px solid var(--gray-200);background:white}
+    .basis-card-title{font-weight:700;font-size:14px;color:var(--gray-900);margin-bottom:4px}
+    .basis-card-sub{font-size:12px;color:var(--gray-500);margin-bottom:8px}
+    .basis-card-desc{font-size:12px;color:var(--gray-600);line-height:1.5}
+    .basis-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+    .see-box{background:white;border:1px solid var(--gray-200);border-radius:10px;padding:16px 18px;margin:16px 0;font-size:13px}
+    .see-box-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--gray-400);margin-bottom:10px}
+    .see-row{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--gray-100)}
+    .see-row:last-child{border-bottom:none}
+    .see-icon{font-size:16px;flex-shrink:0;margin-top:1px}
+    .see-label{font-weight:600;color:var(--gray-800);font-size:12px}
+    .see-desc{font-size:12px;color:var(--gray-500);margin-top:1px}
+    .divider{border:none;border-top:1px solid var(--gray-200);margin:40px 0}
+    .version-table{width:100%;border-collapse:collapse;font-size:13px}
+    .version-table td{padding:10px 14px;border-bottom:1px solid var(--gray-100);color:var(--gray-700)}
+    .version-table tr:last-child td{border-bottom:none}
+    .version-current td{background:var(--orange-light)}
+    .version-tag{font-family:var(--font-mono);font-size:11px;font-weight:600;padding:2px 7px;border-radius:4px;background:var(--orange);color:white}
+    .footer{margin-top:64px;padding-top:24px;border-top:1px solid var(--gray-200);display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--gray-400);font-family:var(--font-mono)}
+    html{scroll-behavior:smooth}
+    @media print{.topbar,.sidebar{display:none}.layout{grid-template-columns:1fr}.main{padding:24px}}
+  </style>
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-left">
+    <span class="topbar-logo">BizBuddy</span>
+    <span class="topbar-sep">/</span>
+    <span class="topbar-title">Punch Log Rules</span>
+  </div>
+  <div class="topbar-right">
+    <span class="badge-version">v1.0.0</span>
+  </div>
+</div>
+<div class="layout">
+  <nav class="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-label">Overview</div>
+      <a class="sidebar-link" href="#overview"><span class="sidebar-dot" style="background:#f97316"></span>Introduction</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">Rules</div>
+      <a class="sidebar-link" href="#g1"><span class="sidebar-code">G-1</span>Unscheduled Punch</a>
+      <a class="sidebar-link" href="#g2"><span class="sidebar-code">G-2</span>Grace Period</a>
+      <a class="sidebar-link" href="#g3"><span class="sidebar-code">G-3</span>Overtime</a>
+      <a class="sidebar-link" href="#g6"><span class="sidebar-code">G-6</span>Auto Clock-Out</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">Reference</div>
+      <a class="sidebar-link" href="#flags"><span class="sidebar-dot" style="background:#6b7280"></span>Flag Quick Reference</a>
+      <a class="sidebar-link" href="#changelog"><span class="sidebar-dot" style="background:#6b7280"></span>Version History</a>
+    </div>
+  </nav>
+  <main class="main">
+    <div class="page-header" id="overview">
+      <div class="page-eyebrow">
+        <span class="eyebrow-tag">HR / Supervisor Reference</span>
+        <span class="eyebrow-sep">·</span>
+        <span class="eyebrow-meta">punch_log_rules_v1_0_0</span>
+      </div>
+      <h1 class="page-title">Punch Log <span>Rules</span></h1>
+      <p class="page-subtitle">This guide explains how BizBuddy handles employee time records — when flags and warnings appear on a punch log, what they mean, and what action you may need to take. No technical knowledge required.</p>
+      <div class="page-meta-row">
+        <div class="meta-item"><span class="meta-label">Version</span><span class="meta-value">v1.0.0</span></div>
+        <div class="meta-item"><span class="meta-label">Effective</span><span class="meta-value">March 16, 2026</span></div>
+        <div class="meta-item"><span class="meta-label">Audience</span><span class="meta-value">HR / Supervisors</span></div>
+        <div class="meta-item"><span class="meta-label">Status</span><span class="meta-value" style="color:#22c55e">Active</span></div>
+      </div>
+    </div>
+
+    <div class="section" id="g1">
+      <div class="section-header">
+        <div class="rule-badge amber">G-1</div>
+        <div class="section-title-block">
+          <div class="section-title">Unscheduled Punch</div>
+          <div class="section-desc">An employee clocked in on a day with no assigned shift</div>
+        </div>
+      </div>
+      <div class="who-row">
+        <span class="who-pill all">🌐 All Employees</span>
+        <span class="who-pill sv">👁 Supervisor Review</span>
+      </div>
+      <p>When an employee clocks in on a day where they have no assigned work schedule, the system marks the record as <strong>unscheduled</strong>. This does not block the employee from working — it simply flags the record so you can review it.</p>
+      <div class="condition-grid">
+        <div class="condition-card when">
+          <div class="label">When does this happen?</div>
+          <p>The employee clocked in on a day where no shift has been assigned to them or to their department in the work schedule.</p>
+        </div>
+        <div class="condition-card then">
+          <div class="label">What will you see?</div>
+          <p>The row is highlighted in <strong>amber/yellow</strong> with a small warning circle (⚠) next to the employee's name in the Punch Logs table.</p>
+        </div>
+      </div>
+      <div class="see-box">
+        <div class="see-box-title">What this means for payroll</div>
+        <div class="see-row">
+          <span class="see-icon">⏱</span>
+          <div><div class="see-label">Hours are still calculated</div><div class="see-desc">The system uses the company's default shift length to determine the hours. The employee is still paid for the time they worked.</div></div>
+        </div>
+        <div class="see-row">
+          <span class="see-icon">👁</span>
+          <div><div class="see-label">Review before approving</div><div class="see-desc">Was this an approved extra day? Was the schedule set up correctly for this employee? It's good practice to verify before including this record in payroll.</div></div>
+        </div>
+      </div>
+    </div>
+
+    <hr class="divider" />
+
+    <div class="section" id="g2">
+      <div class="section-header">
+        <div class="rule-badge orange">G-2</div>
+        <div class="section-title-block">
+          <div class="section-title">Grace Period</div>
+          <div class="section-desc">A short window where arriving slightly late is still considered on time</div>
+        </div>
+      </div>
+      <div class="who-row">
+        <span class="who-pill all">🌐 All Employees</span>
+        <span class="who-pill auto">⚙️ Automatic</span>
+      </div>
+      <p>Your company has a configurable <strong>grace period</strong> — a short buffer after the scheduled start time. If an employee arrives within this window, they are considered on time and no lateness is recorded against them. The default grace period is <strong>15 minutes</strong>.</p>
+      <table class="rule-table">
+        <thead><tr><th>Situation</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Employee arrives <strong>within</strong> the grace period<br><small style="color:var(--gray-500)">Example: 8:14 AM with a 15-minute grace</small></td>
+            <td style="color:#22c55e">✅ On time — no late hours recorded</td>
+          </tr>
+          <tr>
+            <td>Employee arrives <strong>at or beyond</strong> the grace period<br><small style="color:var(--gray-500)">Example: 8:15 AM with a 15-minute grace</small></td>
+            <td style="color:#ef4444">⚠️ Late — full delay is recorded and deducted from hours</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="callout warn">
+        <div class="callout-header">⚠️ The boundary is exact</div>
+        <p>Arriving at exactly the grace period limit counts as <strong>late</strong>. With a 15-minute grace period, arriving exactly 15 minutes after the shift starts is marked late. Only arrivals with fewer than 15 minutes of delay are treated as on time.</p>
+      </div>
+      <p>Your company's grace period can be adjusted in <strong>Company Settings → Time Defaults</strong>. Any changes take effect immediately for all new punch records.</p>
+    </div>
+
+    <hr class="divider" />
+
+    <div class="section" id="g3">
+      <div class="section-header">
+        <div class="rule-badge blue">G-3</div>
+        <div class="section-title-block">
+          <div class="section-title">Overtime</div>
+          <div class="section-desc">How overtime is detected, requested, and approved</div>
+        </div>
+      </div>
+      <div class="who-row">
+        <span class="who-pill all">🌐 All Employees</span>
+        <span class="who-pill emp">👤 Employee Requests</span>
+        <span class="who-pill sv">👁 Supervisor Approves</span>
+      </div>
+      <p>Overtime in BizBuddy is <strong>never automatically paid</strong>. The employee must submit an overtime request and a supervisor must approve it before any extra hours are credited. Your company's overtime calculation method can be set in Company Settings.</p>
+      <div class="basis-grid">
+        <div class="basis-card">
+          <div class="basis-card-title"><span class="basis-dot" style="background:#f97316"></span>Daily</div>
+          <div class="basis-card-sub">Most common</div>
+          <div class="basis-card-desc">Overtime is reviewed for each individual punch. Extra hours beyond the daily limit (default 8 hours) are flagged as potential overtime.</div>
+        </div>
+        <div class="basis-card">
+          <div class="basis-card-title"><span class="basis-dot" style="background:#8b5cf6"></span>Weekly</div>
+          <div class="basis-card-sub">Cumulative</div>
+          <div class="basis-card-desc">Overtime is looked at across all punches in a week. Individual records will show "Weekly basis" — the total is reviewed at the end of the week.</div>
+        </div>
+        <div class="basis-card">
+          <div class="basis-card-title"><span class="basis-dot" style="background:#3b82f6"></span>Cutoff Period</div>
+          <div class="basis-card-sub">Payroll cycle</div>
+          <div class="basis-card-desc">Overtime is determined when the payroll period closes. Records show "Cutoff basis" and overtime is confirmed during the cutoff review.</div>
+        </div>
+      </div>
+      <div class="see-box">
+        <div class="see-box-title">What you'll see in the OT Status column</div>
+        <div class="see-row"><span class="see-icon">✅</span><div><div class="see-label">Approved</div><div class="see-desc">The employee submitted a request and it was approved. Extra hours will be credited toward their pay.</div></div></div>
+        <div class="see-row"><span class="see-icon">🟡</span><div><div class="see-label">Pending</div><div class="see-desc">The employee submitted a request that is waiting for supervisor approval.</div></div></div>
+        <div class="see-row"><span class="see-icon">❌</span><div><div class="see-label">Rejected</div><div class="see-desc">The overtime request was denied. No extra hours are added to the record.</div></div></div>
+        <div class="see-row"><span class="see-icon">⚠️</span><div><div class="see-label">No Approval</div><div class="see-desc">The system detected potential overtime but no request has been submitted yet. If the extra hours were authorized, the employee should submit a request.</div></div></div>
+      </div>
+    </div>
+
+    <hr class="divider" />
+
+    <div class="section" id="g6">
+      <div class="section-header">
+        <div class="rule-badge purple">G-6</div>
+        <div class="section-title-block">
+          <div class="section-title">Auto Clock-Out</div>
+          <div class="section-desc">The system automatically closes sessions that have been open too long</div>
+        </div>
+      </div>
+      <div class="who-row">
+        <span class="who-pill all">🌐 All Employees</span>
+        <span class="who-pill auto">⚙️ Automatic</span>
+        <span class="who-pill sv">🔒 Supervisor Must Review</span>
+      </div>
+      <p>If an employee forgets to clock out and their session has been running for <strong>20 hours or more</strong>, the system will automatically close it. This protects payroll accuracy by preventing forgotten clock-ins from accumulating unlimited hours.</p>
+      <div class="condition-grid">
+        <div class="condition-card when">
+          <div class="label">When does this happen?</div>
+          <p>An employee clocked in but never clocked out, and more than 20 hours have passed since their recorded clock-in time.</p>
+        </div>
+        <div class="condition-card then">
+          <div class="label">What does the system do?</div>
+          <p>The clock-out is set to the employee's <strong>scheduled shift end time</strong> — not the time the system detected it. The record is then flagged for your mandatory review.</p>
+        </div>
+      </div>
+      <div class="callout danger">
+        <div class="callout-header">🔒 This record requires your action</div>
+        <p>Any record that was automatically closed <strong>cannot be submitted for payroll</strong> until a supervisor reviews and approves it. You will see the row highlighted in <strong>purple</strong> with a clock icon (⏱) next to the employee's name.</p>
+      </div>
+      <div class="see-box">
+        <div class="see-box-title">What to do when you see this flag</div>
+        <div class="see-row"><span class="see-icon">🔍</span><div><div class="see-label">Verify the hours are correct</div><div class="see-desc">Check whether the clock-out time the system recorded matches what actually happened. If not, use the Edit button to correct it before approving.</div></div></div>
+        <div class="see-row"><span class="see-icon">✅</span><div><div class="see-label">Approve the record</div><div class="see-desc">Once you're satisfied the hours are accurate, approve the record so it can move forward to payroll processing.</div></div></div>
+        <div class="see-row"><span class="see-icon">💬</span><div><div class="see-label">Follow up with the employee</div><div class="see-desc">A gentle reminder to clock out at the end of each shift helps prevent this from happening again.</div></div></div>
+      </div>
+    </div>
+
+    <hr class="divider" />
+
+    <div class="section" id="flags">
+      <div class="section-header">
+        <div class="rule-badge gray">Quick Ref</div>
+        <div class="section-title-block">
+          <div class="section-title">Flag Quick Reference</div>
+          <div class="section-desc">At-a-glance summary of everything you might see in Employee Punch Logs</div>
+        </div>
+      </div>
+      <table class="rule-table">
+        <thead><tr><th>What you see</th><th>What it means</th><th>Action needed?</th></tr></thead>
+        <tbody>
+          <tr><td>🟡 Amber row + ⚠ icon</td><td>Employee has no assigned shift for this date (G-1)</td><td>Review — verify it was an authorized work day</td></tr>
+          <tr><td>Late Hours column populated</td><td>Employee arrived beyond the grace period (G-2)</td><td>No action required — recorded automatically</td></tr>
+          <tr><td>OT Status: <strong>No Approval</strong></td><td>Potential overtime detected but no request submitted (G-3)</td><td>Ask employee to submit a request if hours were authorized</td></tr>
+          <tr><td>OT Status: <strong>Pending</strong></td><td>Employee submitted an overtime request awaiting approval (G-3)</td><td>Review and approve or reject the request</td></tr>
+          <tr><td>🟣 Purple row + ⏱ icon</td><td>Session was automatically closed after 20 hours (G-6)</td><td><strong>Required</strong> — verify hours and approve before payroll</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <hr class="divider" />
+
+    <div class="section" id="changelog">
+      <div class="section-header">
+        <div class="rule-badge gray">History</div>
+        <div class="section-title-block">
+          <div class="section-title">Version History</div>
+          <div class="section-desc">Change log for this document</div>
+        </div>
+      </div>
+      <table class="version-table">
+        <tr class="version-current">
+          <td><span class="version-tag">v1.0.0</span></td>
+          <td>March 16, 2026</td>
+          <td>Initial release. HR/Supervisor friendly reference for all companies. Plain-language descriptions throughout. Formal versioning established.</td>
+        </tr>
+      </table>
+    </div>
+
+    <div class="footer">
+      <span>BizBuddy · Punch Log Rules · v1.0.0</span>
+      <span>Effective March 16, 2026</span>
+    </div>
+  </main>
+</div>
+<script>
+  const sections=document.querySelectorAll('.section[id],.page-header[id]');
+  const links=document.querySelectorAll('.sidebar-link[href]');
+  const observer=new IntersectionObserver((entries)=>{
+    entries.forEach(entry=>{
+      if(entry.isIntersecting){
+        links.forEach(l=>l.classList.remove('active'));
+        const active=document.querySelector(`.sidebar-link[href="#${entry.target.id}"]`);
+        if(active)active.classList.add('active');
+      }
+    });
+  },{rootMargin:'-20% 0px -70% 0px'});
+  sections.forEach(s=>observer.observe(s));
+</script>
+</body>
+</html>

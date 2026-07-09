@@ -1,0 +1,1199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BizBuddy — Punch Log Rules v1.0.0</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --orange:        #f97316;
+      --orange-light:  #fff7ed;
+      --orange-border: #fed7aa;
+      --orange-dark:   #c2410c;
+      --red:           #ef4444;
+      --red-light:     #fef2f2;
+      --red-border:    #fecaca;
+      --amber:         #f59e0b;
+      --amber-light:   #fffbeb;
+      --amber-border:  #fde68a;
+      --purple:        #8b5cf6;
+      --purple-light:  #f5f3ff;
+      --purple-border: #ddd6fe;
+      --blue:          #3b82f6;
+      --blue-light:    #eff6ff;
+      --blue-border:   #bfdbfe;
+      --blue-dark:     #1d4ed8;
+      --indigo:        #6366f1;
+      --indigo-light:  #eef2ff;
+      --indigo-border: #c7d2fe;
+      --green:         #22c55e;
+      --green-light:   #f0fdf4;
+      --green-border:  #bbf7d0;
+      --gray-50:       #f9fafb;
+      --gray-100:      #f3f4f6;
+      --gray-200:      #e5e7eb;
+      --gray-300:      #d1d5db;
+      --gray-400:      #9ca3af;
+      --gray-500:      #6b7280;
+      --gray-600:      #4b5563;
+      --gray-700:      #374151;
+      --gray-800:      #1f2937;
+      --gray-900:      #111827;
+      --font-sans:     'IBM Plex Sans', sans-serif;
+      --font-mono:     'IBM Plex Mono', monospace;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--gray-50);
+      color: var(--gray-800);
+      line-height: 1.6;
+      font-size: 15px;
+    }
+
+    /* ── Top bar ── */
+    .topbar {
+      background: var(--gray-900);
+      color: white;
+      padding: 10px 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      font-family: var(--font-mono);
+      letter-spacing: 0.05em;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      border-bottom: 2px solid var(--orange);
+    }
+    .topbar-left { display: flex; align-items: center; gap: 16px; }
+    .topbar-logo { color: var(--orange); font-weight: 600; font-size: 13px; }
+    .topbar-sep { color: var(--gray-600); }
+    .topbar-title { color: var(--gray-300); }
+    .topbar-right { display: flex; align-items: center; gap: 12px; }
+    .badge-version {
+      background: var(--orange);
+      color: white;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    /* ── Layout ── */
+    .layout {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      min-height: calc(100vh - 41px);
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      background: white;
+      border-right: 1px solid var(--gray-200);
+      padding: 32px 20px;
+      position: sticky;
+      top: 41px;
+      height: calc(100vh - 41px);
+      overflow-y: auto;
+    }
+    .sidebar-section { margin-bottom: 28px; }
+    .sidebar-label {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--gray-400);
+      margin-bottom: 8px;
+      padding: 0 8px;
+    }
+    .sidebar-link {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 8px;
+      border-radius: 6px;
+      text-decoration: none;
+      color: var(--gray-600);
+      font-size: 13px;
+      transition: all 0.15s;
+      cursor: pointer;
+    }
+    .sidebar-link:hover { background: var(--gray-100); color: var(--gray-900); }
+    .sidebar-link.active { background: var(--orange-light); color: var(--orange-dark); font-weight: 500; }
+    .sidebar-link.active-blue { background: var(--blue-light); color: var(--blue-dark); font-weight: 500; }
+    .sidebar-code {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      background: var(--gray-100);
+      padding: 1px 5px;
+      border-radius: 3px;
+      color: var(--gray-500);
+    }
+    .sidebar-link.active .sidebar-code { background: var(--orange-border); color: var(--orange-dark); }
+    .sidebar-link.active-blue .sidebar-code { background: var(--blue-border); color: var(--blue-dark); }
+    .sidebar-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .sidebar-divider {
+      margin: 4px 0 16px 0;
+      border: none;
+      border-top: 1px dashed var(--gray-200);
+    }
+    .sidebar-daycare-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--blue-dark);
+      margin-bottom: 8px;
+      padding: 6px 8px;
+      background: var(--blue-light);
+      border-radius: 6px;
+      border: 1px solid var(--blue-border);
+    }
+
+    /* ── Main ── */
+    .main { padding: 48px 56px; max-width: 900px; }
+
+    /* ── Page header ── */
+    .page-header { margin-bottom: 48px; }
+    .page-eyebrow {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .eyebrow-tag {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--orange);
+    }
+    .eyebrow-sep { color: var(--gray-300); font-size: 12px; }
+    .eyebrow-meta { font-size: 12px; color: var(--gray-400); font-family: var(--font-mono); }
+    .page-title {
+      font-size: 32px;
+      font-weight: 700;
+      color: var(--gray-900);
+      line-height: 1.2;
+      margin-bottom: 12px;
+      letter-spacing: -0.02em;
+    }
+    .page-title span { color: var(--orange); }
+    .page-subtitle {
+      font-size: 15px;
+      color: var(--gray-500);
+      max-width: 620px;
+      line-height: 1.6;
+    }
+    .page-meta-row {
+      display: flex;
+      gap: 24px;
+      margin-top: 20px;
+      padding-top: 20px;
+      border-top: 1px solid var(--gray-200);
+      flex-wrap: wrap;
+    }
+    .meta-item { display: flex; flex-direction: column; gap: 2px; }
+    .meta-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--gray-400); font-weight: 600; }
+    .meta-value { font-size: 13px; color: var(--gray-700); font-family: var(--font-mono); }
+
+    /* ── Chapter banner ── */
+    .chapter-banner {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 18px 24px;
+      border-radius: 12px;
+      margin-bottom: 40px;
+      margin-top: 8px;
+    }
+    .chapter-banner.general {
+      background: linear-gradient(135deg, var(--orange-light) 0%, #fff 100%);
+      border: 1px solid var(--orange-border);
+    }
+    .chapter-banner.daycare {
+      background: linear-gradient(135deg, var(--blue-light) 0%, #fff 100%);
+      border: 1px solid var(--blue-border);
+    }
+    .chapter-banner-icon { font-size: 28px; }
+    .chapter-banner-body {}
+    .chapter-banner-title { font-size: 18px; font-weight: 700; color: var(--gray-900); margin-bottom: 2px; }
+    .chapter-banner-desc { font-size: 13px; color: var(--gray-500); }
+
+    /* ── Section ── */
+    .section { margin-bottom: 56px; scroll-margin-top: 60px; }
+    .section-header {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 2px solid var(--gray-100);
+    }
+    .rule-badge {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 6px;
+      white-space: nowrap;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .rule-badge.orange  { background: var(--orange-light); color: var(--orange-dark); border: 1px solid var(--orange-border); }
+    .rule-badge.red     { background: var(--red-light);    color: var(--red);         border: 1px solid var(--red-border); }
+    .rule-badge.amber   { background: var(--amber-light);  color: #92400e;            border: 1px solid var(--amber-border); }
+    .rule-badge.purple  { background: var(--purple-light); color: #6d28d9;            border: 1px solid var(--purple-border); }
+    .rule-badge.blue    { background: var(--blue-light);   color: var(--blue-dark);   border: 1px solid var(--blue-border); }
+    .rule-badge.indigo  { background: var(--indigo-light); color: #4338ca;            border: 1px solid var(--indigo-border); }
+    .rule-badge.green   { background: var(--green-light);  color: #15803d;            border: 1px solid var(--green-border); }
+    .rule-badge.gray    { background: var(--gray-100);     color: var(--gray-600);    border: 1px solid var(--gray-200); }
+
+    .section-title-block { flex: 1; }
+    .section-title { font-size: 20px; font-weight: 700; color: var(--gray-900); margin-bottom: 4px; letter-spacing: -0.01em; }
+    .section-desc { font-size: 13px; color: var(--gray-500); }
+
+    /* ── Who sees this ── */
+    .who-row { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .who-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .who-pill.all    { background: var(--orange-light); color: var(--orange-dark); border: 1px solid var(--orange-border); }
+    .who-pill.sv     { background: var(--amber-light);  color: #92400e;            border: 1px solid var(--amber-border); }
+    .who-pill.emp    { background: var(--green-light);  color: #15803d;            border: 1px solid var(--green-border); }
+    .who-pill.auto   { background: var(--gray-100);     color: var(--gray-600);    border: 1px solid var(--gray-200); }
+    .who-pill.daycare{ background: var(--blue-light);   color: var(--blue-dark);   border: 1px solid var(--blue-border); }
+
+    /* ── Prose ── */
+    p { margin-bottom: 12px; color: var(--gray-700); }
+    p:last-child { margin-bottom: 0; }
+    strong { font-weight: 600; color: var(--gray-900); }
+    ul { margin: 8px 0 12px 20px; color: var(--gray-700); }
+    li { margin-bottom: 4px; }
+
+    /* ── Tables ── */
+    .rule-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin: 16px 0;
+      border: 1px solid var(--gray-200);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .rule-table th {
+      background: var(--gray-50);
+      padding: 10px 14px;
+      text-align: left;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--gray-500);
+      border-bottom: 1px solid var(--gray-200);
+    }
+    .rule-table td {
+      padding: 11px 14px;
+      border-bottom: 1px solid var(--gray-100);
+      vertical-align: top;
+      color: var(--gray-700);
+    }
+    .rule-table tr:last-child td { border-bottom: none; }
+    .rule-table tr:hover td { background: var(--gray-50); }
+
+    /* ── Callouts ── */
+    .callout {
+      padding: 14px 16px;
+      border-radius: 8px;
+      margin: 16px 0;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .callout-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+      font-size: 13px;
+      margin-bottom: 6px;
+    }
+    .callout.note   { background: var(--blue-light);   border-left: 3px solid var(--blue); }
+    .callout.note   .callout-header { color: var(--blue-dark); }
+    .callout.warn   { background: var(--amber-light);  border-left: 3px solid var(--amber); }
+    .callout.warn   .callout-header { color: #92400e; }
+    .callout.danger { background: var(--red-light);    border-left: 3px solid var(--red); }
+    .callout.danger .callout-header { color: #b91c1c; }
+    .callout.good   { background: var(--green-light);  border-left: 3px solid var(--green); }
+    .callout.good   .callout-header { color: #15803d; }
+    .callout p { color: inherit; margin-bottom: 6px; }
+    .callout p:last-child { margin-bottom: 0; }
+
+    /* ── What you'll see box ── */
+    .see-box {
+      background: white;
+      border: 1px solid var(--gray-200);
+      border-radius: 10px;
+      padding: 16px 18px;
+      margin: 16px 0;
+      font-size: 13px;
+    }
+    .see-box-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--gray-400);
+      margin-bottom: 10px;
+    }
+    .see-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--gray-100);
+    }
+    .see-row:last-child { border-bottom: none; }
+    .see-icon {
+      font-size: 16px;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .see-label { font-weight: 600; color: var(--gray-800); font-size: 12px; }
+    .see-desc  { font-size: 12px; color: var(--gray-500); margin-top: 1px; }
+
+    /* ── Condition cards ── */
+    .condition-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0; }
+    .condition-card { padding: 14px; border-radius: 8px; border: 1px solid var(--gray-200); font-size: 13px; }
+    .condition-card .label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+    .condition-card.when   { background: #fefce8; border-color: var(--amber-border); }
+    .condition-card.when   .label { color: #92400e; }
+    .condition-card.then   { background: var(--blue-light); border-color: var(--blue-border); }
+    .condition-card.then   .label { color: var(--blue-dark); }
+
+    /* ── OT basis cards ── */
+    .basis-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 16px 0; }
+    .basis-card { padding: 14px; border-radius: 8px; border: 1px solid var(--gray-200); background: white; }
+    .basis-card-title { font-weight: 700; font-size: 14px; color: var(--gray-900); margin-bottom: 4px; }
+    .basis-card-sub   { font-size: 12px; color: var(--gray-500); margin-bottom: 8px; }
+    .basis-card-desc  { font-size: 12px; color: var(--gray-600); line-height: 1.5; }
+    .basis-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+
+    /* ── Punch type cards ── */
+    .punch-type-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 16px 0; }
+    .punch-card { border-radius: 10px; overflow: hidden; border: 1px solid var(--gray-200); }
+    .punch-card-header { padding: 10px 14px; font-size: 12px; font-weight: 700; }
+    .punch-card-header.da    { background: var(--blue-light);   color: var(--blue-dark); }
+    .punch-card-header.da-am { background: var(--indigo-light); color: #4338ca; }
+    .punch-card-header.da-pm { background: var(--purple-light); color: #6d28d9; }
+    .punch-card-body { padding: 10px 14px; background: white; }
+    .punch-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--gray-100); font-size: 12px; }
+    .punch-row:last-child { border-bottom: none; }
+    .punch-row-label { color: var(--gray-600); }
+    .punch-row-value { font-family: var(--font-mono); font-size: 11px; font-weight: 600; }
+    .punch-row-value.fixed   { color: var(--blue-dark); }
+    .punch-row-value.derived { color: var(--orange-dark); }
+    .punch-row-value.total   { color: #15803d; }
+    .punch-row-value.none    { color: var(--gray-400); }
+    .fixed-tag   { font-size: 9px; padding: 1px 4px; border-radius: 3px; background: var(--blue-light);   color: var(--blue-dark);   font-weight: 700; margin-left: 4px; }
+    .derived-tag { font-size: 9px; padding: 1px 4px; border-radius: 3px; background: var(--orange-light); color: var(--orange-dark); font-weight: 700; margin-left: 4px; }
+
+    /* ── PM timeline ── */
+    .pm-timeline { margin: 16px 0; background: white; border: 1px solid var(--gray-200); border-radius: 10px; padding: 20px; }
+    .pm-timeline-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--gray-400); margin-bottom: 12px; }
+    .pm-track { position: relative; height: 36px; background: var(--gray-100); border-radius: 6px; overflow: hidden; margin-bottom: 8px; }
+    .pm-segment { position: absolute; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; }
+    .pm-segment.am      { background: #bfdbfe; color: var(--blue-dark); }
+    .pm-segment.regular { background: #c7d2fe; color: #3730a3; }
+    .pm-segment.pm-zone { background: var(--purple-border); color: #6d28d9; }
+    .pm-markers { display: flex; justify-content: space-between; font-size: 11px; font-family: var(--font-mono); color: var(--gray-400); }
+
+    /* ── Divider ── */
+    .divider { border: none; border-top: 1px solid var(--gray-200); margin: 40px 0; }
+    .chapter-divider {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin: 56px 0 48px 0;
+    }
+    .chapter-divider-line { flex: 1; border-top: 2px solid var(--gray-200); }
+    .chapter-divider-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--gray-400);
+      white-space: nowrap;
+    }
+
+    /* ── Version table ── */
+    .version-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .version-table td { padding: 10px 14px; border-bottom: 1px solid var(--gray-100); color: var(--gray-700); }
+    .version-table tr:last-child td { border-bottom: none; }
+    .version-current td { background: var(--orange-light); }
+    .version-tag { font-family: var(--font-mono); font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 4px; background: var(--orange); color: white; }
+
+    /* ── Footer ── */
+    .footer {
+      margin-top: 64px;
+      padding-top: 24px;
+      border-top: 1px solid var(--gray-200);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      color: var(--gray-400);
+      font-family: var(--font-mono);
+    }
+
+    html { scroll-behavior: smooth; }
+    @media print {
+      .topbar, .sidebar { display: none; }
+      .layout { grid-template-columns: 1fr; }
+      .main { padding: 24px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <span class="topbar-logo">BizBuddy</span>
+    <span class="topbar-sep">/</span>
+    <span class="topbar-title">Punch Log Rules</span>
+  </div>
+  <div class="topbar-right">
+    <span class="badge-version">v1.0.0</span>
+  </div>
+</div>
+
+<div class="layout">
+
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-label">Overview</div>
+      <a class="sidebar-link" href="#overview">
+        <span class="sidebar-dot" style="background:#f97316"></span>
+        Introduction
+      </a>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-label">General Rules — All Companies</div>
+      <a class="sidebar-link" href="#g1">
+        <span class="sidebar-code">G-1</span>
+        Unscheduled Punch
+      </a>
+      <a class="sidebar-link" href="#g2">
+        <span class="sidebar-code">G-2</span>
+        Grace Period
+      </a>
+      <a class="sidebar-link" href="#g3">
+        <span class="sidebar-code">G-3</span>
+        Overtime
+      </a>
+      <a class="sidebar-link" href="#g6">
+        <span class="sidebar-code">G-6</span>
+        Auto Clock-Out
+      </a>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-daycare-label">
+        🏫 DayCare Program Rules
+      </div>
+      <a class="sidebar-link" href="#daycare-overview">
+        <span class="sidebar-dot" style="background:#3b82f6"></span>
+        Shifts &amp; Punch Types
+      </a>
+      <a class="sidebar-link" href="#d1">
+        <span class="sidebar-code">D-1</span>
+        Early Clock-In
+      </a>
+      <a class="sidebar-link" href="#d2">
+        <span class="sidebar-code">D-2</span>
+        Hour Distribution
+      </a>
+      <a class="sidebar-link" href="#d3">
+        <span class="sidebar-code">D-3</span>
+        PM 45-Min Rule
+      </a>
+      <a class="sidebar-link" href="#d4">
+        <span class="sidebar-code">D-4</span>
+        Regular Late Clock-Out
+      </a>
+      <a class="sidebar-link" href="#d5">
+        <span class="sidebar-code">D-5</span>
+        Missing Clock-Out
+      </a>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-label">Reference</div>
+      <a class="sidebar-link" href="#changelog">
+        <span class="sidebar-dot" style="background:#6b7280"></span>
+        Version History
+      </a>
+    </div>
+  </nav>
+
+  <!-- Main -->
+  <main class="main">
+
+    <!-- Header -->
+    <div class="page-header" id="overview">
+      <div class="page-eyebrow">
+        <span class="eyebrow-tag">HR / Supervisor Reference</span>
+        <span class="eyebrow-sep">·</span>
+        <span class="eyebrow-meta">punch_log_rules_v1_0_0.html</span>
+      </div>
+      <h1 class="page-title">Punch Log <span>Rules</span></h1>
+      <p class="page-subtitle">
+        This guide explains how BizBuddy handles employee time records — when flags appear,
+        what they mean, and what action is needed from you as a supervisor or HR administrator.
+        No technical knowledge is required.
+      </p>
+      <div class="page-meta-row">
+        <div class="meta-item">
+          <span class="meta-label">Version</span>
+          <span class="meta-value">v1.0.0</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Effective</span>
+          <span class="meta-value">March 16, 2026</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Audience</span>
+          <span class="meta-value">HR / Supervisors</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Status</span>
+          <span class="meta-value" style="color:#22c55e">Active</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Chapter banner: General -->
+    <div class="chapter-banner general">
+      <span class="chapter-banner-icon">📋</span>
+      <div class="chapter-banner-body">
+        <div class="chapter-banner-title">General Rules</div>
+        <div class="chapter-banner-desc">Rules G-1 through G-6 apply to every employee at every company. These are the foundational time-keeping rules that BizBuddy enforces by default.</div>
+      </div>
+    </div>
+
+    <!-- G-1 -->
+    <div class="section" id="g1">
+      <div class="section-header">
+        <div class="rule-badge amber">G-1</div>
+        <div class="section-title-block">
+          <div class="section-title">Unscheduled Punch</div>
+          <div class="section-desc">An employee clocked in on a day with no assigned shift</div>
+        </div>
+      </div>
+
+      <div class="who-row">
+        <span class="who-pill all">🌐 All Companies</span>
+        <span class="who-pill sv">👁 Supervisor Review</span>
+      </div>
+
+      <p>When an employee clocks in on a day where they have no assigned work schedule, the system marks the record as <strong>unscheduled</strong>. This does not block the employee from working — it simply flags the record so a supervisor can review it.</p>
+
+      <div class="condition-grid">
+        <div class="condition-card when">
+          <div class="label">When does this happen?</div>
+          <p>The employee clocks in on a day where no shift has been assigned to them individually or to their department in the schedule.</p>
+        </div>
+        <div class="condition-card then">
+          <div class="label">What will you see?</div>
+          <p>The row is highlighted in <strong>amber/yellow</strong> and shows a small warning circle (⚠) next to the employee's name.</p>
+        </div>
+      </div>
+
+      <div class="see-box">
+        <div class="see-box-title">What this means for payroll</div>
+        <div class="see-row">
+          <span class="see-icon">⏱</span>
+          <div>
+            <div class="see-label">Hours are still calculated</div>
+            <div class="see-desc">The system uses the company's default shift length to cap the hours. The employee is still paid for time worked.</div>
+          </div>
+        </div>
+        <div class="see-row">
+          <span class="see-icon">👁</span>
+          <div>
+            <div class="see-label">Review is recommended</div>
+            <div class="see-desc">Was this an approved extra day? Was the schedule set up correctly? Review before approving for payroll.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <hr class="divider" />
+
+    <!-- G-2 -->
+    <div class="section" id="g2">
+      <div class="section-header">
+        <div class="rule-badge orange">G-2</div>
+        <div class="section-title-block">
+          <div class="section-title">Grace Period</div>
+          <div class="section-desc">A short window after shift start where arriving late is still considered on time</div>
+        </div>
+      </div>
+
+      <div class="who-row">
+        <span class="who-pill all">🌐 All Companies</span>
+        <span class="who-pill auto">⚙️ Automatic</span>
+      </div>
+
+      <p>Your company has a configurable grace period — a short buffer after the scheduled start time. If an employee arrives within this window, they are considered <strong>on time</strong> and no lateness is recorded. The default is <strong>15 minutes</strong>.</p>
+
+      <table class="rule-table">
+        <thead>
+          <tr><th>Situation</th><th>Result</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Employee arrives <strong>within</strong> the grace period (e.g., 8:14 AM with a 15-min grace)</td>
+            <td style="color:#22c55e">✅ On time — no late hours recorded</td>
+          </tr>
+          <tr>
+            <td>Employee arrives <strong>at or beyond</strong> the grace period (e.g., 8:15 AM with a 15-min grace)</td>
+            <td style="color:#ef4444">⚠️ Late — full delay recorded and deducted</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout warn">
+        <div class="callout-header">⚠️ The boundary is exact</div>
+        <p>Arriving at exactly the grace period limit counts as <strong>late</strong>. For example, with a 15-minute grace period, arriving exactly 15 minutes late is marked late. Only arrivals with fewer than 15 minutes of delay are treated as on time.</p>
+      </div>
+
+      <p>The grace period is configurable per company in <strong>Company Settings → Time Defaults</strong>. Changes take effect immediately for all future punch records.</p>
+    </div>
+
+    <hr class="divider" />
+
+    <!-- G-3 -->
+    <div class="section" id="g3">
+      <div class="section-header">
+        <div class="rule-badge blue">G-3</div>
+        <div class="section-title-block">
+          <div class="section-title">Overtime</div>
+          <div class="section-desc">How overtime is detected and approved</div>
+        </div>
+      </div>
+
+      <div class="who-row">
+        <span class="who-pill all">🌐 All Companies</span>
+        <span class="who-pill emp">👤 Employee Initiated</span>
+        <span class="who-pill sv">👁 Supervisor Approves</span>
+      </div>
+
+      <p>Overtime is <strong>never automatically paid</strong>. The employee must submit an overtime request, and a supervisor must approve it before any extra hours are credited. Your company's overtime calculation method is set in Company Settings.</p>
+
+      <div class="basis-grid">
+        <div class="basis-card">
+          <div class="basis-card-title"><span class="basis-dot" style="background:#f97316"></span>Daily</div>
+          <div class="basis-card-sub">Most common</div>
+          <div class="basis-card-desc">Overtime is checked for each individual punch record. Extra hours beyond the daily threshold (default 8h) show as OT.</div>
+        </div>
+        <div class="basis-card">
+          <div class="basis-card-title"><span class="basis-dot" style="background:#8b5cf6"></span>Weekly</div>
+          <div class="basis-card-sub">Cumulative</div>
+          <div class="basis-card-desc">Overtime is calculated across all punches in a week. Individual records will show "Weekly basis" instead of an OT amount — the total is reviewed at week's end.</div>
+        </div>
+        <div class="basis-card">
+          <div class="basis-card-title"><span class="basis-dot" style="background:#3b82f6"></span>Cutoff Period</div>
+          <div class="basis-card-sub">Payroll cycle</div>
+          <div class="basis-card-desc">Overtime is evaluated when the payroll cutoff period closes. Records show "Cutoff basis" and OT is determined during the cutoff review process.</div>
+        </div>
+      </div>
+
+      <div class="see-box">
+        <div class="see-box-title">What you'll see in the OT Status column</div>
+        <div class="see-row">
+          <span class="see-icon">✅</span>
+          <div>
+            <div class="see-label">Approved</div>
+            <div class="see-desc">Employee submitted a request and you (or another supervisor) approved it. Extra hours will be credited.</div>
+          </div>
+        </div>
+        <div class="see-row">
+          <span class="see-icon">🟡</span>
+          <div>
+            <div class="see-label">Pending</div>
+            <div class="see-desc">Employee submitted a request that is waiting for your approval.</div>
+          </div>
+        </div>
+        <div class="see-row">
+          <span class="see-icon">❌</span>
+          <div>
+            <div class="see-label">Rejected</div>
+            <div class="see-desc">The request was denied. No extra hours are credited.</div>
+          </div>
+        </div>
+        <div class="see-row">
+          <span class="see-icon">⚠️</span>
+          <div>
+            <div class="see-label">No Approval</div>
+            <div class="see-desc">The system detected potential overtime but no request has been submitted. The employee should submit a request if the extra hours were authorized.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <hr class="divider" />
+
+    <!-- G-6 -->
+    <div class="section" id="g6">
+      <div class="section-header">
+        <div class="rule-badge purple">G-6</div>
+        <div class="section-title-block">
+          <div class="section-title">Auto Clock-Out</div>
+          <div class="section-desc">The system automatically closes sessions that have been open too long</div>
+        </div>
+      </div>
+
+      <div class="who-row">
+        <span class="who-pill all">🌐 All Companies</span>
+        <span class="who-pill auto">⚙️ Automatic</span>
+        <span class="who-pill sv">🔒 Supervisor Must Review</span>
+      </div>
+
+      <p>If an employee forgets to clock out and their session has been active for <strong>20 hours or more</strong>, the system will automatically close it. This prevents runaway hours from accumulating and protects payroll accuracy.</p>
+
+      <div class="condition-grid">
+        <div class="condition-card when">
+          <div class="label">When does this happen?</div>
+          <p>An employee clocked in but never clocked out, and more than 20 hours have passed since their clock-in time.</p>
+        </div>
+        <div class="condition-card then">
+          <div class="label">What does the system do?</div>
+          <p>The clock-out is set to the employee's <strong>scheduled shift end time</strong> — not to the time the system detected it. The record is flagged for mandatory review.</p>
+        </div>
+      </div>
+
+      <div class="callout danger">
+        <div class="callout-header">🔒 This record requires your action</div>
+        <p>Any record closed by auto clock-out <strong>cannot be submitted for payroll</strong> until a supervisor reviews and approves it. The row will appear with a <strong>purple tint</strong> and a clock icon (⏱) next to the employee's name.</p>
+      </div>
+
+      <div class="see-box">
+        <div class="see-box-title">What to do when you see this flag</div>
+        <div class="see-row">
+          <span class="see-icon">🔍</span>
+          <div>
+            <div class="see-label">Verify the hours</div>
+            <div class="see-desc">Check if the clock-out time recorded by the system (scheduled shift end) reflects reality. If the employee actually worked different hours, use the Edit button to correct it.</div>
+          </div>
+        </div>
+        <div class="see-row">
+          <span class="see-icon">✅</span>
+          <div>
+            <div class="see-label">Approve the record</div>
+            <div class="see-desc">Once you've verified the hours are correct, approve the record so it can move to payroll processing.</div>
+          </div>
+        </div>
+        <div class="see-row">
+          <span class="see-icon">💬</span>
+          <div>
+            <div class="see-label">Follow up with the employee</div>
+            <div class="see-desc">Consider reminding the employee to clock out at the end of their shift to avoid this situation.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DayCare Chapter Divider -->
+    <div class="chapter-divider" id="daycare-chapter">
+      <div class="chapter-divider-line"></div>
+      <div class="chapter-divider-label">🏫 DayCare Program</div>
+      <div class="chapter-divider-line"></div>
+    </div>
+
+    <div class="chapter-banner daycare">
+      <span class="chapter-banner-icon">🚌</span>
+      <div class="chapter-banner-body">
+        <div class="chapter-banner-title">DayCare Program Rules</div>
+        <div class="chapter-banner-desc">Rules D-1 through D-5 apply only to DayCare companies. These rules handle the unique scheduling needs of Driver/Aide employees who cover bus runs before and after the regular school day.</div>
+      </div>
+    </div>
+
+    <!-- DayCare Overview: Shifts & Punch Types -->
+    <div class="section" id="daycare-overview">
+      <div class="section-header">
+        <div class="rule-badge blue">Shifts</div>
+        <div class="section-title-block">
+          <div class="section-title">DayCare Shifts &amp; Punch Types</div>
+          <div class="section-desc">Understanding the three-segment DayCare day</div>
+        </div>
+      </div>
+
+      <div class="who-row">
+        <span class="who-pill daycare">🏫 DayCare Only</span>
+      </div>
+
+      <p>A typical DayCare day is divided into three segments. An employee's <strong>Punch Type</strong> tells the system which segments they covered that day, so hours are calculated correctly for each portion.</p>
+
+      <div class="pm-timeline">
+        <div class="pm-timeline-label">Full DayCare Day — Driver / Aide</div>
+        <div class="pm-track">
+          <div class="pm-segment am"      style="left:0%;width:17%">AM 1.25h</div>
+          <div class="pm-segment regular" style="left:17%;width:64%">Regular 5.5h</div>
+          <div class="pm-segment pm-zone" style="left:81%;width:19%">PM (derived)</div>
+        </div>
+        <div class="pm-markers">
+          <span>6:45 AM</span>
+          <span>8:00 AM</span>
+          <span style="margin-left:auto;margin-right:48px">1:30 PM</span>
+          <span>2:45 PM</span>
+        </div>
+      </div>
+
+      <table class="rule-table" style="margin-top:20px">
+        <thead>
+          <tr><th>Segment</th><th>Time</th><th>Hours</th><th>How it's calculated</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Driver/Aide AM</strong></td>
+            <td>6:45 AM → 8:00 AM</td>
+            <td><strong>1.25h</strong></td>
+            <td>Always fixed — does not change based on actual clock-in/out</td>
+          </tr>
+          <tr>
+            <td><strong>Regular Shift</strong></td>
+            <td>8:00 AM → 1:30 PM</td>
+            <td><strong>5.5h</strong></td>
+            <td>Always fixed — does not change based on actual clock-in/out</td>
+          </tr>
+          <tr>
+            <td><strong>Driver/Aide PM</strong></td>
+            <td>1:30 PM → 2:45 PM</td>
+            <td><strong>Varies</strong></td>
+            <td>Derived from actual clock-out time — see D-3 for the rule</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p style="margin-top:16px">The four punch types determine which combination of segments applies:</p>
+
+      <div class="punch-type-grid">
+        <div class="punch-card">
+          <div class="punch-card-header da">🚌 Driver / Aide (Full Day)</div>
+          <div class="punch-card-body">
+            <div class="punch-row"><span class="punch-row-label">AM <span class="fixed-tag">fixed</span></span><span class="punch-row-value fixed">1.25h</span></div>
+            <div class="punch-row"><span class="punch-row-label">Regular <span class="fixed-tag">fixed</span></span><span class="punch-row-value fixed">5.5h</span></div>
+            <div class="punch-row"><span class="punch-row-label">PM <span class="derived-tag">derived</span></span><span class="punch-row-value derived">D-3 rule</span></div>
+            <div class="punch-row"><span class="punch-row-label" style="font-weight:700">Total</span><span class="punch-row-value total">1.25 + 5.5 + PM</span></div>
+          </div>
+        </div>
+        <div class="punch-card">
+          <div class="punch-card-header da-am">🌅 Driver AM Only</div>
+          <div class="punch-card-body">
+            <div class="punch-row"><span class="punch-row-label">AM <span class="fixed-tag">fixed</span></span><span class="punch-row-value fixed">1.25h</span></div>
+            <div class="punch-row"><span class="punch-row-label">Regular <span class="derived-tag">derived</span></span><span class="punch-row-value derived">net − 1.25h</span></div>
+            <div class="punch-row"><span class="punch-row-label">PM</span><span class="punch-row-value none">—</span></div>
+            <div class="punch-row"><span class="punch-row-label" style="font-weight:700">Total</span><span class="punch-row-value total">1.25 + Regular</span></div>
+          </div>
+        </div>
+        <div class="punch-card">
+          <div class="punch-card-header da-pm">🌆 Driver PM Only</div>
+          <div class="punch-card-body">
+            <div class="punch-row"><span class="punch-row-label">AM</span><span class="punch-row-value none">—</span></div>
+            <div class="punch-row"><span class="punch-row-label">Regular <span class="fixed-tag">fixed</span></span><span class="punch-row-value fixed">5.5h</span></div>
+            <div class="punch-row"><span class="punch-row-label">PM <span class="derived-tag">derived</span></span><span class="punch-row-value derived">D-3 rule</span></div>
+            <div class="punch-row"><span class="punch-row-label" style="font-weight:700">Total</span><span class="punch-row-value total">5.5 + PM</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <hr class="divider" />
+
+    <!-- D-1 -->
+    <div class="section" id="d1">
+      <div class="section-header">
+        <div class="rule-badge indigo">D-1</div>
+        <div class="section-title-block">
+          <div class="section-title">Early Clock-In Confirmation</div>
+          <div class="section-desc">A prompt shown when an employee tries to clock in before the AM shift window</div>
+        </div>
+      </div>
+
+      <div class="who-row">
+        <span class="who-pill daycare">🏫 DayCare Only</span>
+        <span class="who-pill emp">👤 Employee-Facing</span>
+      </div>
+
+      <p>If an employee tries to clock in before the Driver/Aide AM shift begins (6:45 AM), the app shows a confirmation screen asking them to verify that the early clock-in is intentional. This prevents accidental early punches.</p>
+
+      <div class="condition-grid">
+        <div class="condition-card when">
+          <div class="label">When does this happen?</div>
+          <p>An employee opens the clock-in screen before 6:45 AM on a day when they are scheduled for an AM Driver/Aide shift.</p>
+        </div>
+        <div class="condition-card then">
+          <div class="label">What the employee sees?</div>
+          <p>A prompt asking them to confirm that they are intentionally clocking in early. They must acknowledge it before the clock-in is recorded.</p>
+        </div>
+      </div>
+
+      <div class="callout note">
+        <div class="callout-header">ℹ️ Note</div>
+        <p>This rule affects only the clock-in screen used by the employee. There is no flag or indicator visible to supervisors in the Punch Logs view unless something goes wrong after the early clock-in.</p>
+      </div>
+    </div>
+
+    <hr class="divider" />
+
+    <!-- D-2 -->
+    <div class="section" id="d2">
+      <div class="section-header">
+        <div class="rule-badge blue">D-2</div>
+        <div class="section-title-block">
+          <div class="section-title">Driver/Aide Hour Distribution</div>
+          <div class="section-desc">How hours are split across AM, Regular, and PM segments</div>
+        </div>
+      </div>
+
+      <div class="who-row">
+        <span class="who-pill daycare">🏫 DayCare Only</span>
+        <span class="who-pill auto">⚙️ Automatic</span>
+      </div>
+
+      <p>For Driver/Aide employees, the system automatically allocates hours to the correct segment based on the employee's punch type. <strong>You do not need to do anything</strong> — this calculation is fully automatic.</p>
+
+      <p>The AM segment (1.25h) and Regular segment (5.5h) are always <strong>fixed</strong> — they never change regardless of when the employee actually clocked in or out. Only the PM segment varies, and its calculation is governed by D-3.</p>
+
+      <div class="see-box">
+        <div class="see-box-title">Where to find the breakdown</div>
+        <div class="see-row">
+          <span class="see-icon">▶</span>
+          <div>
+            <div class="see-label">Click the expand arrow on any Driver/Aide row</div>
+            <div class="see-desc">The expanded panel shows a breakdown of AM, Regular, and PM hours with the total. Fixed segments are labeled "fixed" and the PM segment shows "(actual)" if the employee left early.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <hr class="divider" />
+
+    <!-- D-3 -->
+    <div class="section" id="d3">
+      <div class="section-header">
+        <div class="rule-badge orange">D-3</div>
+        <div class="section-title-block">
+          <div class="section-title">PM 45-Minute Rule</div>
+          <div class="section-desc">Whether an employee gets full PM credit depends on how early they left</div>
+        </div>
+      </div>
+
+      <div class="who-row">
+        <span class="who-pill daycare">🏫 DayCare Only</span>
+        <span class="who-pill auto">⚙️ Automatic</span>
+      </div>
+
+      <p>The PM shift ends at <strong>2:45 PM</strong>. Whether an employee receives the full 1.25h PM credit depends on how close to the end they clocked out. The idea is simple: if they stayed for most of the PM run, they get full credit; if they left much earlier, they only get credit for the time they actually worked.</p>
+
+      <table class="rule-table">
+        <thead>
+          <tr><th>When the employee clocked out</th><th>PM Hours Given</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Less than 45 minutes before 2:45 PM <br><small style="color:var(--gray-500)">(e.g., clocked out at 2:01 PM or later)</small></td>
+            <td style="color:#22c55e"><strong>Full 1.25h</strong> — complete PM credit</td>
+          </tr>
+          <tr>
+            <td>45 minutes or more before 2:45 PM <br><small style="color:var(--gray-500)">(e.g., clocked out at 2:00 PM or earlier)</small></td>
+            <td style="color:#f97316"><strong>Actual time</strong> — only hours from 1:30 PM to clock-out</td>
+          </tr>
+          <tr>
+            <td>Session still active (not yet clocked out)</td>
+            <td style="color:#22c55e"><strong>Full 1.25h</strong> — full credit while active</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout warn">
+        <div class="callout-header">⚠️ The 2:00 PM example</div>
+        <p>Clocking out at exactly 2:00 PM means the employee left 45 minutes before 2:45 PM — this triggers the <strong>actual time</strong> calculation, not full credit. Only departures after 2:00 PM (i.e., fewer than 45 minutes remaining) qualify for full PM credit.</p>
+      </div>
+
+      <p>When actual time is used, you will see <strong>"(actual)"</strong> in amber text next to the PM row in the expanded hours breakdown.</p>
+    </div>
+
+    <hr class="divider" />
+
+    <!-- D-4 -->
+    <div class="section" id="d4">
+      <div class="section-header">
+        <div class="rule-badge red">D-4</div>
+        <div class="section-title-block">
+          <div class="section-title">Regular Employee Late Clock-Out</div>
+          <div class="section-desc">A regular employee stayed past their shift end and into PM territory</div>
+        </div>
+      </div>
+
+      <div class="who-row">
+        <span class="who-pill daycare">🏫 DayCare Only</span>
+        <span class="who-pill sv">👁 Supervisor Review</span>
+      </div>
+
+      <p>Regular employees (non-Driver/Aide) are scheduled to clock out by 1:30 PM. If a regular employee clocks out significantly later than that — past the grace period — it may mean they accidentally stayed into PM time that belongs to a Driver/Aide employee's run. The system flags this so it can be reviewed.</p>
+
+      <div class="condition-grid">
+        <div class="condition-card when">
+          <div class="label">When does this happen?</div>
+          <p>A <strong>Regular</strong> employee clocks out more than the grace period past their scheduled 1:30 PM end time — for example, clocking out at 1:50 PM with a 15-minute grace period.</p>
+        </div>
+        <div class="condition-card then">
+          <div class="label">What will you see?</div>
+          <p>The row is highlighted in <strong>red</strong> with a triangle warning icon (△) next to the employee's name. The expanded panel shows a D-4 explanation.</p>
+        </div>
+      </div>
+
+      <div class="callout warn">
+        <div class="callout-header">⚠️ PM hours are not credited</div>
+        <p>The system will not credit any extra PM hours to a Regular employee who triggers D-4. The clock-out time is capped at the scheduled shift end for payroll purposes. If the employee legitimately worked beyond 1:30 PM, a supervisor should review the record and adjust accordingly.</p>
+      </div>
+
+      <div class="see-box">
+        <div class="see-box-title">What to do when you see this flag</div>
+        <div class="see-row">
+          <span class="see-icon">❓</span>
+          <div>
+            <div class="see-label">Was the late clock-out intentional?</div>
+            <div class="see-desc">Did the employee have a reason to stay late? If so, review and approve. If not, this may indicate a forgotten clock-out or a mistake.</div>
+          </div>
+        </div>
+        <div class="see-row">
+          <span class="see-icon">✏️</span>
+          <div>
+            <div class="see-label">Correct if needed</div>
+            <div class="see-desc">Use the Edit button to adjust the clock-out time if the recorded time is incorrect.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <hr class="divider" />
+
+    <!-- D-5 -->
+    <div class="section" id="d5">
+      <div class="section-header">
+        <div class="rule-badge amber">D-5</div>
+        <div class="section-title-block">
+          <div class="section-title">Missing Clock-Out</div>
+          <div class="section-desc">An employee is still clocked in after their shift should have ended</div>
+        </div>
+      </div>
+
+      <div class="who-row">
+        <span class="who-pill daycare">🏫 DayCare Only</span>
+        <span class="who-pill sv">🔒 Action Required</span>
+      </div>
+
+      <p>If an employee is still showing as <strong>active</strong> (clocked in) after their scheduled shift end time has passed, the record is flagged as having a missing clock-out. This could mean the employee forgot to clock out, or there was a technical issue.</p>
+
+      <div class="condition-grid">
+        <div class="condition-card when">
+          <div class="label">When does this happen?</div>
+          <p>The employee's session is still active and the current time is past their scheduled shift end. This is detected in real time.</p>
+        </div>
+        <div class="condition-card then">
+          <div class="label">What will you see?</div>
+          <p>The Status column shows an animated <strong>red "Missing Out"</strong> badge instead of the usual Active or Complete status.</p>
+        </div>
+      </div>
+
+      <div class="callout danger">
+        <div class="callout-header">🔒 Payroll is on hold</div>
+        <p>A record with a missing clock-out <strong>cannot be processed for payroll</strong> until a clock-out time is recorded. Either wait for the employee to clock out, or manually enter the correct time using the Edit button.</p>
+      </div>
+
+      <div class="see-box">
+        <div class="see-box-title">How to resolve this</div>
+        <div class="see-row">
+          <span class="see-icon">📞</span>
+          <div>
+            <div class="see-label">Contact the employee first</div>
+            <div class="see-desc">Ask if they are still working or if they forgot to clock out. This helps you enter the correct time.</div>
+          </div>
+        </div>
+        <div class="see-row">
+          <span class="see-icon">✏️</span>
+          <div>
+            <div class="see-label">Use the Edit button to enter the clock-out time</div>
+            <div class="see-desc">Click the pencil icon on the record, enter the correct clock-out time, and save. The flag will clear automatically once a clock-out is recorded.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <hr class="divider" />
+
+    <!-- Version History -->
+    <div class="section" id="changelog">
+      <div class="section-header">
+        <div class="rule-badge gray">History</div>
+        <div class="section-title-block">
+          <div class="section-title">Version History</div>
+          <div class="section-desc">Change log for this document</div>
+        </div>
+      </div>
+      <table class="version-table">
+        <tr class="version-current">
+          <td><span class="version-tag">v1.0.0</span></td>
+          <td>March 16, 2026</td>
+          <td>Initial release. Combined general and DayCare rules into a single HR/Supervisor reference guide. Plain-language descriptions throughout. Formal versioning established.</td>
+        </tr>
+      </table>
+    </div>
+
+    <div class="footer">
+      <span>BizBuddy · Punch Log Rules · v1.0.0</span>
+      <span>Effective March 16, 2026</span>
+    </div>
+
+  </main>
+</div>
+
+<script>
+  const sections = document.querySelectorAll('.section[id], .page-header[id]');
+  const links = document.querySelectorAll('.sidebar-link[href]');
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        links.forEach(l => { l.classList.remove('active'); l.classList.remove('active-blue'); });
+        const active = document.querySelector(`.sidebar-link[href="#${entry.target.id}"]`);
+        if (active) {
+          const isDaycare = ['d1','d2','d3','d4','d5','daycare-overview'].includes(entry.target.id);
+          active.classList.add(isDaycare ? 'active-blue' : 'active');
+        }
+      }
+    });
+  }, { rootMargin: '-20% 0px -70% 0px' });
+  sections.forEach(s => observer.observe(s));
+</script>
+
+</body>
+</html>
