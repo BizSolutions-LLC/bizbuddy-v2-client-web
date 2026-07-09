@@ -189,6 +189,17 @@ const enumeratePeriodDays = (periodStart, periodEnd, tz = "UTC") => {
   return days;
 };
 
+/**
+ * Formats a bare "YYYY-MM-DD" date-only string (e.g. leaveDate) as a day label in the
+ * company timezone. Anchors at noon UTC like enumeratePeriodDays — `new Date(dateStr +
+ * "T00:00:00")` instead reinterprets the string as local midnight in the runtime's own
+ * timezone, which can roll the label back a day once reformatted into a negative-UTC tz.
+ */
+const dateOnlyToLabel = (dateStr, tz = "UTC") => {
+  const [y, m, d] = dateStr.slice(0, 10).split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: tz });
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SUB-COMPONENTS
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1507,12 +1518,12 @@ export default function CutoffReview({ cutoffId }) {
           id:           leaveRow.id,
           timeLogId:    null,
           segmentType:  null,
-          date:         new Date(leaveRow.leaveDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: tz }),
+          date:         dateOnlyToLabel(leaveRow.leaveDate, tz),
           type:         "leave",
           detail:       `${leaveRow.leave.leaveType} — <strong>Approved</strong>`,
           tags:         [],
           actions:      ["pre-approved"],
-          hours:        8,
+          hours:        leaveRow.hours ?? 8,
           scheduledHours: 0,
           scheduleInfo: null,
           hasOT:        false,
@@ -1675,12 +1686,12 @@ export default function CutoffReview({ cutoffId }) {
           id:             leaveRow.id,
           timeLogId:      null,
           segmentType:    null,
-          date:           new Date(leaveRow.leaveDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: companyTimezone }),
+          date:           dateOnlyToLabel(leaveRow.leaveDate, companyTimezone),
           type:           "leave",
           detail:         `${leaveRow.leave.leaveType} — <strong>Approved</strong>`,
           tags:           [],
           actions:        ["pre-approved"],
-          hours:          8,
+          hours:          leaveRow.hours ?? 8,
           scheduledHours: 0,
           scheduleInfo:   null,
           hasOT:          false,
