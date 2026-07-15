@@ -47,6 +47,7 @@ import useAuthStore from "@/store/useAuthStore";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -57,6 +58,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import IconBtn from "@/components/common/IconBtn";
 import MultiSelect from "@/components/common/MultiSelect";
 import ColumnSelector from "@/components/common/ColumnSelector";
+import CutoffDateRangeFilter, { periodRangeKey, groupPeriodsByRange, groupStatus } from "@/components/common/CutoffDateRangeFilter";
 import TableSkeleton from "@/components/common/TableSkeleton";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -94,34 +96,6 @@ const toHour   = (m) => (m / 60).toFixed(2);
 const fmtUTCTime = (d) => new Date(d).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
 const toLocalDateStr = (d, tz) => d ? new Date(d).toLocaleDateString("en-CA", { timeZone: tz || "UTC" }) : null;
 
-// Cutoff periods are created per department — a single pay period range can have one
-// period record per department, all sharing the same periodStart/periodEnd. Selecting
-// "a cutoff" in the UI should mean "this pay period" (every department), not just
-// whichever single department record happened to be fetched — otherwise generating a
-// report only pulls one department's employees. periodRangeKey groups siblings together.
-const periodRangeKey = (p) => `${p.periodStart?.slice(0, 10) ?? ""}|${p.periodEnd?.slice(0, 10) ?? ""}`;
-
-function groupPeriodsByRange(periods) {
-  const map = new Map();
-  for (const p of periods) {
-    const key = periodRangeKey(p);
-    if (!map.has(key)) map.set(key, { key, periodStart: p.periodStart, periodEnd: p.periodEnd, periods: [] });
-    map.get(key).periods.push(p);
-  }
-  return [...map.values()].sort((a, b) => new Date(b.periodStart) - new Date(a.periodStart));
-}
-
-// Aggregate status across every department's period for the same range — "locked" only
-// once all of them are locked/processed; "partial" if some are and some aren't, so the
-// UI can warn rather than silently reporting on an incomplete set of departments.
-function groupStatus(group) {
-  const statuses = group.periods.map((p) => p.status);
-  const allDone  = statuses.every((s) => ["locked", "processed"].includes(s));
-  const anyDone  = statuses.some((s) => ["locked", "processed"].includes(s));
-  if (allDone) return statuses.every((s) => s === "processed") ? "processed" : "locked";
-  if (anyDone) return "partial";
-  return "open";
-}
 const toLocalMinutes = (isoStr, tz) => {
   if (!isoStr) return -1;
   const str = new Date(isoStr).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: tz || "UTC" });
@@ -1404,6 +1378,7 @@ export default function EmployeesPunchLogs() {
   const [filters,      setFilters]      = useState(resetFilters);
   const [pendingDates, setPendingDates] = useState({ from: getDefaultFrom(), to: getDefaultTo() });
   const [sortConfig, setSortConfig] = useState({ key: "dateTimeIn", direction: "descending" });
+  const [multiSelectEmployees, setMultiSelectEmployees] = useState(false);
 
   const toggleNameSort = () =>
     setSortConfig((prev) => {
@@ -1421,6 +1396,23 @@ export default function EmployeesPunchLogs() {
       return { ...prev, [key]: list };
     });
 
+  const toggleEmployeeFilter = (val) => {
+    if (!multiSelectEmployees) {
+      setFilters((prev) => ({ ...prev, employeeIds: val === "all" ? ["all"] : [val] }));
+      return;
+    }
+    toggleListFilter("employeeIds", val);
+  };
+
+  const handleMultiSelectEmployeesChange = (checked) => {
+    setMultiSelectEmployees(checked);
+    if (!checked) {
+      setFilters((prev) =>
+        prev.employeeIds.includes("all") ? prev : { ...prev, employeeIds: [prev.employeeIds[0]] }
+      );
+    }
+  };
+
   const anyFilterActive =
     filters.search || !filters.employeeIds.includes("all") || filters.departmentId !== "all" ||
     filters.from !== getDefaultFrom() || filters.to !== getDefaultTo() ||
@@ -1429,6 +1421,7 @@ export default function EmployeesPunchLogs() {
     setFilters(resetFilters);
     setPendingDates({ from: getDefaultFrom(), to: getDefaultTo() });
     setSelectedCutoffId("all");
+    setMultiSelectEmployees(false);
   };
   const datesAreDirty = pendingDates.from !== filters.from || pendingDates.to !== filters.to;
   const applyDates = () => setFilters((prev) => ({ ...prev, from: pendingDates.from, to: pendingDates.to }));
@@ -1913,7 +1906,7 @@ export default function EmployeesPunchLogs() {
 
   const refreshAll = async () => {
     setRefreshing(true);
-    await Promise.all([bootstrap(), fetchTimelogs()]);
+    await Promise.all([bootstrap(), fetchTimelogs(), fetchPendingRequests()]);
     toast.message("Data refreshed");
     setRefreshing(false);
   };
@@ -2082,21 +2075,32 @@ export default function EmployeesPunchLogs() {
           <div className={`grid gap-3 grid-cols-1 sm:grid-cols-2 ${isDayCare ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
             {/* Employee */}
             <div className="space-y-1.5">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                <Users className="w-3.5 h-3.5" />Employee
-              </p>
+              <div className="flex items-center justify-between gap-2 h-4">
+                <p className="h-4 leading-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                  <Users className="w-3.5 h-3.5" />Employee
+                </p>
+                <label className="h-4 leading-4 flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
+                  <Checkbox
+                    checked={multiSelectEmployees}
+                    onCheckedChange={handleMultiSelectEmployeesChange}
+                    className="h-3.5 w-3.5"
+                  />
+                  Select multiple
+                </label>
+              </div>
               <MultiSelect
                 options={employees.map((e) => {
                   const name = `${e.profile?.firstName || ""} ${e.profile?.lastName || ""}`.trim();
                   return { value: e.id, label: name || e.email.split("@")[0] };
                 })}
                 selected={filters.employeeIds}
-                onChange={(v) => toggleListFilter("employeeIds", v)}
+                onChange={toggleEmployeeFilter}
                 allLabel="All employees"
                 width={0}
                 className="w-full"
                 searchable
                 sortable
+                singleSelect={!multiSelectEmployees}
               />
             </div>
 
@@ -2156,50 +2160,18 @@ export default function EmployeesPunchLogs() {
               <Calendar className="w-3.5 h-3.5" />Date Range
             </p>
             <div className="flex flex-wrap gap-2 items-center">
-              {(() => {
-                const selectableGroups = groupPeriodsByRange(
-                  cutoffPeriods.filter((p) => (p.periodStart?.slice(0, 10) ?? "") <= getDefaultTo())
-                );
-                if (!selectableGroups.length) return null;
-                const fmt = (iso) => {
-                  if (!iso) return "—";
-                  const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
-                  return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                };
-                return (
-                  <Select value={selectedCutoffId} onValueChange={handleCutoffSelect}>
-                    <SelectTrigger className="h-9 w-full sm:w-auto sm:min-w-[190px]">
-                      <SelectValue placeholder="Custom range" />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-60">
-                      <SelectItem value="all">Custom range</SelectItem>
-                      {selectableGroups.map((g) => (
-                        <SelectItem key={g.key} value={g.key}>
-                          {fmt(g.periodStart)} – {fmt(g.periodEnd)} ({groupStatus(g)}{g.periods.length > 1 ? `, ${g.periods.length} depts` : ""})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                );
-              })()}
-              <div className="flex items-center gap-1.5">
-                <span className="text-sm text-muted-foreground shrink-0">From</span>
-                <Input type="date" value={pendingDates.from} max={getDefaultTo()}
-                  onChange={(e) => { setPendingDates((prev) => ({ ...prev, from: e.target.value })); setSelectedCutoffId("all"); }}
-                  className="h-9 w-full sm:w-auto" />
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-sm text-muted-foreground shrink-0">To</span>
-                <Input type="date" value={pendingDates.to} max={getDefaultTo()}
-                  onChange={(e) => { setPendingDates((prev) => ({ ...prev, to: e.target.value })); setSelectedCutoffId("all"); }}
-                  className="h-9 w-full sm:w-auto" />
-              </div>
-              <Button size="sm" onClick={applyDates} className="bg-orange-500 hover:bg-orange-600 text-white">
-                Apply
-              </Button>
-              {datesAreDirty && (
-                <span className="text-xs text-orange-500 font-medium">Unsaved date range</span>
-              )}
+              <CutoffDateRangeFilter
+                cutoffPeriods={cutoffPeriods}
+                selectedCutoffId={selectedCutoffId}
+                onSelectCutoff={handleCutoffSelect}
+                from={pendingDates.from}
+                to={pendingDates.to}
+                onFromChange={(v) => { setPendingDates((prev) => ({ ...prev, from: v })); setSelectedCutoffId("all"); }}
+                onToChange={(v) => { setPendingDates((prev) => ({ ...prev, to: v })); setSelectedCutoffId("all"); }}
+                onApply={applyDates}
+                isDirty={datesAreDirty}
+                maxDate={getDefaultTo()}
+              />
               {anyFilterActive && (
                 <Button variant="outline" size="sm" onClick={clearAllFilters}
                   className="border-orange-500/30 text-orange-700 hover:bg-orange-500/10">
@@ -2235,9 +2207,6 @@ export default function EmployeesPunchLogs() {
                     <SelectItem value="REJECTED">Rejected</SelectItem>
                   </SelectContent>
                 </Select>
-                <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={(e) => { e.stopPropagation(); fetchPendingRequests(); }}>
-                  <RefreshCw className={`h-4 w-4 ${loadingRequests ? "animate-spin" : ""}`} />
-                </Button>
                 <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
                   {requestsExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                 </Button>

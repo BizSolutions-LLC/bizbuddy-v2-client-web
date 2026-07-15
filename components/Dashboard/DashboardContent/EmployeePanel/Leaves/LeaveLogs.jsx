@@ -44,6 +44,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import CutoffDateRangeFilter, { periodRangeKey } from "@/components/common/CutoffDateRangeFilter";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
@@ -135,6 +136,14 @@ export default function EmployeeLeaveRequests() {
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedRow, setSelectedRow] = useState(null);
 
+  // ── Date range filter ─────────────────────────────────────────────────────
+  const [cutoffPeriods,    setCutoffPeriods]    = useState([]);
+  const [selectedCutoffId, setSelectedCutoffId] = useState("all");
+  const [dateFrom,    setDateFrom]    = useState("");
+  const [dateTo,      setDateTo]      = useState("");
+  const [pendingFrom, setPendingFrom] = useState("");
+  const [pendingTo,   setPendingTo]   = useState("");
+
   // ── Form modal ────────────────────────────────────────────────────────────
   const [modalOpen,        setModalOpen]        = useState(false);
   const [policies,         setPolicies]         = useState([]);
@@ -189,18 +198,33 @@ export default function EmployeeLeaveRequests() {
     [affectedSchedules]
   );
 
+  // Date range filter, by leave period (startDate–endDate) — a request overlaps the
+  // selected range if its period intersects it at all, so a leave spanning across a
+  // cutoff boundary still shows up. Stats and status tabs derive from this filtered
+  // set (not the raw `leaves`) so the numbers stay consistent with whatever the table
+  // is actually showing.
+  const dateFilteredLeaves = useMemo(() => {
+    if (!dateFrom && !dateTo) return leaves;
+    return leaves.filter((r) => {
+      if (!r.startDate || !r.endDate) return false;
+      const s = r.startDate.slice(0, 10);
+      const e = r.endDate.slice(0, 10);
+      return (!dateTo || s <= dateTo) && (!dateFrom || e >= dateFrom);
+    });
+  }, [leaves, dateFrom, dateTo]);
+
   // ── Stats ─────────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
-    const total      = leaves.length;
-    const pending    = leaves.filter(r => r.status === "pending").length;
-    const pendingSec = leaves.filter(r => r.status === "pending_secondary").length;
-    const approved   = leaves.filter(r => r.status === "approved").length;
-    const rejected   = leaves.filter(r => r.status === "rejected").length;
-    const totalDays  = leaves
+    const total      = dateFilteredLeaves.length;
+    const pending    = dateFilteredLeaves.filter(r => r.status === "pending").length;
+    const pendingSec = dateFilteredLeaves.filter(r => r.status === "pending_secondary").length;
+    const approved   = dateFilteredLeaves.filter(r => r.status === "approved").length;
+    const rejected   = dateFilteredLeaves.filter(r => r.status === "rejected").length;
+    const totalDays  = dateFilteredLeaves
       .filter(r => r.status === "approved" && r.startDate && r.endDate)
       .reduce((s, r) => s + daysBetween(r.startDate, r.endDate), 0);
     return { total, pending, pendingSec, approved, rejected, totalDays };
-  }, [leaves]);
+  }, [dateFilteredLeaves]);
 
   const TABS = [
     { label: "All",           value: "all",               count: stats.total },
@@ -212,7 +236,7 @@ export default function EmployeeLeaveRequests() {
 
   // ── Table processing ──────────────────────────────────────────────────────
   const filtered = useMemo(() => {
-    let list = leaves;
+    let list = dateFilteredLeaves;
     if (activeTab !== "all") list = list.filter(r => r.status === activeTab);
     if (search) {
       const q = search.toLowerCase();
@@ -227,12 +251,12 @@ export default function EmployeeLeaveRequests() {
       const av = a[sortKey] ?? "", bv = b[sortKey] ?? "";
       return av > bv ? sortDir : av < bv ? -sortDir : 0;
     });
-  }, [leaves, activeTab, search, sortKey, sortDir]);
+  }, [dateFilteredLeaves, activeTab, search, sortKey, sortDir]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
   const paginated  = filtered.slice((currentPage - 1) * PER_PAGE, currentPage * PER_PAGE);
 
-  useEffect(() => { setCurrentPage(1); setSelectedRow(null); }, [activeTab, search]);
+  useEffect(() => { setCurrentPage(1); setSelectedRow(null); }, [activeTab, search, dateFrom, dateTo]);
 
   function toggleSort(key) {
     if (sortKey === key) setSortDir(d => d * -1);
@@ -265,6 +289,37 @@ export default function EmployeeLeaveRequests() {
       setLoading(false);
     }
   }, [token]);
+
+  // Company-wide cutoff periods feed the Date Range filter's quick-select-by-pay-period dropdown.
+  const fetchCutoffPeriods = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/api/cutoff-periods`, { headers: { Authorization: `Bearer ${token}` } });
+      const j   = await res.json();
+      if (res.ok) setCutoffPeriods((j.data || []).sort((a, b) => new Date(b.periodStart) - new Date(a.periodStart)));
+    } catch { /* silent */ }
+  }, [token]);
+
+  const handleCutoffSelect = (value) => {
+    setSelectedCutoffId(value);
+    if (value === "all") return;
+    const period = cutoffPeriods.find((p) => periodRangeKey(p) === value);
+    if (!period) return;
+    const from = period.periodStart.slice(0, 10);
+    const to   = period.periodEnd.slice(0, 10);
+    setPendingFrom(from);
+    setPendingTo(to);
+    setDateFrom(from);
+    setDateTo(to);
+  };
+
+  const anyDateFilterActive = !!dateFrom || !!dateTo;
+
+  const clearDateFilters = () => {
+    setSelectedCutoffId("all");
+    setDateFrom(""); setDateTo("");
+    setPendingFrom(""); setPendingTo("");
+  };
 
   // Single policies fetch — provides both form options AND balance cards
   const fetchPolicies = useCallback(async () => {
@@ -340,7 +395,7 @@ export default function EmployeeLeaveRequests() {
     return () => { if (scheduleTimerRef.current) clearTimeout(scheduleTimerRef.current); };
   }, [token, startDate, endDate]);
 
-  useEffect(() => { fetchLeaves(); fetchPolicies(); }, [fetchLeaves, fetchPolicies]);
+  useEffect(() => { fetchLeaves(); fetchPolicies(); fetchCutoffPeriods(); }, [fetchLeaves, fetchPolicies, fetchCutoffPeriods]);
 
   useEffect(() => {
     const h = () => fetchPolicies();
@@ -487,12 +542,41 @@ export default function EmployeeLeaveRequests() {
       <div style={BOX}>
 
         {/* Toolbar */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "0.5px solid #e5e5e5" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "0.5px solid #e5e5e5", flexWrap: "wrap", gap: 8 }}>
           <div style={{ fontSize: 14, fontWeight: 500, display: "flex", alignItems: "center", gap: 7 }}>
             <FileText size={15} color="#f97316" />
             Leave requests history
           </div>
-          <div style={{ fontSize: 12, color: "#888" }}>{paginated.length} shown</div>
+          <div style={{ fontSize: 12, color: "#888" }}>{dateFilteredLeaves.length} of {leaves.length}</div>
+        </div>
+
+        {/* Date range filter */}
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, padding: "10px 16px", borderBottom: "0.5px solid #e5e5e5" }}>
+          <CutoffDateRangeFilter
+            mode="picker"
+            size="compact"
+            cutoffPeriods={cutoffPeriods}
+            selectedCutoffId={selectedCutoffId}
+            onSelectCutoff={handleCutoffSelect}
+          />
+          <CutoffDateRangeFilter
+            mode="range"
+            size="compact"
+            from={pendingFrom}
+            to={pendingTo}
+            onFromChange={(v) => { setPendingFrom(v); setSelectedCutoffId("all"); }}
+            onToChange={(v) => { setPendingTo(v); setSelectedCutoffId("all"); }}
+            onApply={() => { setDateFrom(pendingFrom); setDateTo(pendingTo); }}
+            isDirty={pendingFrom !== dateFrom || pendingTo !== dateTo}
+          />
+          {anyDateFilterActive && (
+            <button
+              onClick={clearDateFilters}
+              style={{ fontSize: 11, color: "#f97316", fontWeight: 500, background: "none", border: "0.5px solid #f97316", borderRadius: 8, padding: "5px 10px", cursor: "pointer", fontFamily: "inherit" }}
+            >
+              Clear
+            </button>
+          )}
         </div>
 
         {/* Search */}

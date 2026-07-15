@@ -25,8 +25,8 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import CutoffDateRangeFilter, { periodRangeKey } from "@/components/common/CutoffDateRangeFilter";
 
 // ── V2 reason map ──────────────────────────────────────────────────────────────
 const REASON_MAP = {
@@ -186,6 +186,39 @@ export default function ContestTimeLogs() {
   const [pendingFrom, setPendingFrom] = useState("");
   const [pendingTo, setPendingTo] = useState("");
   const [selectedLogV2, setSelectedLogV2] = useState(null);
+  const [cutoffPeriods, setCutoffPeriods] = useState([]);
+  const [selectedCutoffId, setSelectedCutoffId] = useState("all");
+
+  // /api/employment-details/me embeds `cutoffPeriods` (employee's department + company-
+  // wide, newest first) alongside `data` — feeds the Date Range filter's quick-select
+  // dropdown in one call instead of a separate /api/cutoff-periods request.
+  const fetchEmployeeDetails = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/api/employment-details/me`, { headers: { Authorization: `Bearer ${token}` } });
+      const j = await res.json();
+      if (res.ok) {
+        setCutoffPeriods((j.cutoffPeriods || []).sort((a, b) => new Date(b.periodStart) - new Date(a.periodStart)));
+      }
+    } catch {}
+  }, [token, API_URL]);
+
+  useEffect(() => {
+    fetchEmployeeDetails();
+  }, [fetchEmployeeDetails]);
+
+  const handleCutoffSelect = (value) => {
+    setSelectedCutoffId(value);
+    if (value === "all") return;
+    const period = cutoffPeriods.find((p) => periodRangeKey(p) === value);
+    if (!period) return;
+    const from = period.periodStart.slice(0, 10);
+    const to   = period.periodEnd.slice(0, 10);
+    setPendingFrom(from);
+    setPendingTo(to);
+    setDateFrom(from);
+    setDateTo(to);
+  };
 
   const fetchContestLogs = useCallback(async () => {
     if (!token) return;
@@ -420,23 +453,33 @@ export default function ContestTimeLogs() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex flex-col gap-1 flex-[2] min-w-[200px]">
+            <div className="flex flex-col gap-1 flex-1 min-w-[190px]">
               <div className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                 <Calendar className="h-2.5 w-2.5" />Date range
               </div>
-              <div className="flex items-center gap-1.5">
-                <Input type="date" value={pendingFrom} onChange={(e) => setPendingFrom(e.target.value)} className="h-8 text-xs flex-1 rounded-lg" />
-                <span className="text-xs text-muted-foreground shrink-0">to</span>
-                <Input type="date" value={pendingTo} onChange={(e) => setPendingTo(e.target.value)} className="h-8 text-xs flex-1 rounded-lg" />
-              </div>
+              <CutoffDateRangeFilter
+                mode="picker"
+                cutoffPeriods={cutoffPeriods}
+                selectedCutoffId={selectedCutoffId}
+                onSelectCutoff={handleCutoffSelect}
+                size="compact"
+              />
             </div>
-            <Button
-              size="sm"
-              className="h-8 bg-orange-500 hover:bg-orange-600 text-white self-end rounded-lg"
-              onClick={() => { setDateFrom(pendingFrom); setDateTo(pendingTo); }}
-            >
-              Apply
-            </Button>
+            <div className="flex flex-col gap-1 flex-[2] min-w-[200px]">
+              <div className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                <Calendar className="h-2.5 w-2.5" />Custom range
+              </div>
+              <CutoffDateRangeFilter
+                mode="range"
+                from={pendingFrom}
+                to={pendingTo}
+                onFromChange={(v) => { setPendingFrom(v); setSelectedCutoffId("all"); }}
+                onToChange={(v) => { setPendingTo(v); setSelectedCutoffId("all"); }}
+                onApply={() => { setDateFrom(pendingFrom); setDateTo(pendingTo); }}
+                isDirty={pendingFrom !== dateFrom || pendingTo !== dateTo}
+                size="compact"
+              />
+            </div>
           </div>
         </div>
 

@@ -18,11 +18,13 @@ export default function MultiSelect({
   searchable = false,
   sortable = false,
   className = "",
+  singleSelect = false,
 }) {
   const allChecked = selected.includes("all") || selected.length === options.length;
   const triggerId = useId();
   const [search, setSearch] = useState("");
   const [sortDir, setSortDir] = useState("asc");
+  const [open, setOpen] = useState(false);
 
   let displayOptions = [...options];
 
@@ -39,18 +41,31 @@ export default function MultiSelect({
     );
   }
 
+  const handleSelect = (val) => {
+    onChange(val);
+    if (singleSelect) setOpen(false);
+  };
+
   const Row = ({ label, checked, onClick }) => (
     <div
       className="flex items-center gap-2 p-2 rounded-md hover:bg-muted cursor-pointer"
       onClick={onClick}
     >
-      <Checkbox checked={checked} className="h-4 w-4" />
+      {singleSelect ? (
+        <span
+          className={`h-4 w-4 shrink-0 rounded-full border border-primary flex items-center justify-center ${checked ? "bg-primary" : ""}`}
+        >
+          {checked && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+        </span>
+      ) : (
+        <Checkbox checked={checked} className="h-4 w-4" />
+      )}
       <span className="truncate text-sm">{label}</span>
     </div>
   );
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
           id={triggerId}
@@ -97,7 +112,7 @@ export default function MultiSelect({
           </div>
         )}
         {!search.trim() && (
-          <Row label={allLabel} checked={allChecked} onClick={() => onChange("all")} />
+          <Row label={allLabel} checked={allChecked} onClick={() => handleSelect("all")} />
         )}
         <div className="max-h-64 overflow-y-auto pr-1">
           {displayOptions.map((o) => (
@@ -105,7 +120,7 @@ export default function MultiSelect({
               key={o.value}
               label={o.label}
               checked={allChecked || selected.includes(o.value)}
-              onClick={() => onChange(o.value)}
+              onClick={() => handleSelect(o.value)}
             />
           ))}
           {searchable && search.trim() && displayOptions.length === 0 && (

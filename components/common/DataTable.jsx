@@ -46,6 +46,7 @@ const DataTable = ({
   onSelectionChange = () => {},
   sortable = true,
   selectable = false,
+  showFilterButton = true,
 }) => {
   const [search, setSearch] = useState("");
   const [pageSize, setPageSize] = useState(initialPageSize);
@@ -204,21 +205,23 @@ const DataTable = ({
               </TooltipProvider>
             )}
 
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowFilters(!showFilters)}
-              className="h-9 border-orange-200 text-orange-600 hover:bg-orange-50 hover:border-orange-300"
-            >
-              <Filter className="h-4 w-4 mr-2" />
-              Filters
-            </Button>
+            {showFilterButton && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowFilters(!showFilters)}
+                className="h-9 border-orange-200 text-orange-600 hover:bg-orange-50 hover:border-orange-300"
+              >
+                <Filter className="h-4 w-4 mr-2" />
+                Filters
+              </Button>
+            )}
           </div>
         </div>
       </div>
 
       {/* Advanced Filters */}
-      {showFilters && (
+      {showFilterButton && showFilters && (
         <motion.div
           initial={{ height: 0, opacity: 0 }}
           animate={{ height: "auto", opacity: 1 }}
