@@ -9,13 +9,11 @@ import {
   Filter,
   Check,
   X,
-  Eye,
   Calendar,
   User,
   FileText,
   CheckCircle,
   XCircle,
-  AlertCircle,
   ChevronDown,
   ChevronUp,
   Building,
@@ -35,6 +33,7 @@ import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from "@/comp
 import { fmtMMDDYYYY_hhmma } from "@/lib/dateTimeFormatter";
 import MultiSelect from "@/components/common/MultiSelect";
 import ColumnSelector from "@/components/common/ColumnSelector";
+import CutoffDateRangeFilter, { periodRangeKey } from "@/components/common/CutoffDateRangeFilter";
 
 export default function AdminContestRequests() {
   const { token, user } = useAuthStore();
@@ -53,20 +52,26 @@ export default function AdminContestRequests() {
     employees: ["all"],
     reasons: ["all"]
   });
+  const [cutoffPeriods, setCutoffPeriods] = useState([]);
+  const [selectedCutoffId, setSelectedCutoffId] = useState("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [pendingFrom, setPendingFrom] = useState("");
+  const [pendingTo, setPendingTo] = useState("");
 
-  // Modal states
-  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  // Modal / panel states — selectedRequest doubles as "is the detail side panel open"
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
 
+  // Original Punch Log / Requested Times used to be their own table columns, but
+  // showing both on every row made the table too cramped to scan. That comparison now
+  // lives in the "View Details" modal instead — the table stays to the essentials.
+  // Original punch / requested-times columns are always shown (not toggleable) since
+  // they're the point of this table; Actions moved into the row-click side panel below.
   const columnOptions = [
     { value: "employee", label: "Employee" },
-    { value: "punchLog", label: "Original Punch Log" },
-    { value: "correctTimes", label: "Requested Times" },
-    { value: "reason", label: "Reason" },
     { value: "status", label: "Status" },
     { value: "submittedAt", label: "Submitted At" },
-    { value: "actions", label: "Actions" }
   ];
 
   const [visibleCols, setVisibleCols] = useState(columnOptions.map(o => o.value));
@@ -129,6 +134,33 @@ export default function AdminContestRequests() {
     if (token) fetchContestRequests();
   }, [token, API]);
 
+  // Company-wide cutoff periods (no departmentId filter — this is an admin view across
+  // every department) feed the Date Range filter's quick-select-by-pay-period dropdown.
+  useEffect(() => {
+    if (!token) return;
+    const fetchCutoffPeriods = async () => {
+      try {
+        const res = await fetch(`${API}/api/cutoff-periods`, { headers: { Authorization: `Bearer ${token}` } });
+        const j = await res.json();
+        if (res.ok) setCutoffPeriods((j.data || []).sort((a, b) => new Date(b.periodStart) - new Date(a.periodStart)));
+      } catch { /* silent */ }
+    };
+    fetchCutoffPeriods();
+  }, [token, API]);
+
+  const handleCutoffSelect = (value) => {
+    setSelectedCutoffId(value);
+    if (value === "all") return;
+    const period = cutoffPeriods.find((p) => periodRangeKey(p) === value);
+    if (!period) return;
+    const from = period.periodStart.slice(0, 10);
+    const to   = period.periodEnd.slice(0, 10);
+    setPendingFrom(from);
+    setPendingTo(to);
+    setDateFrom(from);
+    setDateTo(to);
+  };
+
   const handleDelete = async (requestId) => {
   
     setActionLoading(true);
@@ -173,20 +205,28 @@ export default function AdminContestRequests() {
       return n;
     });
 
-  const clearFilters = () => setFilters({ status: ["all"], employees: ["all"], reasons: ["all"] });
+  const clearFilters = () => {
+    setFilters({ status: ["all"], employees: ["all"], reasons: ["all"] });
+    setSelectedCutoffId("all");
+    setDateFrom(""); setDateTo(""); setPendingFrom(""); setPendingTo("");
+  };
 
-  const anyFilterActive = 
-    !filters.status.includes("all") || 
-    !filters.employees.includes("all") || 
-    !filters.reasons.includes("all");
+  const anyFilterActive =
+    !filters.status.includes("all") ||
+    !filters.employees.includes("all") ||
+    !filters.reasons.includes("all") ||
+    !!dateFrom || !!dateTo;
 
   const filteredRequests = contestRequests.filter(request => {
+    const submittedDate = request.submittedAt ? request.submittedAt.slice(0, 10) : null;
     return (
       (filters.status.includes("all") || filters.status.includes(request.status)) &&
       (filters.employees.includes("all") || filters.employees.includes(request.employee.id)) &&
-      (filters.reasons.includes("all") || filters.reasons.some(reason => 
+      (filters.reasons.includes("all") || filters.reasons.some(reason =>
         request.reason.toLowerCase().includes(reason.toLowerCase())
-      ))
+      )) &&
+      (!dateFrom || (submittedDate && submittedDate >= dateFrom)) &&
+      (!dateTo   || (submittedDate && submittedDate <= dateTo))
     );
   }).sort((a, b) => {
     if (!sortConfig.key) return 0;
@@ -221,18 +261,14 @@ export default function AdminContestRequests() {
     return badges[status] || <Badge variant="outline">Unknown</Badge>;
   };
 
-  const getStatusIcon = (status) => {
-    const icons = {
-      pending: <AlertCircle className="h-4 w-4 text-yellow-500" />,
-      approved: <CheckCircle className="h-4 w-4 text-green-500" />,
-      rejected: <XCircle className="h-4 w-4 text-red-500" />
-    };
-    return icons[status] || <AlertCircle className="h-4 w-4" />;
-  };
-
-  const openDetails = (request) => {
-    setSelectedRequest(request);
-    setShowDetailsModal(true);
+  // Requested-time color follows the request's status (green once approved, orange
+  // while pending, red once denied) rather than whether the field differs from the
+  // original — the original column stays plain black, this is the one that needs to
+  // read as "what state is this correction in."
+  const requestedTimeColor = (status) => {
+    if (status === "approved") return "text-green-600 dark:text-green-400";
+    if (status === "rejected") return "text-red-600 dark:text-red-400";
+    return "text-orange-600 dark:text-orange-400";
   };
 
   const handleApproveReject = async (requestId, action) => {
@@ -273,7 +309,7 @@ export default function AdminContestRequests() {
       toast.success(
         `Contest request ${action === "approved" ? "approved" : "rejected"} successfully!`
       );
-      setShowDetailsModal(false);
+      setSelectedRequest(null);
     } catch (err) {
       console.error(`❌ Failed to ${action} request:`, err);
       toast.error(`Failed to ${action} contest request.`);
@@ -299,14 +335,32 @@ export default function AdminContestRequests() {
   ];
 
   const formatDateTime = (dateStr) => {
-    return new Date(dateStr).toLocaleString("en-US", {
+    if (!dateStr) return "—";
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return "—";
+    return d.toLocaleString("en-US", {
       month: "2-digit",
-      day: "2-digit", 
+      day: "2-digit",
       year: "numeric",
       hour: "2-digit",
       minute: "2-digit",
       hour12: true
     });
+  };
+
+  // Table time cells stack a time above its date on two lines — unlike formatDateTime,
+  // a missing/invalid value here is a real signal worth surfacing ("Invalid date" in
+  // red), not something to paper over with a dash, since a missing original clock-out
+  // is often exactly why the contest request exists.
+  const formatTimeOnly = (dateStr) => {
+    const d = new Date(dateStr);
+    if (!dateStr || isNaN(d.getTime())) return null;
+    return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
+  };
+  const formatDateOnly = (dateStr) => {
+    const d = new Date(dateStr);
+    if (!dateStr || isNaN(d.getTime())) return null;
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   };
 
   return (
@@ -422,6 +476,21 @@ export default function AdminContestRequests() {
                 allLabel="All Reasons"
                 width={180}
               />
+              <CutoffDateRangeFilter
+                mode="picker"
+                cutoffPeriods={cutoffPeriods}
+                selectedCutoffId={selectedCutoffId}
+                onSelectCutoff={handleCutoffSelect}
+              />
+              <CutoffDateRangeFilter
+                mode="range"
+                from={pendingFrom}
+                to={pendingTo}
+                onFromChange={(v) => { setPendingFrom(v); setSelectedCutoffId("all"); }}
+                onToChange={(v) => { setPendingTo(v); setSelectedCutoffId("all"); }}
+                onApply={() => { setDateFrom(pendingFrom); setDateTo(pendingTo); }}
+                isDirty={pendingFrom !== dateFrom || pendingTo !== dateTo}
+              />
               {anyFilterActive && (
                 <Button
                   variant="outline"
@@ -449,201 +518,115 @@ export default function AdminContestRequests() {
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  {columnOptions
-                    .filter((o) => o.value !== "actions" && visibleCols.includes(o.value))
-                    .map(({ value, label }) => (
-                      <TableHead key={value} className="text-center cursor-pointer" onClick={() => requestSort(value)}>
-                        <div className="flex items-center justify-center">
-                          {label}
-                          {sortConfig.key === value &&
-                            (sortConfig.direction === "ascending" ? (
-                              <ChevronUp className="h-4 w-4 ml-1" />
-                            ) : (
-                              <ChevronDown className="h-4 w-4 ml-1" />
-                            ))}
-                        </div>
-                      </TableHead>
-                    ))}
-                  {visibleCols.includes("actions") && <TableHead className="text-center">Actions</TableHead>}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  [...Array(3)].map((_, i) => (
-                    <TableRow key={i}>
-                      {visibleCols.map((c) => (
-                        <TableCell key={c}>
-                          <Skeleton className="h-6 w-full" />
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  ))
-                ) : filteredRequests.length > 0 ? (
-                  <AnimatePresence>
-                    {filteredRequests.map((request) => (
-                      <motion.tr
-                        key={request.id}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="border-b hover:bg-muted/50"
-                      >
-                        {visibleCols.includes("employee") && (
-                          <TableCell className="text-center text-xs">
-                            <div className="flex items-center justify-center gap-2">
-                              <User className="h-3 w-3" />
-                              <div>
-                                <div className="font-medium">{request.employee.name}</div>
-                                <div className="text-muted-foreground">{request.employee.email}</div>
-                              </div>
-                            </div>
-                          </TableCell>
-                        )}
-                        {visibleCols.includes("punchLog") && (
-                          <TableCell className="text-center text-xs min-w-[200px]">
-                            <div className="space-y-2">
-                              <div className="font-semibold text-muted-foreground text-[10px]">ORIGINAL</div>
-                              <div className="space-y-1">
-                                <div className="bg-green-50 border border-green-200 rounded px-2 py-1">
-                                  <div className="text-green-700 font-medium text-[10px]">CLOCK IN</div>
-                                  <div className="text-xs font-medium">
-                                    {formatDateTime(request.originalClockIn || request.currentClockIn)}
-                                  </div>
-                                </div>
-                                <div className="bg-red-50 border border-red-200 rounded px-2 py-1">
-                                  <div className="text-red-700 font-medium text-[10px]">CLOCK OUT</div>
-                                  <div className="text-xs font-medium">
-                                    {formatDateTime(request.originalClockOut || request.currentClockOut)}
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          </TableCell>
-                        )}
-                        {visibleCols.includes("correctTimes") && (
-                          <TableCell className="text-center text-xs min-w-[200px]">
-                            <div className="space-y-2">
-                              <div className="font-semibold text-muted-foreground text-[10px]">REQUESTED</div>
-                              <div className="space-y-1">
-                                <div className="bg-green-50 border border-green-200 rounded px-2 py-1">
-                                  <div className="text-green-700 font-medium text-[10px]">CLOCK IN</div>
-                                  <div className="text-xs font-medium">{formatDateTime(request.correctClockIn)}</div>
-                                </div>
-                                <div className="bg-red-50 border border-red-200 rounded px-2 py-1">
-                                  <div className="text-red-700 font-medium text-[10px]">CLOCK OUT</div>
-                                  <div className="text-xs font-medium">{formatDateTime(request.correctClockOut)}</div>
-                                </div>
-                              </div>
-                            </div>
-                          </TableCell>
-                        )}
-                        {visibleCols.includes("reason") && (
-                          <TableCell className="text-center text-xs">
-                            <Badge variant="outline" className="text-xs">
-                              {request.reason}
-                            </Badge>
-                          </TableCell>
-                        )}
-                        {visibleCols.includes("status") && (
-                          <TableCell className="text-center">
-                            <div className="flex items-center justify-center gap-2">
-                              {getStatusIcon(request.status)}
-                              {getStatusBadge(request.status)}
-                            </div>
-                          </TableCell>
-                        )}
-                        {visibleCols.includes("submittedAt") && (
-                          <TableCell className="text-center text-xs">
-                            {fmtMMDDYYYY_hhmma(request.submittedAt)}
-                          </TableCell>
-                        )}
-                        {visibleCols.includes("actions") && (
-                        <TableCell className="text-center">
-                          <div className="flex justify-center gap-2">
-                            <TooltipProvider delayDuration={300}>
-                              {/* 👁 View Button */}
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => openDetails(request)}
-                                    className="text-blue-500 hover:bg-blue-500/10"
-                                  >
-                                    <Eye className="h-4 w-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>View details</TooltipContent>
-                              </Tooltip>
-
-                              {/* ✅ Approve / ❌ Reject */}
-                              {request.status === "pending" && (
-                                <>
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => handleApproveReject(request.id, "approved")}
-                                        className="text-green-500 hover:bg-green-500/10"
-                                        disabled={actionLoading}
-                                      >
-                                        <Check className="h-4 w-4" />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>Approve request</TooltipContent>
-                                  </Tooltip>
-
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => handleApproveReject(request.id, "rejected")}
-                                        className="text-red-500 hover:bg-red-500/10"
-                                        disabled={actionLoading}
-                                      >
-                                        <X className="h-4 w-4" />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>Reject request</TooltipContent>
-                                  </Tooltip>
-                                </>
-                              )}
-
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => {
-                                      setDeleteTarget(request);
-                                      setShowDeleteModal(true);
-                                    }}
-                                    className="text-red-600 hover:bg-red-600/10"
-                                    disabled={actionLoading}
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Delete request</TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
+          <div className="rounded-md border overflow-hidden">
+            <div className="flex">
+              <div className={`${selectedRequest ? "flex-1 min-w-0" : "w-full"} overflow-x-auto transition-all duration-200`}>
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/50">
+                      {visibleCols.includes("employee") && (
+                        <TableHead className="font-semibold text-center cursor-pointer" onClick={() => requestSort("employee")}>
+                          <div className="flex items-center justify-center">
+                            Employee
+                            {sortConfig.key === "employee" && (sortConfig.direction === "ascending" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />)}
                           </div>
-                        </TableCell>
+                        </TableHead>
                       )}
-                      </motion.tr>
-                    ))}
-                  </AnimatePresence>
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={visibleCols.length} className="h-24 text-center">
-                      <div className="flex flex-col items-center justify-center text-muted-foreground">
-                        <FileText className="h-12 w-12 mb-4 text-orange-500/50" />
+                      <TableHead className="font-semibold">Original punch</TableHead>
+                      <TableHead className="font-semibold">Requested</TableHead>
+                      {visibleCols.includes("status") && <TableHead className="font-semibold text-center">Status</TableHead>}
+                      {visibleCols.includes("submittedAt") && (
+                        <TableHead className="font-semibold text-left cursor-pointer" onClick={() => requestSort("submittedAt")}>
+                          <div className="flex items-center justify-start">
+                            Submitted At
+                            {sortConfig.key === "submittedAt" && (sortConfig.direction === "ascending" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />)}
+                          </div>
+                        </TableHead>
+                      )}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {loading ? (
+                      [...Array(3)].map((_, i) => (
+                        <TableRow key={i}>
+                          {[...visibleCols, "punchLog", "correctTimes"].map((c) => (
+                            <TableCell key={c}>
+                              <Skeleton className="h-6 w-full" />
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))
+                    ) : filteredRequests.length > 0 ? (
+                      <AnimatePresence>
+                        {filteredRequests.map((request) => {
+                          const origIn  = request.originalClockIn  || request.currentClockIn;
+                          const origOut = request.originalClockOut || request.currentClockOut;
+                          const isSelected = selectedRequest?.id === request.id;
+                          const reqColor = requestedTimeColor(request.status);
+                          const TimeBlock = ({ label, value, colorClass = "" }) => {
+                            const time = formatTimeOnly(value);
+                            const date = formatDateOnly(value);
+                            return (
+                              <div>
+                                <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">{label}</div>
+                                {time ? (
+                                  <>
+                                    <div className={`text-sm font-semibold ${colorClass}`}>{time}</div>
+                                    <div className="text-[11px] text-muted-foreground">{date}</div>
+                                  </>
+                                ) : (
+                                  <div className="text-sm font-medium text-red-500">Invalid date</div>
+                                )}
+                              </div>
+                            );
+                          };
+                          return (
+                          <motion.tr
+                            key={request.id}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, height: 0 }}
+                            className={`cursor-pointer border-b transition-colors ${isSelected ? "bg-orange-50 dark:bg-orange-950/20 border-l-2 border-l-orange-500" : "hover:bg-muted/50"}`}
+                            onClick={() => setSelectedRequest(request)}
+                          >
+                            {visibleCols.includes("employee") && (
+                              <TableCell className="py-3 text-xs text-center align-middle">
+                                <div className="font-medium text-sm truncate max-w-[140px] mx-auto">{request.employee.name}</div>
+                              </TableCell>
+                            )}
+                            <TableCell className="py-3 text-xs align-top min-w-[110px]">
+                              <div className="space-y-2">
+                                <TimeBlock label="In" value={origIn} />
+                                <ChevronDown className="h-3 w-3 text-muted-foreground/40" />
+                                <TimeBlock label="Out" value={origOut} />
+                              </div>
+                            </TableCell>
+                            <TableCell className="py-3 text-xs align-top min-w-[110px]">
+                              <div className="space-y-2">
+                                <TimeBlock label="In" value={request.correctClockIn} colorClass={reqColor} />
+                                <ChevronDown className="h-3 w-3 text-muted-foreground/40" />
+                                <TimeBlock label="Out" value={request.correctClockOut} colorClass={reqColor} />
+                              </div>
+                            </TableCell>
+                            {visibleCols.includes("status") && (
+                              <TableCell className="py-3 text-center align-top" onClick={(e) => e.stopPropagation()}>
+                                {getStatusBadge(request.status)}
+                              </TableCell>
+                            )}
+                            {visibleCols.includes("submittedAt") && (
+                              <TableCell className="py-3 text-xs align-top whitespace-nowrap">
+                                {fmtMMDDYYYY_hhmma(request.submittedAt)}
+                              </TableCell>
+                            )}
+                          </motion.tr>
+                          );
+                        })}
+                      </AnimatePresence>
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={visibleCols.length + 2} className="h-24 text-center">
+                          <div className="flex flex-col items-center justify-center text-muted-foreground">
+                            <FileText className="h-12 w-12 mb-4 text-orange-500/50" />
                         <p className="text-sm">No contest requests found.</p>
                         {anyFilterActive && (
                           <Button 
@@ -660,6 +643,146 @@ export default function AdminContestRequests() {
                 )}
               </TableBody>
             </Table>
+              </div>
+
+              {/* ── Right: detail side panel ── */}
+              <AnimatePresence>
+                {selectedRequest && (() => {
+                  const origIn  = selectedRequest.originalClockIn  || selectedRequest.currentClockIn;
+                  const origOut = selectedRequest.originalClockOut || selectedRequest.currentClockOut;
+                  const reqColor = requestedTimeColor(selectedRequest.status);
+                  const hasNote = selectedRequest.detailedExplanation && selectedRequest.detailedExplanation !== "No description provided";
+                  return (
+                  <motion.div
+                    initial={{ width: 0, opacity: 0 }}
+                    animate={{ width: 320, opacity: 1 }}
+                    exit={{ width: 0, opacity: 0 }}
+                    transition={{ duration: 0.2, ease: "easeInOut" }}
+                    className="border-l bg-card flex-shrink-0 overflow-hidden"
+                  >
+                    <div className="w-80 h-full overflow-y-auto">
+                      {/* Panel header */}
+                      <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/30 sticky top-0 z-10">
+                        <span className="text-sm font-semibold truncate pr-2">{selectedRequest.employee.name}</span>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <TooltipProvider delayDuration={300}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-500 hover:bg-red-500/10"
+                                  onClick={() => { setDeleteTarget(selectedRequest); setShowDeleteModal(true); }}
+                                  disabled={actionLoading}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Delete request</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setSelectedRequest(null)}>
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="p-4 space-y-4">
+                        {/* Status */}
+                        <div>
+                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Status</p>
+                          {getStatusBadge(selectedRequest.status)}
+                        </div>
+
+                        <div className="border-t" />
+
+                        {/* Original punch */}
+                        <div>
+                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Original Punch</p>
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-muted-foreground">Clock in</span>
+                              <span className="font-medium">{formatTimeOnly(origIn) ? formatDateTime(origIn) : <span className="text-red-500">Invalid date</span>}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-muted-foreground">Clock out</span>
+                              <span className="font-medium">{formatTimeOnly(origOut) ? formatDateTime(origOut) : <span className="text-red-500">Invalid date</span>}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="border-t" />
+
+                        {/* Requested change */}
+                        <div>
+                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Requested Change</p>
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-muted-foreground">Clock in</span>
+                              <span className={`font-semibold ${reqColor}`}>{formatDateTime(selectedRequest.correctClockIn)}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-muted-foreground">Clock out</span>
+                              <span className={`font-semibold ${reqColor}`}>{formatDateTime(selectedRequest.correctClockOut)}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="border-t" />
+
+                        {/* Reason */}
+                        <div>
+                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Reason</p>
+                          <div className="bg-muted/50 rounded-lg px-3 py-2 text-sm">
+                            {selectedRequest.reason && selectedRequest.reason !== "N/A" ? selectedRequest.reason : <span className="italic text-muted-foreground">N/A</span>}
+                          </div>
+                          {hasNote && <p className="text-xs text-muted-foreground mt-2">{selectedRequest.detailedExplanation}</p>}
+                        </div>
+
+                        <div className="border-t" />
+
+                        {/* Submitted */}
+                        <div>
+                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Submitted</p>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">At</span>
+                            <span className="font-medium">{fmtMMDDYYYY_hhmma(selectedRequest.submittedAt)}</span>
+                          </div>
+                          {selectedRequest.approvedBy && (
+                            <div className="flex items-center justify-between text-sm mt-1.5">
+                              <span className="text-muted-foreground">Reviewed by</span>
+                              <span className="font-medium">{selectedRequest.approvedBy}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Actions — approve/reject moved here from the table row */}
+                        {selectedRequest.status === "pending" && (
+                          <>
+                            <div className="border-t" />
+                            <div className="flex gap-2 pt-1">
+                              <Button
+                                className="flex-1 bg-green-600 hover:bg-green-700 text-white" size="sm"
+                                onClick={() => handleApproveReject(selectedRequest.id, "approved")}
+                                disabled={actionLoading}
+                              >
+                                <Check className="h-4 w-4 mr-1.5" />Approve
+                              </Button>
+                              <Button
+                                variant="outline" className="flex-1 border-red-300 text-red-600 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-950/20" size="sm"
+                                onClick={() => handleApproveReject(selectedRequest.id, "rejected")}
+                                disabled={actionLoading}
+                              >
+                                <X className="h-4 w-4 mr-1.5" />Reject
+                              </Button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+                  );
+                })()}
+              </AnimatePresence>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -710,139 +833,6 @@ export default function AdminContestRequests() {
                 <Trash2 className="h-4 w-4 mr-2" />
               )}
               Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Details Modal */}
-      <Dialog open={showDetailsModal} onOpenChange={setShowDetailsModal}>
-        <DialogContent className="border-2 max-w-2xl">
-          <div className="h-1 w-full bg-blue-500 -mt-4 mb-4" />
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <div className="p-2 rounded-full bg-blue-200/20 text-blue-500">
-                <Eye className="h-5 w-5" />
-              </div>
-              Contest Request Details
-            </DialogTitle>
-            <DialogDescription>Review employee time contest request</DialogDescription>
-          </DialogHeader>
-          {selectedRequest && (
-            <div className="space-y-6 py-4 max-h-[70vh] overflow-y-auto pr-2">
-              {/* Employee Info */}
-              <div className="space-y-2">
-                <h3 className="text-sm font-medium text-muted-foreground">Employee Information</h3>
-                <div className="bg-muted/50 rounded-lg p-4">
-                  <div className="flex items-center gap-3">
-                    <User className="h-5 w-5 text-muted-foreground" />
-                    <div>
-                      <p className="font-medium">{selectedRequest.employee.name}</p>
-                      <p className="text-sm text-muted-foreground">{selectedRequest.employee.email}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Time Details */}
-              <div className="space-y-3">
-                <h3 className="text-sm font-medium text-muted-foreground">Time Information</h3>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Original Punch Log */}
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-4 space-y-2">
-                    <h4 className="font-medium text-red-800 mb-2">Original Punch Log</h4>
-                    <div className="space-y-2 text-sm">
-                      <div className="bg-white/70 border border-red-100 rounded px-2 py-1 flex justify-between items-center">
-                        <span className="text-red-700 font-semibold text-[11px]">CLOCK IN</span>
-                        <span className="font-mono">{formatDateTime(selectedRequest.originalClockIn || selectedRequest.currentClockIn)}</span>
-                      </div>
-                      <div className="bg-white/70 border border-red-100 rounded px-2 py-1 flex justify-between items-center">
-                        <span className="text-red-700 font-semibold text-[11px]">CLOCK OUT</span>
-                        <span className="font-mono">{formatDateTime(selectedRequest.originalClockOut || selectedRequest.currentClockOut)}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Requested Correction */}
-                  <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-2">
-                    <h4 className="font-medium text-green-800 mb-2">Requested Correction</h4>
-                    <div className="space-y-2 text-sm">
-                      <div className="bg-white/70 border border-green-100 rounded px-2 py-1 flex justify-between items-center">
-                        <span className="text-green-700 font-semibold text-[11px]">CLOCK IN</span>
-                        <span className="font-mono">{formatDateTime(selectedRequest.correctClockIn)}</span>
-                      </div>
-                      <div className="bg-white/70 border border-green-100 rounded px-2 py-1 flex justify-between items-center">
-                        <span className="text-green-700 font-semibold text-[11px]">CLOCK OUT</span>
-                        <span className="font-mono">{formatDateTime(selectedRequest.correctClockOut)}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {(selectedRequest.correctClockIn || selectedRequest.correctClockOut) && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-1">
-                    <p className="text-xs text-blue-700">
-                      The employee is requesting to adjust their recorded time from 
-                      <span className="font-semibold"> {formatDateTime(selectedRequest.originalClockIn)} – {formatDateTime(selectedRequest.originalClockOut)} </span>
-                      to 
-                      <span className="font-semibold"> {formatDateTime(selectedRequest.correctClockIn)} – {formatDateTime(selectedRequest.correctClockOut)}</span>.
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {/* Reason and Explanation */}
-              <div className="space-y-2">
-                <h3 className="text-sm font-medium text-muted-foreground">Reason & Explanation</h3>
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-sm font-medium">Reason</label>
-                    <Badge variant="outline" className="ml-2">{selectedRequest.reason}</Badge>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium">Detailed Explanation</label>
-                    <div className="mt-1 bg-muted/50 rounded-lg p-4">
-                      <p className="text-sm">{selectedRequest.detailedExplanation}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Status and Timestamps */}
-              <div className="space-y-2">
-                <h3 className="text-sm font-medium text-muted-foreground">Request Status</h3>
-                <div className="bg-muted/50 rounded-lg p-4 space-y-2">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">Status:</span>
-                    <div className="flex items-center gap-2">
-                      {getStatusIcon(selectedRequest.status)}
-                      {getStatusBadge(selectedRequest.status)}
-                    </div>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm font-medium">Submitted:</span>
-                    <span className="text-sm">{fmtMMDDYYYY_hhmma(selectedRequest.submittedAt)}</span>
-                  </div>
-                  {selectedRequest.approvedBy && (
-                    <>
-                      <div className="flex justify-between">
-                        <span className="text-sm font-medium">Request Approver:</span>
-                        <span className="text-sm">{selectedRequest.approvedBy}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm font-medium">Reviewed at:</span>
-                        <span className="text-sm">{fmtMMDDYYYY_hhmma(selectedRequest.approvedAt)}</span>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDetailsModal(false)} disabled={actionLoading}>
-              Close
             </Button>
           </DialogFooter>
         </DialogContent>

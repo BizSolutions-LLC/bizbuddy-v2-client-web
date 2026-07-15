@@ -56,6 +56,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import TableSkeleton from "@/components/common/TableSkeleton";
+import CutoffDateRangeFilter, { periodRangeKey } from "@/components/common/CutoffDateRangeFilter";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ContestDialog } from "./ContestDialog";
 import FormDialog from "@/components/common/FormDialog";
@@ -300,7 +301,16 @@ export default function PunchLogs() {
   const [cutoffOtThreshold,  setCutoffOtThreshold]  = useState(80);
   const [employeeDeptId,     setEmployeeDeptId]      = useState(null);
   const [employeeDeptName,   setEmployeeDeptName]    = useState(null);
-  const [activeCutoffPeriod, setActiveCutoffPeriod]  = useState(null);
+  const [cutoffPeriods,      setCutoffPeriods]       = useState([]);
+  const [selectedCutoffId,   setSelectedCutoffId]    = useState("all");
+
+  // Derived from cutoffPeriods (fetched alongside employment details) instead of its
+  // own /api/cutoff-periods?status=open round-trip — same data, one fewer request.
+  const activeCutoffPeriod = useMemo(() => {
+    if (otBasis !== "cutoff" || !employeeDeptId) return null;
+    const p = cutoffPeriods.find((cp) => cp.status === "open" && cp.departmentId === employeeDeptId);
+    return p ? { id: p.id, periodStart: p.periodStart, periodEnd: p.periodEnd } : null;
+  }, [cutoffPeriods, employeeDeptId, otBasis]);
 
   const [contestDialogOpen,         setContestDialogOpen]         = useState(false);
   const [contestLogId,              setContestLogId]              = useState("");
@@ -368,60 +378,64 @@ export default function PunchLogs() {
     }));
 
   // ── Fetch helpers ────────────────────────────────────────────────────────────
-  const fetchCompanySettings = useCallback(async () => {
-    try {
-      const r = await fetch(`${API_URL}/api/company-settings/`, { headers: { Authorization: `Bearer ${token}` } });
-      const j = await r.json();
-      if (r.ok) {
-        setDefaultHours(j.data?.defaultShiftHours ?? 8);
-        const raw = j.data?.minimumLunchMinutes;
-        setMinLunchMins(raw === null ? 0 : raw ?? 60);
-        if (j.data?.id) setCompanyId(j.data.id);
-        // ── OT configuration — all three bases ────────────────
-        setOtBasis(j.data?.otBasis ?? "daily");
-        setDailyOtThreshold(parseFloat(j.data?.dailyOtThresholdHours   ?? 8));
-        setWeeklyOtThreshold(parseFloat(j.data?.weeklyOtThresholdHours ?? 40));
-        setCutoffOtThreshold(parseFloat(j.data?.cutoffOtThresholdHours ?? 80));
-        // ── Timezone — reset date defaults once with correct tz ─
-        const tz = j.data?.timezone || j.data?.companyTimezone || "America/Los_Angeles";
-        setCompanyTimezone(tz);
-        if (!tzInitialized.current) {
-          tzInitialized.current = true;
-          const from = getDefaultFrom(tz);
-          const to   = getDefaultTo(tz);
-          setPendingDates({ from, to });
-          setQueryParams((p) => ({ ...p, from, to, page: 1 }));
-        }
-      }
-    } catch { setDefaultHours(8); setMinLunchMins(60); }
-  }, [API_URL, token]);
-
-  const fetchEmployeeDetails = useCallback(async () => {
+  // GET /api/punch-logs/bootstrap replaces 6 separate mount-time requests — company
+  // settings, employment details (+ cutoffPeriods, per BB-044), approvers, supervisors,
+  // locations, and pending requests — with one round-trip. usershifts and
+  // overtime/threshold-status stay as their own calls (see notes below); they're either
+  // synced to the active date-range filter or live/computed, not load-once.
+  const fetchBootstrap = useCallback(async () => {
     if (!token) return;
+    setLoadingRequests(true);
     try {
-      const res = await fetch(`${API_URL}/api/employment-details/me`, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(`${API_URL}/api/punch-logs/bootstrap`, { headers: { Authorization: `Bearer ${token}` } });
       const j = await res.json();
-      if (res.ok) {
-        const dept = j.data?.department;
-        setEmployeeDeptId(j.data?.departmentId || dept?.id || null);
-        setEmployeeDeptName(dept?.name || null);
-      }
-    } catch {}
-  }, [token, API_URL]);
+      if (!res.ok) return;
+      const d = j.data || {};
 
-  const fetchActiveCutoffPeriod = useCallback(async (deptId) => {
-    if (!deptId) return;
-    try {
-      const res = await fetch(`${API_URL}/api/cutoff-periods?departmentId=${deptId}&status=open`, { headers: { Authorization: `Bearer ${token}` } });
-      const j = await res.json();
-      if (res.ok && Array.isArray(j.data) && j.data.length > 0) {
-        const p = j.data[0];
-        setActiveCutoffPeriod({ id: p.id, periodStart: p.periodStart, periodEnd: p.periodEnd });
-      } else {
-        setActiveCutoffPeriod(null);
+      const cs = d.companySettings || {};
+      setDefaultHours(cs.defaultShiftHours ?? 8);
+      setMinLunchMins(cs.minimumLunchMinutes === null ? 0 : cs.minimumLunchMinutes ?? 60);
+      if (cs.id) setCompanyId(cs.id);
+      setOtBasis(cs.otBasis ?? "daily");
+      setDailyOtThreshold(parseFloat(cs.dailyOtThresholdHours   ?? 8));
+      setWeeklyOtThreshold(parseFloat(cs.weeklyOtThresholdHours ?? 40));
+      setCutoffOtThreshold(parseFloat(cs.cutoffOtThresholdHours ?? 80));
+      // ── Timezone — reset date defaults once with correct tz ─
+      const tz = cs.timezone || "America/Los_Angeles";
+      setCompanyTimezone(tz);
+      if (!tzInitialized.current) {
+        tzInitialized.current = true;
+        const from = getDefaultFrom(tz);
+        const to   = getDefaultTo(tz);
+        setPendingDates({ from, to });
+        setQueryParams((p) => ({ ...p, from, to, page: 1 }));
       }
-    } catch {}
-  }, [token, API_URL]);
+
+      const emp = d.employmentDetails || {};
+      setEmployeeDeptId(emp.departmentId || emp.department?.id || null);
+      setEmployeeDeptName(emp.department?.name || null);
+      setCutoffPeriods((d.cutoffPeriods || []).sort((a, b) => new Date(b.periodStart) - new Date(a.periodStart)));
+
+      setApprovers((d.approvers || []).filter((u) => ["admin", "superadmin"].includes((u.role || "").toLowerCase())));
+      setSupervisors((d.supervisors || []).map((s) => ({
+        id: s.id,
+        name: s.name,
+        department: s.jobTitle || s.role,
+        role: s.role,
+      })));
+
+      setLocList(d.locations || []);
+
+      const requests = d.pendingRequests || [];
+      setMyRequests(requests);
+      setRequestsExpanded(requests.some((r) => r.status === "PENDING"));
+    } catch {
+      setDefaultHours(8);
+      setMinLunchMins(60);
+    } finally {
+      setLoadingRequests(false);
+    }
+  }, [API_URL, token]);
 
   const fetchSmartDetectsOT = useCallback(async () => {
     if (!token) return;
@@ -475,6 +489,9 @@ export default function PunchLogs() {
     }
   }, [API_URL, token, otBasis, dailyOtThreshold, weeklyOtThreshold, cutoffOtThreshold, activeCutoffPeriod]);
 
+  // Kept standalone (not part of the bootstrap) for the one place that needs a
+  // targeted refresh of just this list — right after submitting a new punch-log
+  // request — without re-fetching company settings/approvers/locations/etc. again.
   const fetchMyRequests = useCallback(async () => {
     if (!token) return;
     setLoadingRequests(true);
@@ -520,24 +537,6 @@ export default function PunchLogs() {
     finally { setLoading(false); }
   }, [API_URL, token]);
 
-  const fetchApprovers = useCallback(async () => {
-    if (!token) return;
-    try {
-      const res = await fetch(`${API_URL}/api/leaves/approvers`, { headers: { Authorization: `Bearer ${token}` } });
-      const j = await res.json();
-      if (res.ok) setApprovers((j.data || []).filter((u) => ["admin", "superadmin"].includes((u.role || "").toLowerCase())));
-    } catch (err) { toast.message(err.message); }
-  }, [token, API_URL]);
-
-  const fetchLocations = useCallback(async () => {
-    if (!token) return;
-    try {
-      const res = await fetch(`${API_URL}/api/location/assigned`, { headers: { Authorization: `Bearer ${token}` } });
-      const j = await res.json();
-      if (res.ok && Array.isArray(j.data)) setLocList(j.data);
-    } catch {}
-  }, [token, API_URL]);
-
   const fetchUserShifts = useCallback(async () => {
     if (!token) return;
     try {
@@ -547,23 +546,6 @@ export default function PunchLogs() {
       const j = await res.json();
       if (res.ok && Array.isArray(j.data)) setUserShifts(j.data);
     } catch {}
-  }, [token, API_URL]);
-
-  const fetchSupervisors = useCallback(async () => {
-    if (!token) return;
-    try {
-      const res = await fetch(`${API_URL}/api/account/approver`, { headers: { Authorization: `Bearer ${token}` } });
-      const j = await res.json();
-      if (res.ok) {
-        setSupervisors((j.data || []).map((s) => ({
-          id: s.id,
-          name: s.name,
-          email: s.email,
-          department: s.jobTitle || s.role,
-          role: s.role,
-        })));
-      } else { setSupervisors([]); }
-    } catch { setSupervisors([]); }
   }, [token, API_URL]);
 
   const fetchThresholdStatus = useCallback(async () => {
@@ -577,21 +559,27 @@ export default function PunchLogs() {
 
   useEffect(() => {
     if (!token) return;
-    fetchCompanySettings();
-    fetchApprovers();
-    fetchLocations();
-    fetchSupervisors();
-    fetchMyRequests();
+    fetchBootstrap();
     fetchUserShifts();
-    fetchEmployeeDetails();
     fetchThresholdStatus();
-  }, [token, fetchApprovers, fetchCompanySettings, fetchLocations, fetchEmployeeDetails, fetchThresholdStatus]);
+  }, [token, fetchBootstrap, fetchUserShifts, fetchThresholdStatus]);
 
   // Re-fetch logs whenever queryParams changes (filter change, page change, etc.)
   useEffect(() => {
     if (!token) return;
     fetchLogs(queryParams);
   }, [token, queryParams, fetchLogs]);
+
+  const handleCutoffSelect = (value) => {
+    setSelectedCutoffId(value);
+    if (value === "all") return;
+    const period = cutoffPeriods.find((p) => periodRangeKey(p) === value);
+    if (!period) return;
+    const from = period.periodStart.slice(0, 10);
+    const to   = period.periodEnd.slice(0, 10);
+    setPendingDates({ from, to });
+    setQueryParams((p) => ({ ...p, from, to, page: 1 }));
+  };
 
   // ── logsWithSchedule — server-driven enrichment ───────────────────────────────
   const logsWithSchedule = useMemo(() => {
@@ -736,11 +724,6 @@ export default function PunchLogs() {
     return { type: otBasis, threshold, label, accumulatedHours, approvedHours, pendingHours, pct, window: { start: windowStart, end: windowEnd } };
   }, [logs, otBasis, dailyOtThreshold, weeklyOtThreshold, cutoffOtThreshold, activeCutoffPeriod]);
 
-  // ── Auto-fetch active cutoff period once otBasis + departmentId are known ────
-  useEffect(() => {
-    if (otBasis === "cutoff" && employeeDeptId) fetchActiveCutoffPeriod(employeeDeptId);
-  }, [otBasis, employeeDeptId, fetchActiveCutoffPeriod]);
-
   // ── FIX 3: getSortableValue — punchType sort covers all 4 values ──────────────
   const getSortableValue = (l, k) => {
     switch (k) {
@@ -829,9 +812,8 @@ export default function PunchLogs() {
 
   const refresh = () => {
     setRefreshing(true);
-    const promises = [fetchLogs(queryParams), fetchCompanySettings(), fetchLocations(), fetchEmployeeDetails()];
+    const promises = [fetchLogs(queryParams), fetchBootstrap()];
     if (viewMode === "smart") promises.push(fetchSmartDetectsOT());
-    if (otBasis === "cutoff" && employeeDeptId) promises.push(fetchActiveCutoffPeriod(employeeDeptId));
     Promise.all(promises).finally(() => setRefreshing(false));
   };
 
@@ -1243,23 +1225,35 @@ export default function PunchLogs() {
                 </Select>
               </div>
             )}
-            <div className="flex flex-col gap-1 flex-[2] min-w-[200px]">
+            <div className="flex flex-col gap-1 flex-1 min-w-[190px]">
               <div className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                 <Calendar className="h-2.5 w-2.5" />Date range
               </div>
-              <div className="flex items-center gap-1.5">
-                <Input type="date" value={pendingDates.from} onChange={(e) => setPendingDates((p) => ({ ...p, from: e.target.value }))} className="h-8 text-xs flex-1 rounded-lg" />
-                <span className="text-xs text-muted-foreground shrink-0">to</span>
-                <Input type="date" value={pendingDates.to} onChange={(e) => setPendingDates((p) => ({ ...p, to: e.target.value }))} className="h-8 text-xs flex-1 rounded-lg" />
-              </div>
+              <CutoffDateRangeFilter
+                mode="picker"
+                cutoffPeriods={cutoffPeriods}
+                selectedCutoffId={selectedCutoffId}
+                onSelectCutoff={handleCutoffSelect}
+                maxDate={getDefaultTo()}
+                size="compact"
+              />
             </div>
-            <Button
-              size="sm"
-              className="h-8 bg-orange-500 hover:bg-orange-600 text-white self-end rounded-lg"
-              onClick={() => setQueryParams((p) => ({ ...p, from: pendingDates.from, to: pendingDates.to, page: 1 }))}
-            >
-              Apply
-            </Button>
+            <div className="flex flex-col gap-1 flex-[2] min-w-[200px]">
+              <div className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                <Calendar className="h-2.5 w-2.5" />Custom range
+              </div>
+              <CutoffDateRangeFilter
+                mode="range"
+                from={pendingDates.from}
+                to={pendingDates.to}
+                onFromChange={(v) => { setPendingDates((p) => ({ ...p, from: v })); setSelectedCutoffId("all"); }}
+                onToChange={(v) => { setPendingDates((p) => ({ ...p, to: v })); setSelectedCutoffId("all"); }}
+                onApply={() => setQueryParams((p) => ({ ...p, from: pendingDates.from, to: pendingDates.to, page: 1 }))}
+                isDirty={pendingDates.from !== queryParams.from || pendingDates.to !== queryParams.to}
+                maxDate={getDefaultTo()}
+                size="compact"
+              />
+            </div>
           </div>
         </div>
 

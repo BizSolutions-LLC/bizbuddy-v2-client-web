@@ -37,6 +37,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import CutoffDateRangeFilter, { periodRangeKey } from "@/components/common/CutoffDateRangeFilter";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
@@ -188,6 +189,12 @@ export default function SupervisorLeaveRequests() {
   const [tableSortDir,   setTableSortDir]   = useState(-1);
   const [tablePage,      setTablePage]      = useState(1);
   const [tableActiveTab, setTableActiveTab] = useState("all");
+  const [tableDateFrom,    setTableDateFrom]    = useState("");
+  const [tableDateTo,      setTableDateTo]      = useState("");
+  const [tablePendingFrom, setTablePendingFrom] = useState("");
+  const [tablePendingTo,   setTablePendingTo]   = useState("");
+  const [cutoffPeriods,    setCutoffPeriods]    = useState([]);
+  const [selectedCutoffId, setSelectedCutoffId] = useState("all");
 
   const tableFiltered = useMemo(() => {
     let list = leaves;
@@ -200,14 +207,36 @@ export default function SupervisorLeaveRequests() {
         return name.toLowerCase().includes(q) || (r.leaveType ?? "").toLowerCase().includes(q) || (r.status ?? "").toLowerCase().includes(q);
       });
     }
+    if (tableDateFrom || tableDateTo) {
+      // Overlap check against the leave's own [startDate, endDate] span, not just its
+      // start — a multi-day leave that merely crosses into the selected range should
+      // still show up, not just ones that start inside it.
+      list = list.filter(r => {
+        if (!r.startDate) return false;
+        const s = r.startDate.slice(0, 10);
+        const e = (r.endDate || r.startDate).slice(0, 10);
+        return (!tableDateFrom || e >= tableDateFrom) && (!tableDateTo || s <= tableDateTo);
+      });
+    }
     return [...list].sort((a, b) => {
       const av = a[tableSortKey] ?? "", bv = b[tableSortKey] ?? "";
       return av > bv ? tableSortDir : av < bv ? -tableSortDir : 0;
     });
-  }, [leaves, tableActiveTab, tableSearch, tableSortKey, tableSortDir]);
+  }, [leaves, tableActiveTab, tableSearch, tableSortKey, tableSortDir, tableDateFrom, tableDateTo]);
 
   const tableTotalPages = Math.max(1, Math.ceil(tableFiltered.length / PER_PAGE));
   const tablePaginated  = tableFiltered.slice((tablePage - 1) * PER_PAGE, tablePage * PER_PAGE);
+
+  const anyTableFilterActive = !!tableSearch || tableActiveTab !== "all" || !!tableDateFrom || !!tableDateTo;
+
+  const clearTableFilters = () => {
+    setTableSearch("");
+    setTableActiveTab("all");
+    setTableDateFrom(""); setTableDateTo("");
+    setTablePendingFrom(""); setTablePendingTo("");
+    setSelectedCutoffId("all");
+    setTablePage(1);
+  };
 
   function toggleTableSort(key) {
     if (tableSortKey === key) setTableSortDir(d => d * -1);
@@ -377,6 +406,34 @@ export default function SupervisorLeaveRequests() {
     fetchApprovers();
   }, [fetchLeaves, fetchLeaveMatrix, fetchCompanySettings, fetchApprovers]);
 
+  // Company-wide cutoff periods (no departmentId filter — this is an admin view across
+  // every department) feed the Date Range filter's quick-select-by-pay-period dropdown.
+  useEffect(() => {
+    if (!token) return;
+    const fetchCutoffPeriods = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/cutoff-periods`, { headers: { Authorization: `Bearer ${token}` } });
+        const j = await res.json();
+        if (res.ok) setCutoffPeriods((j.data || []).sort((a, b) => new Date(b.periodStart) - new Date(a.periodStart)));
+      } catch { /* silent */ }
+    };
+    fetchCutoffPeriods();
+  }, [token]);
+
+  const handleCutoffSelect = (value) => {
+    setSelectedCutoffId(value);
+    if (value === "all") return;
+    const period = cutoffPeriods.find((p) => periodRangeKey(p) === value);
+    if (!period) return;
+    const from = period.periodStart.slice(0, 10);
+    const to   = period.periodEnd.slice(0, 10);
+    setTablePendingFrom(from);
+    setTablePendingTo(to);
+    setTableDateFrom(from);
+    setTableDateTo(to);
+    setTablePage(1);
+  };
+
   const goToToday = () => {
     setCalendarMonth(new Date(today.getFullYear(), today.getMonth(), 1));
     setSelectedDate(today);
@@ -495,9 +552,9 @@ export default function SupervisorLeaveRequests() {
               <div style={{ fontSize: 12, color: "#888" }}>{tablePaginated.length} of {tableFiltered.length}</div>
             </div>
 
-            {/* Search */}
-            <div style={{ padding: "10px 16px", borderBottom: "0.5px solid #e5e5e5" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, height: 32, border: "0.5px solid #d0d0d0", borderRadius: 8, padding: "0 10px", background: "#fff", maxWidth: 320 }}>
+            {/* Search + Date Range */}
+            <div style={{ padding: "10px 16px", borderBottom: "0.5px solid #e5e5e5", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, height: 32, border: "0.5px solid #d0d0d0", borderRadius: 8, padding: "0 10px", background: "#fff", maxWidth: 320, flex: "1 1 260px" }}>
                 <Search size={13} color="#bbb" />
                 <input
                   value={tableSearch}
@@ -511,6 +568,31 @@ export default function SupervisorLeaveRequests() {
                   </button>
                 )}
               </div>
+              <CutoffDateRangeFilter
+                mode="picker"
+                cutoffPeriods={cutoffPeriods}
+                selectedCutoffId={selectedCutoffId}
+                onSelectCutoff={handleCutoffSelect}
+                size="compact"
+              />
+              <CutoffDateRangeFilter
+                mode="range"
+                from={tablePendingFrom}
+                to={tablePendingTo}
+                onFromChange={(v) => { setTablePendingFrom(v); setSelectedCutoffId("all"); }}
+                onToChange={(v) => { setTablePendingTo(v); setSelectedCutoffId("all"); }}
+                onApply={() => { setTableDateFrom(tablePendingFrom); setTableDateTo(tablePendingTo); setTablePage(1); }}
+                isDirty={tablePendingFrom !== tableDateFrom || tablePendingTo !== tableDateTo}
+                size="compact"
+              />
+              {anyTableFilterActive && (
+                <button
+                  onClick={clearTableFilters}
+                  style={{ display: "flex", alignItems: "center", gap: 4, height: 32, border: "0.5px solid #f97316", borderRadius: 8, padding: "0 10px", background: "#fff7f0", color: "#f97316", fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}
+                >
+                  <X size={12} /> Clear
+                </button>
+              )}
             </div>
 
             {/* Tabs */}
