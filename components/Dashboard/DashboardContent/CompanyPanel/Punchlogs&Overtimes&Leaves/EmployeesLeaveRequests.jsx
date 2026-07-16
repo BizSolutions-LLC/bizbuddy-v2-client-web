@@ -15,13 +15,13 @@ import {
   Trash2,
   LayoutList,
   CalendarDays,
-  DollarSign,
-  CreditCard,
+  Download,
   Search,
   X,
   ArrowUpDown,
   ChevronUp,
   ChevronDown,
+  ChevronLeft,
   ChevronsLeft,
   ChevronsRight,
 } from "lucide-react";
@@ -38,6 +38,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import CutoffDateRangeFilter, { periodRangeKey } from "@/components/common/CutoffDateRangeFilter";
+import { normalizeLeaveMatrixRow, resolveLeavePayOutcome } from "@/lib/leaveBalanceUtils";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
@@ -92,21 +93,37 @@ const StatusBadge = ({ status }) => {
   );
 };
 
+// Detail-panel section label + label/value row — matches the employee-side
+// LeaveLogs.jsx panel's plain list presentation (no boxed cards).
+const DetailSectionLabel = ({ children }) => (
+  <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 mt-4 mb-2 first:mt-0">{children}</div>
+);
+const DetailRow = ({ label, value, valueClassName = "" }) => (
+  <div className="flex items-baseline justify-between gap-2 mb-1.5">
+    <span className="text-xs text-muted-foreground flex-shrink-0">{label}</span>
+    <span className={`text-xs font-medium text-right ${valueClassName}`}>{value}</span>
+  </div>
+);
+
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function SupervisorLeaveRequests() {
   const { token } = useAuthStore();
   const [leaves, setLeaves] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [generatingPdf, setGeneratingPdf] = useState(false);
 
   // Leave credits matrix
   const [leaveMatrix, setLeaveMatrix] = useState([]); // [{ email, balances: { [type]: { credits, used, available } } }]
-  const [leaveTypes, setLeaveTypes] = useState([]);
   const [matrixLoading, setMatrixLoading] = useState(false);
 
-  // Per-request balance fetched when approval dialog opens
-  const [actionBalance, setActionBalance] = useState([]); // [{ leaveType, balanceHours, usedHours }]
-  const [actionBalanceLoading, setActionBalanceLoading] = useState(false);
+  // Per-request paid/unpaid breakdown — GET /:id/preview, fetched when the approve/reject dialog opens
+  const [preview, setPreview] = useState(null); // { isPaid, availableBalance, paidHours, unpaidHours, days: [{date,hours,isPaid}] }
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  // Actual day-by-day paid/unpaid outcome — GET /:id/days, fetched when the detail dialog opens on a decided request
+  const [dayBreakdown, setDayBreakdown] = useState([]);
+  const [dayBreakdownLoading, setDayBreakdownLoading] = useState(false);
 
   const matrixByEmail = useMemo(() => {
     const map = {};
@@ -302,16 +319,7 @@ export default function SupervisorLeaveRequests() {
       if (!mRes.ok || !pRes.ok) return;
       const types = Array.isArray(pData.data) ? pData.data.map((p) => p.leaveType) : [];
       const rows  = Array.isArray(mData.data) ? mData.data : [];
-      setLeaveTypes(types);
-      setLeaveMatrix(rows.map((row) => {
-        const balances = {};
-        types.forEach((t) => {
-          const credits   = Number(row.balances?.[t]    || 0);
-          const used      = Number(row.usedBalances?.[t] || 0);
-          balances[t] = { credits, used, available: Math.max(credits - used, 0) };
-        });
-        return { ...row, balances };
-      }));
+      setLeaveMatrix(rows.map((row) => normalizeLeaveMatrixRow(row, types)));
     } catch (_) {
       // silently fail — credits are supplemental info
     } finally {
@@ -324,20 +332,35 @@ export default function SupervisorLeaveRequests() {
     setComment("");
     setRequireSecondApproval(false);
     setEscalateTo("");
-    setActionBalance([]);
+    setPreview(null);
   };
 
+  // GET /api/leaves/:id/preview — read-only, computes the day-by-day paid/unpaid
+  // split against current balance so the approver sees the real outcome before acting.
   useEffect(() => {
     if (!actionDialog.open || !actionDialog.request || !token) return;
-    const userId = actionDialog.request.requester?.id || actionDialog.request.User?.id;
-    if (!userId) return;
-    setActionBalanceLoading(true);
-    fetch(`${API_URL}/api/leaves/balances?userId=${userId}`, { headers: { Authorization: `Bearer ${token}` } })
+    setPreviewLoading(true);
+    fetch(`${API_URL}/api/leaves/${actionDialog.request.id}/preview`, { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => r.ok ? r.json() : Promise.reject())
-      .then((data) => setActionBalance(Array.isArray(data.data) ? data.data : []))
-      .catch(() => setActionBalance([]))
-      .finally(() => setActionBalanceLoading(false));
+      .then((data) => setPreview(data.data ?? null))
+      .catch(() => setPreview(null))
+      .finally(() => setPreviewLoading(false));
   }, [actionDialog.open, actionDialog.request, token]);
+
+  // GET /api/leaves/:id/days — post-decision actual outcome, shown in the detail dialog
+  useEffect(() => {
+    const status = detailDialog.request?.status;
+    if (!detailDialog.open || !detailDialog.request || !token || !["approved", "rejected"].includes(status)) {
+      setDayBreakdown([]);
+      return;
+    }
+    setDayBreakdownLoading(true);
+    fetch(`${API_URL}/api/leaves/${detailDialog.request.id}/days`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.ok ? r.json() : Promise.reject())
+      .then((data) => setDayBreakdown(Array.isArray(data.data) ? data.data : []))
+      .catch(() => setDayBreakdown([]))
+      .finally(() => setDayBreakdownLoading(false));
+  }, [detailDialog.open, detailDialog.request, token]);
 
   const handleAction = async () => {
     if (!actionDialog.request || !actionDialog.type) return;
@@ -355,7 +378,17 @@ export default function SupervisorLeaveRequests() {
       const data = await res.json();
       if (!res.ok) {
         closeActionDialog();
-        if (data.debug?.available !== undefined) {
+        if (res.status === 409) {
+          // Someone else in the eligible approver pool already acted — not an error,
+          // just stale state. Refresh so the list reflects the real outcome.
+          toast("Already handled", {
+            description: data.message || "This leave request was already actioned by someone else.",
+            icon: <AlertCircle className="h-5 w-5 text-blue-500" />,
+            duration: 6000,
+          });
+          fetchLeaves();
+          fetchLeaveMatrix();
+        } else if (data.debug?.available !== undefined) {
           toast("Insufficient Leave Balance", {
             description: `${employeeEmail} has ${data.debug.available}h available but needs ${data.debug.requested}h for ${data.debug.leaveType || "this leave"}.`,
             icon: <AlertCircle className="h-5 w-5 text-amber-500" />,
@@ -439,6 +472,224 @@ export default function SupervisorLeaveRequests() {
     setSelectedDate(today);
   };
 
+  // Generates a PDF of exactly what the table's current filters show (date
+  // range, tab, search) — not the full unfiltered company history.
+  const handleGeneratePdf = async () => {
+    if (tableFiltered.length === 0) {
+      toast.error("No leave requests to export for the current filters.");
+      return;
+    }
+    setGeneratingPdf(true);
+    try {
+      const { exportLeaveRequestsPDF } = await import("@/lib/exports/leaveRequests");
+      const dateRangeLabel = tableDateFrom || tableDateTo
+        ? `${tableDateFrom ? toLocalDate(tableDateFrom).toLocaleDateString() : "…"} - ${tableDateTo ? toLocalDate(tableDateTo).toLocaleDateString() : "…"}`
+        : "All dates";
+      // Attach each employee's current (most recent) balance for that specific
+      // leave type — the matrix is already fetched for the detail panel's
+      // Leave Credits section, just keyed by email here instead of one row.
+      const dataWithBalances = tableFiltered.map((l) => {
+        const req = l.requester || l.User;
+        const email = (req?.email || "").toLowerCase();
+        const bal = matrixByEmail[email]?.balances?.[l.leaveType];
+        return { ...l, currentBalance: bal?.available ?? null };
+      });
+      const result = await exportLeaveRequestsPDF({ data: dataWithBalances, dateRangeLabel });
+      if (result.success) toast.success(`Downloaded ${result.filename}`);
+    } catch (e) {
+      toast.error(e.message || "Failed to generate PDF");
+    } finally {
+      setGeneratingPdf(false);
+    }
+  };
+
+  // ── Request detail content — shared by the table-view side panel and the
+  // calendar-view modal, so the two surfaces can't drift out of sync ─────────
+  const renderLeaveDetailContent = (request) => {
+    const req = request.requester || request.User;
+    const fullName = req?.name || [req?.profile?.firstName, req?.profile?.lastName].filter(Boolean).join(" ") || [req?.firstName, req?.lastName].filter(Boolean).join(" ");
+    const primary = request.approver;
+    const secondary = request.secondApprover;
+    const email = (request.requester?.email || request.User?.email || "").toLowerCase();
+    const creditsRow = matrixByEmail[email];
+    const days = Math.floor((toLocalDate(request.endDate) - toLocalDate(request.startDate)) / 86400000) + 1;
+    const finalComment = request.escalatedBy ? request.secondaryApproverComments : request.approverComments;
+    const isApproved = request.status === "approved";
+    const isDecided = ["approved", "rejected"].includes(request.status);
+    const fmtDate = (d) => toLocalDate(d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+
+    return (
+      <div>
+        <div className="text-base font-bold">{request.leaveType}</div>
+        <div className="flex items-center gap-2 flex-wrap mt-2">
+          <StatusBadge status={request.status} />
+          {(() => {
+            const outcome = resolveLeavePayOutcome(request);
+            if (!outcome) return null;
+            const className = {
+              paid:    "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-0",
+              unpaid:  "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 border-0",
+              partial: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400 border-0",
+            }[outcome];
+            const label = { paid: "Paid Leave", unpaid: "Unpaid Leave", partial: "Partially Paid" }[outcome];
+            return <Badge variant="secondary" className={className}>{label}</Badge>;
+          })()}
+        </div>
+
+        <DetailSectionLabel>Leave Period</DetailSectionLabel>
+        <DetailRow label="From" value={fmtDate(request.startDate)} />
+        <DetailRow label="To" value={fmtDate(request.endDate)} />
+        <DetailRow label="Duration" value={`${days} day${days === 1 ? "" : "s"}`} valueClassName="text-orange-600 font-semibold" />
+
+        <DetailSectionLabel>Employee Information</DetailSectionLabel>
+        {fullName && <DetailRow label="Name" value={fullName} />}
+        <DetailRow label="Email" value={request.requester?.email || request.User?.email || "Unknown"} />
+        <DetailRow label="Department" value={request.requester?.department?.name || request.User?.department?.name || "Not specified"} />
+
+        {(primary || secondary) && (
+          <>
+            <DetailSectionLabel>Assigned Approver</DetailSectionLabel>
+            {primary && (
+              <>
+                <DetailRow label="Name" value={primary.name || primary.email || "—"} />
+                {primary.email && <DetailRow label="Email" value={primary.email} />}
+              </>
+            )}
+            {secondary && <DetailRow label="Secondary" value={secondary.name || secondary.email || "—"} />}
+          </>
+        )}
+
+        {/* Any eligible admin/dept supervisor can act, not just the assigned
+            approver above — these two show who actually escalated/decided. */}
+        {request.escalatedBy && (
+          <>
+            <DetailSectionLabel>Escalated By</DetailSectionLabel>
+            <DetailRow label="Name" value={request.escalatedBy.name || request.escalatedBy.email || "—"} />
+          </>
+        )}
+
+        {isDecided && (
+          <>
+            <DetailSectionLabel>Decided By</DetailSectionLabel>
+            <DetailRow label="Name" value={request.decidedBy?.name || request.decidedBy?.email || "Not recorded"} />
+          </>
+        )}
+
+        {(creditsRow || matrixLoading) && (
+          <>
+            <DetailSectionLabel>Leave Credits</DetailSectionLabel>
+            {creditsRow ? (() => {
+              const bal = creditsRow.balances?.[request.leaveType] || { credits: 0, used: 0, available: 0 };
+              return (
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">{request.leaveType}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted-foreground">{bal.credits}h total</span>
+                    <span className="text-amber-600">{bal.used}h used</span>
+                    <span className={`font-bold ${bal.available > 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
+                      {bal.available}h left
+                    </span>
+                  </div>
+                </div>
+              );
+            })() : (
+              <p className="text-xs text-muted-foreground">Loading credits...</p>
+            )}
+          </>
+        )}
+
+        {/* Actual day-by-day outcome — GET /:id/days, only meaningful once a decision has been made */}
+        {isDecided && (dayBreakdownLoading || dayBreakdown.length > 0) && (
+          <>
+            <DetailSectionLabel>Actual Day-by-Day Outcome</DetailSectionLabel>
+            {dayBreakdownLoading ? (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" /> Loading…
+              </div>
+            ) : (
+              <div className="border rounded-md overflow-hidden bg-white dark:bg-neutral-900">
+                <div className="max-h-40 overflow-y-auto divide-y divide-neutral-100 dark:divide-neutral-800">
+                  {dayBreakdown.map((d) => (
+                    <div key={d.date} className="flex items-center justify-between px-3 py-1.5 text-xs">
+                      <span>{toLocalDate(d.date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-muted-foreground">{d.hours}h</span>
+                        <Badge variant="outline" className={d.isPaid ? "text-green-700 border-green-300 bg-green-50" : "text-amber-700 border-amber-300 bg-amber-50"}>
+                          {d.isPaid ? "Paid" : "Unpaid"}
+                        </Badge>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        <DetailSectionLabel>Request Info</DetailSectionLabel>
+        <DetailRow label="Submitted" value={`${new Date(request.createdAt).toLocaleDateString()} ${new Date(request.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`} />
+        {request.leaveReason && (
+          <div className="mt-1.5">
+            <span className="text-xs text-muted-foreground">Reason</span>
+            <div className="bg-muted p-2 rounded-md text-xs mt-1">{request.leaveReason}</div>
+          </div>
+        )}
+
+        {/* approverComments holds either the direct decision's comment, or (if
+            escalated) the first reviewer's escalation note — secondaryApproverComments
+            only exists when a second reviewer made the final call. */}
+        {request.escalatedBy && request.approverComments && (
+          <div className="mt-3">
+            <span className="text-xs text-muted-foreground">Escalation Note</span>
+            <div className="p-2 rounded-md text-xs border bg-muted/40 border-border mt-1">
+              {request.approverComments}
+            </div>
+          </div>
+        )}
+
+        {finalComment && isDecided && (
+          <div className="mt-3">
+            <span className="text-xs text-muted-foreground">{isApproved ? "Approval" : "Rejection"} Comment</span>
+            <div className={`p-2 rounded-md text-xs border mt-1 ${
+              isApproved
+                ? "bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800"
+                : "bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800"
+            }`}>
+              {finalComment}
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between mt-4 pt-3 border-t border-border">
+          <span className="text-xs text-muted-foreground">Request ID</span>
+          <span className="font-mono text-xs">{request.id}</span>
+        </div>
+      </div>
+    );
+  };
+
+  // Approve/Reject actions — only rendered when the request is actionable by
+  // the current viewer (canAct, per _isEligibleApprover on the server).
+  const renderLeaveDetailActions = (request) => (
+    (request?.status === "pending" || request?.status === "pending_secondary") && request?.canAct === true ? (
+      <>
+        <Button
+          variant="outline"
+          onClick={() => { setDetailDialog({ open: false, request: null }); setActionDialog({ open: true, type: "reject", request }); }}
+          className="border-red-200 text-red-700 hover:bg-red-50 dark:border-red-800/50 dark:text-red-400 dark:hover:bg-red-900/20"
+        >
+          <XCircle className="mr-2 h-4 w-4" /> Reject
+        </Button>
+        <Button
+          onClick={() => { setDetailDialog({ open: false, request: null }); setActionDialog({ open: true, type: "approve", request }); }}
+          className="bg-green-500 hover:bg-green-600 text-white"
+        >
+          <CheckCircle2 className="mr-2 h-4 w-4" /> Approve
+        </Button>
+      </>
+    ) : null
+  );
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -456,7 +707,7 @@ export default function SupervisorLeaveRequests() {
           {/* View toggle */}
           <div className="flex items-center gap-1 p-1 bg-muted rounded-xl self-start sm:self-auto">
             <button
-              onClick={() => setViewMode("table")}
+              onClick={() => { setViewMode("table"); setDetailDialog({ open: false, request: null }); }}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-150 ${
                 viewMode === "table"
                   ? "bg-white dark:bg-neutral-800 shadow-sm text-foreground"
@@ -467,7 +718,7 @@ export default function SupervisorLeaveRequests() {
               Table
             </button>
             <button
-              onClick={() => setViewMode("calendar")}
+              onClick={() => { setViewMode("calendar"); setDetailDialog({ open: false, request: null }); }}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-150 ${
                 viewMode === "calendar"
                   ? "bg-white dark:bg-neutral-800 shadow-sm text-foreground"
@@ -549,7 +800,17 @@ export default function SupervisorLeaveRequests() {
                 <Calendar size={15} color="#f97316" />
                 Employee Leave Requests
               </div>
-              <div style={{ fontSize: 12, color: "#888" }}>{tablePaginated.length} of {tableFiltered.length}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 12, color: "#888" }}>{tablePaginated.length} of {tableFiltered.length}</span>
+                <button
+                  onClick={handleGeneratePdf}
+                  disabled={generatingPdf}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 500, color: "#f97316", background: "#fff7f0", border: "0.5px solid #f97316", borderRadius: 8, padding: "5px 10px", cursor: generatingPdf ? "default" : "pointer", opacity: generatingPdf ? 0.6 : 1, fontFamily: "inherit", whiteSpace: "nowrap" }}
+                >
+                  {generatingPdf ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                  {generatingPdf ? "Generating…" : "Generate PDF"}
+                </button>
+              </div>
             </div>
 
             {/* Search + Date Range */}
@@ -614,8 +875,9 @@ export default function SupervisorLeaveRequests() {
               })}
             </div>
 
+            <div className="flex">
             {/* Table */}
-            <div style={{ overflowX: "auto" }}>
+            <div style={{ overflowX: "auto", flex: 1, minWidth: 0 }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
@@ -623,8 +885,8 @@ export default function SupervisorLeaveRequests() {
                       { label: "Name",        key: null,         w: "auto", align: "left"  },
                       { label: "Date Range",  key: "startDate",  w: "1%",   align: "left"  },
                       { label: "Leave Type",  key: "leaveType",  w: "auto", align: "left"  },
+                      { label: "Pay Type",    key: null,         w: "1%",   align: "left"  },
                       { label: "Submitted",   key: "createdAt",  w: "1%",   align: "right" },
-                      { label: "",            key: null,         w: "1%",   align: "right" },
                     ].map((col, i) => (
                       <th
                         key={i}
@@ -639,7 +901,7 @@ export default function SupervisorLeaveRequests() {
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={4} style={{ padding: "48px 16px", textAlign: "center" }}>
+                      <td colSpan={5} style={{ padding: "48px 16px", textAlign: "center" }}>
                         <div style={{ display: "flex", justifyContent: "center" }}>
                           <Loader2 size={24} className="animate-spin" style={{ color: "#f97316" }} />
                         </div>
@@ -647,7 +909,7 @@ export default function SupervisorLeaveRequests() {
                     </tr>
                   ) : tablePaginated.length === 0 ? (
                     <tr>
-                      <td colSpan={4}>
+                      <td colSpan={5}>
                         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "48px 16px", gap: 8 }}>
                           <div style={{ width: 34, height: 34, borderRadius: "50%", background: "#f5f5f3", display: "flex", alignItems: "center", justifyContent: "center" }}>
                             <Search size={16} color="#bbb" />
@@ -663,17 +925,22 @@ export default function SupervisorLeaveRequests() {
                     const SIcon    = sCfg?.icon ?? Clock;
                     const sPillBg  = row.status === "approved" ? "#eaf3de" : row.status === "rejected" ? "#fcebeb" : row.status === "pending_secondary" ? "#EEEDFE" : row.status === "cancelled" ? "#f5f5f3" : "#faeeda";
                     const sPillClr = row.status === "approved" ? "#3b6d11" : row.status === "rejected" ? "#791f1f" : row.status === "pending_secondary" ? "#3C3489" : row.status === "cancelled" ? "#888" : "#633806";
+                    const isSelected = detailDialog.request?.id === row.id;
                     return (
-                      <tr key={row.id} style={{ borderBottom: "0.5px solid #e5e5e5" }}>
+                      <tr
+                        key={row.id}
+                        onClick={() => setDetailDialog({ open: true, request: row })}
+                        style={{ borderBottom: "0.5px solid #e5e5e5", cursor: "pointer", background: isSelected ? "#fff7f0" : undefined, borderLeft: isSelected ? "2px solid #f97316" : "2px solid transparent" }}
+                      >
                         <td style={{ padding: "10px 12px", verticalAlign: "middle" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                             <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#f5f5f3", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                               <User size={13} color="#888" />
                             </div>
-                            <div>
-                              <div style={{ fontSize: 13, fontWeight: 500 }}>{name}</div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <span style={{ fontSize: 13, fontWeight: 500 }}>{name}</span>
                               {sCfg && (
-                                <span style={{ fontSize: 10, display: "inline-flex", alignItems: "center", gap: 3, marginTop: 2, background: sPillBg, color: sPillClr, padding: "2px 7px", borderRadius: 20, fontWeight: 500 }}>
+                                <span style={{ fontSize: 10, display: "inline-flex", alignItems: "center", gap: 3, background: sPillBg, color: sPillClr, padding: "2px 7px", borderRadius: 20, fontWeight: 500 }}>
                                   <SIcon size={10} />
                                   {sCfg.label}
                                 </span>
@@ -686,7 +953,7 @@ export default function SupervisorLeaveRequests() {
                             const s    = toLocalDate(row.startDate);
                             const e    = toLocalDate(row.endDate);
                             const days = Math.floor((e - s) / 86400000) + 1;
-                            const fmt  = d => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                            const fmt  = d => d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
                             return (
                               <div>
                                 <div style={{ fontSize: 12, fontWeight: 500 }}>{fmt(s)} – {fmt(e)}</div>
@@ -703,24 +970,50 @@ export default function SupervisorLeaveRequests() {
                             <span style={{ fontSize: 13, fontWeight: 500 }}>{row.leaveType}</span>
                           </div>
                         </td>
+                        <td style={{ padding: "10px 12px", verticalAlign: "middle", whiteSpace: "nowrap" }}>
+                          {(() => {
+                            const outcome = resolveLeavePayOutcome(row);
+                            if (!outcome) return null;
+                            if (outcome === "partial") return <span style={{ background: "#f3e8ff", color: "#7c3aed", padding: "3px 8px", borderRadius: 20, fontSize: 11, fontWeight: 500 }}>Partially Paid</span>;
+                            if (outcome === "paid") return <span style={{ background: "#eaf3de", color: "#3b6d11", padding: "3px 8px", borderRadius: 20, fontSize: 11, fontWeight: 500 }}>Paid Leave</span>;
+                            return <span style={{ background: "#f5f5f3", color: "#888", padding: "3px 8px", borderRadius: 20, fontSize: 11, fontWeight: 500, border: "0.5px solid #d0d0d0" }}>Unpaid Leave</span>;
+                          })()}
+                        </td>
                         <td style={{ padding: "10px 12px", verticalAlign: "middle", textAlign: "right", whiteSpace: "nowrap" }}>
                           <span style={{ fontSize: 12, color: "#888" }}>
                             {row.createdAt ? new Date(row.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
                           </span>
-                        </td>
-                        <td style={{ padding: "10px 12px", verticalAlign: "middle", textAlign: "right" }}>
-                          <button
-                            onClick={() => setDetailDialog({ open: true, request: row })}
-                            style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 500, color: "#f97316", background: "#fff7f0", border: "0.5px solid #f97316", borderRadius: 8, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}
-                          >
-                            <Eye size={12} /> View
-                          </button>
                         </td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
+            </div>
+
+            {/* Request details side panel — mirrors the employee-side LeaveLogs.jsx
+                pattern: select a row, inspect/act in a panel, explicit dismiss. */}
+            {detailDialog.open && detailDialog.request && (
+              <div className="w-[300px] min-w-[300px] border-l border-border flex flex-col">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                  <span className="font-medium text-sm">Request details</span>
+                  <button
+                    onClick={() => setDetailDialog({ open: false, request: null })}
+                    className="text-muted-foreground hover:text-foreground p-0.5 rounded"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="p-4 flex-1 overflow-y-auto">
+                  {renderLeaveDetailContent(detailDialog.request)}
+                </div>
+                {renderLeaveDetailActions(detailDialog.request) && (
+                  <div className="border-t border-border p-3 flex gap-2">
+                    {renderLeaveDetailActions(detailDialog.request)}
+                  </div>
+                )}
+              </div>
+            )}
             </div>
 
             {/* Pagination */}
@@ -747,10 +1040,10 @@ export default function SupervisorLeaveRequests() {
 
         {/* ── Calendar View ── */}
         {viewMode === "calendar" && (
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
 
             {/* Calendar grid */}
-            <Card className="xl:col-span-2">
+            <Card className="lg:col-span-2">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -821,41 +1114,65 @@ export default function SupervisorLeaveRequests() {
               </CardContent>
             </Card>
 
-            {/* Selected date detail panel */}
-            <Card className="xl:col-span-1 xl:sticky xl:top-6">
+            {/* Selected date detail panel — swaps to the full leave detail in-place
+                when a leave is selected, instead of a modal (matches the table
+                view's inline-panel treatment; no separate column needed here since
+                this card already occupies the same space). */}
+            <Card className="lg:col-span-1 lg:sticky lg:top-6">
               <CardHeader className="pb-3 border-b">
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <CardTitle className="text-sm font-semibold">
-                      {selectedDate
-                        ? selectedDate.toLocaleDateString("default", { weekday: "long", month: "long", day: "numeric", year: "numeric" })
-                        : "Select a date"}
-                    </CardTitle>
-                    {selectedDateLeaves.length > 0 && (
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {selectedDateLeaves.length} leave{selectedDateLeaves.length > 1 ? "s" : ""} on this day
-                      </p>
-                    )}
+                {detailDialog.open && detailDialog.request ? (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setDetailDialog({ open: false, request: null })}
+                      className="text-muted-foreground hover:text-foreground p-0.5 rounded flex-shrink-0"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <CardTitle className="text-sm font-semibold">Request Details</CardTitle>
                   </div>
-                  {selectedDateLeaves.length > 0 && (
-                    <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap">
-                      {selectedDateLeaves.filter(l => l.status === "pending").length > 0 && (
-                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 font-semibold">
-                          {selectedDateLeaves.filter(l => l.status === "pending").length} pending
-                        </span>
-                      )}
-                      {selectedDateLeaves.filter(l => l.status === "pending_secondary").length > 0 && (
-                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 font-semibold">
-                          {selectedDateLeaves.filter(l => l.status === "pending_secondary").length} pending final
-                        </span>
+                ) : (
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <CardTitle className="text-sm font-semibold">
+                        {selectedDate
+                          ? selectedDate.toLocaleDateString("default", { weekday: "long", month: "long", day: "numeric", year: "numeric" })
+                          : "Select a date"}
+                      </CardTitle>
+                      {selectedDateLeaves.length > 0 && (
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {selectedDateLeaves.length} leave{selectedDateLeaves.length > 1 ? "s" : ""} on this day
+                        </p>
                       )}
                     </div>
-                  )}
-                </div>
+                    {selectedDateLeaves.length > 0 && (
+                      <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap">
+                        {selectedDateLeaves.filter(l => l.status === "pending").length > 0 && (
+                          <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 font-semibold">
+                            {selectedDateLeaves.filter(l => l.status === "pending").length} pending
+                          </span>
+                        )}
+                        {selectedDateLeaves.filter(l => l.status === "pending_secondary").length > 0 && (
+                          <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 font-semibold">
+                            {selectedDateLeaves.filter(l => l.status === "pending_secondary").length} pending final
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </CardHeader>
 
-              <CardContent className="p-0">
-                {selectedDateLeaves.length === 0 ? (
+              <CardContent className={detailDialog.open && detailDialog.request ? "p-4" : "p-0"}>
+                {detailDialog.open && detailDialog.request ? (
+                  <>
+                    {renderLeaveDetailContent(detailDialog.request)}
+                    {renderLeaveDetailActions(detailDialog.request) && (
+                      <div className="flex gap-2 mt-4 pt-4 border-t border-border">
+                        {renderLeaveDetailActions(detailDialog.request)}
+                      </div>
+                    )}
+                  </>
+                ) : selectedDateLeaves.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12 text-center px-4">
                     <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
                       <CalendarDays className="h-5 w-5 text-muted-foreground" />
@@ -952,225 +1269,6 @@ export default function SupervisorLeaveRequests() {
           </div>
         )}
 
-        {/* ── Detail Dialog ── */}
-        <Dialog open={detailDialog.open} onOpenChange={(open) => !open && setDetailDialog({ open: false, request: null })}>
-          <DialogContent className="sm:max-w-lg">
-            <div className="h-1 w-full bg-orange-500 -mt-6 mb-4" />
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <Calendar className="h-5 w-5 text-orange-600" />
-                Leave Request Details
-              </DialogTitle>
-            </DialogHeader>
-
-            {detailDialog.request && (
-              <div className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <StatusBadge status={detailDialog.request.status} />
-                    {detailDialog.request.isPaid !== undefined && (
-                      <Badge variant="secondary" className={detailDialog.request.isPaid
-                        ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-0"
-                        : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 border-0"
-                      }>
-                        <DollarSign className="h-3 w-3 mr-1" />
-                        {detailDialog.request.isPaid ? "Paid" : "Unpaid"}
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="text-right">
-                    <div className="text-lg font-bold">{detailDialog.request.leaveType}</div>
-                    <div className="text-sm text-muted-foreground">Leave Type</div>
-                  </div>
-                </div>
-
-                <div className="bg-muted/40 p-4 rounded-lg border border-border">
-                  <div className="flex items-center gap-2 mb-3">
-                    <User className="h-4 w-4 text-muted-foreground" />
-                    <div className="font-medium text-foreground">Employee Information</div>
-                  </div>
-                  <div className="grid grid-cols-1 gap-2 text-sm">
-                    {(() => {
-                      const req = detailDialog.request.requester || detailDialog.request.User;
-                      const fullName = req?.name || [req?.profile?.firstName, req?.profile?.lastName].filter(Boolean).join(" ") || [req?.firstName, req?.lastName].filter(Boolean).join(" ");
-                      return fullName ? (
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Name:</span>
-                          <span className="font-medium">{fullName}</span>
-                        </div>
-                      ) : null;
-                    })()}
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Email:</span>
-                      <span className="font-medium">{detailDialog.request.requester?.email || detailDialog.request.User?.email || "Unknown"}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Department:</span>
-                      <span className="font-medium">{detailDialog.request.requester?.department?.name || detailDialog.request.User?.department?.name || "Not specified"}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {(() => {
-                  const primary = detailDialog.request.approver;
-                  const secondary = detailDialog.request.secondApprover;
-                  if (!primary && !secondary) return null;
-                  return (
-                    <div className="bg-muted/40 p-4 rounded-lg border border-border">
-                      <div className="flex items-center gap-2 mb-3">
-                        <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-                        <div className="font-medium text-foreground">Approver</div>
-                      </div>
-                      <div className="grid grid-cols-1 gap-2 text-sm">
-                        {primary && (
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Primary:</span>
-                            <span className="font-medium">{primary.name || primary.email || "—"}</span>
-                          </div>
-                        )}
-                        {secondary && (
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Secondary:</span>
-                            <span className="font-medium">{secondary.name || secondary.email || "—"}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* Leave Credits */}
-                {(() => {
-                  const email = (detailDialog.request.requester?.email || detailDialog.request.User?.email || "").toLowerCase();
-                  const row   = matrixByEmail[email];
-                  if (!row && !matrixLoading) return null;
-                  return (
-                    <div className="bg-muted/40 p-4 rounded-lg border border-border">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                          <CreditCard className="h-4 w-4 text-muted-foreground" />
-                          <div className="font-medium text-foreground">Leave Credits</div>
-                        </div>
-                        {matrixLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
-                      </div>
-                      {row ? (
-                        <div className="space-y-2">
-                          {leaveTypes.map((type) => {
-                            const bal = row.balances?.[type] || { credits: 0, used: 0, available: 0 };
-                            const isRequested = type === detailDialog.request.leaveType;
-                            return (
-                              <div key={type} className={`flex items-center justify-between text-sm rounded px-2 py-1 ${isRequested ? "bg-orange-50 dark:bg-orange-900/20 font-semibold" : ""}`}>
-                                <span className={isRequested ? "text-orange-700 dark:text-orange-300" : "text-muted-foreground"}>
-                                  {isRequested && "▶ "}{type}
-                                </span>
-                                <div className="flex items-center gap-3 text-xs">
-                                  <span className="text-muted-foreground">{bal.credits}h total</span>
-                                  <span className="text-amber-600">{bal.used}h used</span>
-                                  <span className={`font-bold ${bal.available > 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
-                                    {bal.available}h left
-                                  </span>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-muted-foreground">Loading credits...</p>
-                      )}
-                    </div>
-                  );
-                })()}
-
-                <div className="bg-muted/40 p-4 rounded-lg border border-border">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Calendar className="h-4 w-4 text-muted-foreground" />
-                    <div className="font-medium text-foreground">Leave Period</div>
-                  </div>
-                  <div className="grid grid-cols-1 gap-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Start Date:</span>
-                      <span className="font-medium">{toLocalDate(detailDialog.request.startDate).toLocaleDateString()}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">End Date:</span>
-                      <span className="font-medium">{toLocalDate(detailDialog.request.endDate).toLocaleDateString()}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Duration:</span>
-                      <span className="font-medium text-orange-600">
-                        {(() => {
-                          const s = toLocalDate(detailDialog.request.startDate);
-                          const e = toLocalDate(detailDialog.request.endDate);
-                          const d = Math.floor((e - s) / 86400000) + 1;
-                          return `${d} day${d === 1 ? "" : "s"}`;
-                        })()}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <div className="text-sm text-muted-foreground">Request ID</div>
-                    <div className="font-mono text-xs">{detailDialog.request.id}</div>
-                  </div>
-                  <div>
-                    <div className="text-sm text-muted-foreground">Submitted</div>
-                    <div className="font-medium">
-                      {new Date(detailDialog.request.createdAt).toLocaleDateString()}{" "}
-                      {new Date(detailDialog.request.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                    </div>
-                  </div>
-                </div>
-
-                {detailDialog.request.leaveReason && (
-                  <div className="space-y-2">
-                    <div className="text-sm text-muted-foreground">Reason for Leave</div>
-                    <div className="bg-muted p-3 rounded-md text-sm">{detailDialog.request.leaveReason}</div>
-                  </div>
-                )}
-
-                {detailDialog.request.approverComments && (
-                  <div className="space-y-2">
-                    <div className="text-sm text-muted-foreground">
-                      {detailDialog.request.status === "approved" ? "Approval" : "Rejection"} Comments
-                    </div>
-                    <div className={`p-3 rounded-md text-sm border ${
-                      detailDialog.request.status === "approved"
-                        ? "bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800"
-                        : "bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800"
-                    }`}>
-                      {detailDialog.request.approverComments}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <DialogFooter>
-              {(detailDialog.request?.status === "pending" || detailDialog.request?.status === "pending_secondary") && detailDialog.request?.canAct === true ? (
-                <>
-                  <Button
-                    variant="outline"
-                    onClick={() => { setDetailDialog({ open: false, request: null }); setActionDialog({ open: true, type: "reject", request: detailDialog.request }); }}
-                    className="border-red-200 text-red-700 hover:bg-red-50 dark:border-red-800/50 dark:text-red-400 dark:hover:bg-red-900/20"
-                  >
-                    <XCircle className="mr-2 h-4 w-4" /> Reject
-                  </Button>
-                  <Button
-                    onClick={() => { setDetailDialog({ open: false, request: null }); setActionDialog({ open: true, type: "approve", request: detailDialog.request }); }}
-                    className="bg-green-500 hover:bg-green-600 text-white"
-                  >
-                    <CheckCircle2 className="mr-2 h-4 w-4" /> Approve
-                  </Button>
-                </>
-              ) : (
-                <Button onClick={() => setDetailDialog({ open: false, request: null })} className="bg-orange-500 hover:bg-orange-600 text-white">Close</Button>
-              )}
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
         {/* ── Approve/Reject Dialog ── */}
         <Dialog open={actionDialog.open} onOpenChange={(open) => !open && closeActionDialog()}>
           <DialogContent className="sm:max-w-md">
@@ -1186,108 +1284,82 @@ export default function SupervisorLeaveRequests() {
                 </div>
                 {actionDialog.type === "approve" ? "Approve" : "Reject"} Leave Request
               </DialogTitle>
+              {actionDialog.request?.status === "pending_secondary" && (
+                <DialogDescription className="text-amber-600 dark:text-amber-400 font-medium">
+                  This is the second and final approval for this request.
+                </DialogDescription>
+              )}
             </DialogHeader>
 
-            {actionDialog.request && (
-              <>
-                <div className={`p-4 rounded-md border ${
-                  actionDialog.type === "approve"
-                    ? "bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800"
-                    : "bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800"
-                }`}>
-                  <div className="text-sm space-y-1">
-                    <div><strong>Employee:</strong> {actionDialog.request.requester?.email || actionDialog.request.User?.email || "Unknown"}</div>
-                    <div><strong>Leave Type:</strong> {actionDialog.request.leaveType}</div>
-                  </div>
-                </div>
-
-                <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-md p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Clock className="h-4 w-4 text-orange-600" />
-                    <div className="font-semibold text-sm text-orange-700 dark:text-orange-300">Leave Period Details</div>
-                  </div>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Start:</span>
-                      <span className="font-medium">{toLocalDate(actionDialog.request.startDate).toLocaleDateString()}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">End:</span>
-                      <span className="font-medium">{toLocalDate(actionDialog.request.endDate).toLocaleDateString()}</span>
-                    </div>
-                    <div className="h-px bg-orange-200 dark:bg-orange-800 my-1" />
-                    {(() => {
-                      const s = toLocalDate(actionDialog.request.startDate);
-                      const e = toLocalDate(actionDialog.request.endDate);
-                      const d = Math.floor((e - s) / 86400000) + 1;
-                      return (
-                        <>
-                          <div className="flex justify-between"><span className="text-muted-foreground">Days:</span><span className="font-medium">{d}</span></div>
-                          <div className="flex justify-between"><span className="font-semibold text-orange-700 dark:text-orange-300">Total Hours:</span><span className="font-bold text-orange-600">{actionDialog.request.requestedHours ?? (d * 8)}h</span></div>
-                        </>
-                      );
-                    })()}
-                  </div>
-                </div>
-              </>
-            )}
-
-            {/* Credit balance for the requested leave type */}
             {actionDialog.request && (() => {
-              const type  = actionDialog.request.leaveType;
-              const entry = actionBalance.find((e) => e.leaveType === type);
-              if (!entry && !actionBalanceLoading) return null;
               const s = toLocalDate(actionDialog.request.startDate);
               const e = toLocalDate(actionDialog.request.endDate);
-              const days = Math.floor((e - s) / 86400000) + 1;
-              const requestedHours = actionDialog.request.requestedHours ?? (days * 8);
-              const used       = entry ? Number(entry.usedHours)    : 0;
-              const left       = entry ? Number(entry.balanceHours) : 0;
-              const total      = used + left;
-              const willExceed = entry && left < requestedHours;
+              const d = Math.floor((e - s) / 86400000) + 1;
               return (
-                <div className={`p-4 rounded-md border ${willExceed ? "bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800" : "bg-purple-50 border-purple-200 dark:bg-purple-900/20 dark:border-purple-800"}`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <CreditCard className={`h-4 w-4 ${willExceed ? "text-red-600" : "text-purple-600"}`} />
-                      <div className={`font-semibold text-sm ${willExceed ? "text-red-700 dark:text-red-300" : "text-purple-700 dark:text-purple-300"}`}>
-                        {type} Balance
-                      </div>
-                    </div>
-                    {actionBalanceLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
-                  </div>
-                  {entry ? (
-                    <div className="space-y-1.5 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Total Credits:</span>
-                        <span className="font-medium">{total}h</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Already Used:</span>
-                        <span className="font-medium text-amber-600">{used}h</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Available:</span>
-                        <span className={`font-bold ${left > 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>{left}h</span>
-                      </div>
-                      <div className="h-px bg-current opacity-10 my-1" />
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">This Request:</span>
-                        <span className="font-semibold">{requestedHours}h ({days}d)</span>
-                      </div>
-                      {willExceed && (
-                        <div className="flex items-center gap-1.5 text-red-600 dark:text-red-400 text-xs mt-1 font-medium">
-                          <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
-                          Exceeds available balance by {requestedHours - left}h
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">Loading credits...</p>
+                <div>
+                  <DetailSectionLabel>Employee</DetailSectionLabel>
+                  <DetailRow label="Name" value={actionDialog.request.requester?.name || actionDialog.request.User?.name || actionDialog.request.requester?.email || actionDialog.request.User?.email || "Unknown"} />
+                  <DetailRow label="Leave Type" value={actionDialog.request.leaveType} />
+
+                  {actionDialog.request.escalatedBy && (
+                    <>
+                      <DetailSectionLabel>Escalated By</DetailSectionLabel>
+                      <DetailRow label="Name" value={actionDialog.request.escalatedBy.name || actionDialog.request.escalatedBy.email || "—"} />
+                    </>
                   )}
+
+                  <DetailSectionLabel>Leave Period</DetailSectionLabel>
+                  <DetailRow label="From" value={s.toLocaleDateString()} />
+                  <DetailRow label="To" value={e.toLocaleDateString()} />
+                  <DetailRow label="Duration" value={`${d} day${d === 1 ? "" : "s"}`} valueClassName="text-orange-600 font-semibold" />
+                  <DetailRow label="Total Hours" value={`${actionDialog.request.requestedHours ?? (d * 8)}h`} valueClassName="text-orange-600 font-semibold" />
                 </div>
               );
             })()}
+
+            {/* Paid/unpaid breakdown — GET /:id/preview, the real outcome if approved now */}
+            {actionDialog.request && (
+              previewLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Computing paid/unpaid breakdown…
+                </div>
+              ) : !preview ? null : preview.isPaid === false ? (
+                <div>
+                  <DetailSectionLabel>Pay Outcome</DetailSectionLabel>
+                  <p className="text-xs text-muted-foreground">Unpaid by the employee's choice — no balance will be checked or deducted.</p>
+                </div>
+              ) : (
+                <div>
+                  <DetailSectionLabel>{actionDialog.request.leaveType} Balance</DetailSectionLabel>
+                  <DetailRow label="Available" value={`${preview.availableBalance ?? 0}h`} />
+                  <DetailRow label="Will Be Paid" value={`${preview.paidHours ?? 0}h`} valueClassName="text-green-600" />
+                  <DetailRow label="Auto-Unpaid" value={`${preview.unpaidHours ?? 0}h`} valueClassName={preview.unpaidHours > 0 ? "text-amber-600" : ""} />
+                  {preview.unpaidHours > 0 && (
+                    <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400 text-xs font-medium mt-1.5">
+                      <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                      Balance runs out partway through — {preview.unpaidHours}h of this request will fall back to unpaid.
+                    </div>
+                  )}
+                  {Array.isArray(preview.days) && preview.days.length > 0 && (
+                    <div className="border rounded-md overflow-hidden bg-white dark:bg-neutral-900 mt-2">
+                      <div className="max-h-40 overflow-y-auto divide-y divide-neutral-100 dark:divide-neutral-800">
+                        {preview.days.map((d) => (
+                          <div key={d.date} className="flex items-center justify-between px-3 py-1.5 text-xs">
+                            <span>{toLocalDate(d.date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-muted-foreground">{d.hours}h</span>
+                              <Badge variant="outline" className={d.isPaid ? "text-green-700 border-green-300 bg-green-50" : "text-amber-700 border-amber-300 bg-amber-50"}>
+                                {d.isPaid ? "Paid" : "Unpaid"}
+                              </Badge>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            )}
 
             <div className="space-y-2">
               <label className="text-sm font-medium">Comments <span className="text-muted-foreground">(optional)</span></label>
@@ -1299,21 +1371,25 @@ export default function SupervisorLeaveRequests() {
               />
             </div>
 
-            {actionDialog.type === "approve" && multiApprovalEnabled && (
-              <div className="space-y-3 border rounded-md p-3 bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
+            {/* Escalation is only valid from the first stage — the server's escalate
+                branch requires status === "pending". A request already at
+                "pending_secondary" has already been escalated once; offering it
+                again here would be a dead option the server silently ignores. */}
+            {actionDialog.type === "approve" && multiApprovalEnabled && actionDialog.request?.status === "pending" && (
+              <div className="space-y-3">
                 <div className="flex items-center gap-2">
                   <Checkbox
                     id="requireSecondApproval"
                     checked={requireSecondApproval}
                     onCheckedChange={(v) => { setRequireSecondApproval(!!v); if (!v) setEscalateTo(""); }}
                   />
-                  <label htmlFor="requireSecondApproval" className="text-sm font-medium text-blue-700 dark:text-blue-300 cursor-pointer">
+                  <label htmlFor="requireSecondApproval" className="text-sm font-medium cursor-pointer">
                     Require second approval
                   </label>
                 </div>
                 {requireSecondApproval && (
                   <Select value={escalateTo} onValueChange={setEscalateTo}>
-                    <SelectTrigger className="bg-white dark:bg-neutral-900">
+                    <SelectTrigger>
                       <SelectValue placeholder="Select second approver…" />
                     </SelectTrigger>
                     <SelectContent>

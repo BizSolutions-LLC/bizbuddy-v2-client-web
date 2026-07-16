@@ -112,6 +112,7 @@ const CompanyPanelItems = [
     children: [
       { id: "company/profile", label: "Profile" },
       { id: "company/configurations", label: "Configurations" },
+      { id: "company/leave-settings", label: "Leave" },
       { id: "company/notifications", label: "Notifications" },
       { id: "company/subscription", label: "Subscription", notifyKey: "subscription", variant: "dot" },
       { id: "company/deletion", label: "Deletion" },
@@ -599,8 +600,10 @@ export default function Sidebar({ isSidebarOpen, closeSidebar, onNavigateStart, 
           ? contest.value.data.filter((c) => c.status?.toLowerCase() === "pending").length : prev.contest,
         overtime: overtime.status === "fulfilled" && Array.isArray(overtime.value.data)
           ? overtime.value.data.filter((o) => o.status?.toLowerCase() === "pending").length : prev.overtime,
+        // Includes pending_secondary — the second-approval stage — so the badge
+        // matches what the leave-requests list actually shows a secondary approver.
         leave:    leaves.status   === "fulfilled" && Array.isArray(leaves.value.data)
-          ? leaves.value.data.filter((l) => l.status?.toLowerCase() === "pending").length : prev.leave,
+          ? leaves.value.data.filter((l) => ["pending", "pending_secondary"].includes(l.status?.toLowerCase())).length : prev.leave,
         deletion: deletion.status === "fulfilled" && Array.isArray(deletion.value.data)
           ? deletion.value.data.filter((r) => r.status?.toLowerCase() === "pending").length : prev.deletion,
         cutoff:   cutoff.status   === "fulfilled" && Array.isArray(cutoff.value.data)

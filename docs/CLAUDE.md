@@ -94,6 +94,7 @@ app/
 │   │   │   ├── profile/
 │   │   │   ├── subscription/
 │   │   │   ├── configurations/
+│   │   │   ├── leave-settings/
 │   │   │   └── deletion/
 │   │   ├── contest-requests/
 │   │   ├── cutoff-periods/[id]/review/
