@@ -905,10 +905,10 @@ const Payroll = () => {
         ></div>
         
           <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
-            <div className="sticky top-0 bg-gradient-to-r from-blue-600 to-blue-700 text-white px-6 py-4 rounded-t-xl flex-shrink-0">
-              <div className="flex items-center justify-between">
+            <div className="sticky top-0 bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 sm:px-6 py-4 rounded-t-xl flex-shrink-0">
+              <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
+                  <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center shrink-0">
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
@@ -931,7 +931,7 @@ const Payroll = () => {
               </div>
             </div>
 
-            <div className="bg-gray-50 px-6 py-4 border-b grid grid-cols-5 gap-4 flex-shrink-0">
+            <div className="bg-gray-50 px-4 sm:px-6 py-4 border-b grid grid-cols-2 sm:grid-cols-5 gap-4 flex-shrink-0">
               <div className="text-center">
                 <p className="text-xs text-gray-500 uppercase">Regular Hours</p>
                 <p className="text-lg font-bold text-green-600">{(empHours.regularHours || 0).toFixed(2)}</p>
@@ -958,7 +958,7 @@ const Payroll = () => {
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6">
               {hoursBreakdownLoading ? (
                 <div className="flex items-center justify-center py-12">
                   <div className="flex items-center gap-3">
@@ -1033,7 +1033,7 @@ const Payroll = () => {
                   </div>
 
                   {hoursBreakdownData.summary && (
-                    <div className="mt-6 grid grid-cols-3 gap-4">
+                    <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <div className="bg-green-50 rounded-lg p-4 border border-green-200">
                         <h4 className="text-xs font-semibold text-green-800 uppercase mb-2">Hours Summary</h4>
                         <div className="space-y-1 text-sm">
@@ -1101,7 +1101,7 @@ const Payroll = () => {
               )}
             </div>
 
-            <div className="bg-gray-100 px-6 py-3 rounded-b-xl flex justify-end flex-shrink-0">
+            <div className="bg-gray-100 px-4 sm:px-6 py-3 rounded-b-xl flex justify-end flex-shrink-0">
               <button
                 onClick={closeHoursBreakdown}
                 className="px-6 py-2 bg-gray-600 text-white font-medium rounded-lg hover:bg-gray-700 transition-colors"
@@ -1139,17 +1139,17 @@ const Payroll = () => {
           ></div>
         
           <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-gradient-to-r from-orange-500 to-orange-600 text-white px-6 py-4 rounded-t-xl">
-              <div className="flex items-center justify-between">
+            <div className="sticky top-0 bg-gradient-to-r from-orange-500 to-orange-600 text-white px-4 sm:px-6 py-4 rounded-t-xl">
+              <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
+                  <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center shrink-0">
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                     </svg>
                   </div>
                   <div>
                     <h3 className="text-xl font-bold">{employee.name}</h3>
-                    <div className="flex items-center gap-2 mt-1">
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
                       <span className="text-sm text-orange-100">{employee.position || 'No position'}</span>
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                         isSalary ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'
@@ -1170,7 +1170,7 @@ const Payroll = () => {
               </div>
             </div>
 
-            <div className="bg-gray-50 px-6 py-3 border-b grid grid-cols-4 gap-4">
+            <div className="bg-gray-50 px-4 sm:px-6 py-3 border-b grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div>
                 <label className="text-xs text-gray-500 uppercase tracking-wide">Pay Date</label>
                 <p className="text-sm font-semibold text-gray-900">{payDate}</p>
@@ -1189,7 +1189,7 @@ const Payroll = () => {
               </div>
             </div>
 
-            <div className="p-6 grid grid-cols-3 gap-6">
+            <div className="p-4 sm:p-6 grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
               {/* EARNINGS */}
               <div className="bg-green-50 rounded-lg p-4 border border-green-200">
                 <h4 className="text-sm font-bold text-green-800 uppercase tracking-wide mb-4 flex items-center gap-2">
@@ -1363,8 +1363,8 @@ const Payroll = () => {
             </div>
 
             {/* Footer: Net Pay Summary */}
-            <div className="bg-gray-900 text-white px-6 py-4 rounded-b-xl">
-              <div className="grid grid-cols-3 gap-4 items-center">
+            <div className="bg-gray-900 text-white px-4 sm:px-6 py-4 rounded-b-xl">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
                 <div className="text-center">
                   <p className="text-xs text-gray-400 uppercase">Gross Earnings</p>
                   <p className="text-lg font-bold text-green-400">{formatCurrency(calculated.grossEarnings)}</p>
@@ -1938,8 +1938,8 @@ const Payroll = () => {
               }`}
             >
               {/* Employee Header */}
-              <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 rounded-t-xl">
-                <div className="flex items-center justify-between">
+              <div className="px-4 sm:px-6 py-4 border-b border-gray-200 bg-gray-50 rounded-t-xl">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div className="flex items-center gap-4">
                     <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center">
                       <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1960,7 +1960,7 @@ const Payroll = () => {
                           </svg>
                         </button>
                       </div>
-                      <div className="flex items-center gap-2 mt-1">
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
                         <span className="text-sm text-gray-600">{employee.position || 'No position'}</span>
                         <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                           isSalary ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'
@@ -1983,7 +1983,7 @@ const Payroll = () => {
                       </div>
                     </div>
                   </div>
-                  <div className="text-right">
+                  <div className="text-left sm:text-right">
                     <p className="text-xs text-gray-500 uppercase">Check #</p>
                     <p className="text-sm font-bold text-gray-900">#{employeeCheckNumber}</p>
                   </div>
@@ -1991,7 +1991,7 @@ const Payroll = () => {
               </div>
 
               {/* Three Column Layout */}
-              <div className="p-6 grid grid-cols-3 gap-4">
+              <div className="p-4 sm:p-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
                 {/* EARNINGS */}
                 <div className="bg-green-50 rounded-lg p-4 border border-green-200">
                   <div className="flex items-center gap-2 mb-3">
@@ -2150,9 +2150,9 @@ const Payroll = () => {
               </div>
 
               {/* Footer: Net Pay */}
-              <div className="px-6 py-3 bg-gray-900 rounded-b-xl">
-                <div className="flex items-center justify-between text-white">
-                  <div className="flex items-center gap-6">
+              <div className="px-4 sm:px-6 py-3 bg-gray-900 rounded-b-xl">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-white">
+                  <div className="flex items-center gap-4 sm:gap-6">
                     <div>
                       <p className="text-xs text-gray-400">Gross</p>
                       <p className="text-sm font-bold text-green-400">{formatCurrency(calculated.grossEarnings)}</p>
@@ -2164,7 +2164,7 @@ const Payroll = () => {
                       </p>
                     </div>
                   </div>
-                  <div className="text-right">
+                  <div className="text-left sm:text-right">
                     <p className="text-xs text-gray-400 uppercase">Net Pay</p>
                     <p className={`text-2xl font-bold ${netAfterTax < 0 ? 'text-red-400' : 'text-white'}`}>
                       {formatCurrency(netAfterTax)}
@@ -2179,8 +2179,8 @@ const Payroll = () => {
 
         {/* Grand Totals Summary */}
         {hoursDataLoaded && (
-          <div className="bg-gradient-to-r from-gray-800 to-gray-900 rounded-xl shadow-lg p-6 text-white mt-6">
-            <div className="flex items-center gap-3 mb-4">
+          <div className="bg-gradient-to-r from-gray-800 to-gray-900 rounded-xl shadow-lg p-4 sm:p-6 text-white mt-6">
+            <div className="flex items-center gap-3 mb-4 flex-wrap">
               <svg className="w-6 h-6 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
               </svg>
@@ -2188,7 +2188,7 @@ const Payroll = () => {
               <span className="text-sm text-gray-400">({employees.length} employees)</span>
             </div>
             
-            <div className="grid grid-cols-4 gap-6">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-6">
               <div className="text-center">
                 <p className="text-xs text-gray-400 uppercase mb-1">Gross Earnings</p>
                 <p className="text-2xl font-bold text-green-400">{formatCurrency(grandTotalGross)}</p>
@@ -2253,7 +2253,7 @@ const Payroll = () => {
         <HoursBreakdownModal />
 
         {/* Data Status Notice */}
-        <div className="px-6 pt-4">
+        <div className="px-4 sm:px-6 pt-4">
           <div className={`border rounded-lg p-3 flex items-start gap-2 ${
             hoursDataLoaded 
               ? 'bg-green-50 border-green-200' 
@@ -2295,7 +2295,7 @@ const Payroll = () => {
           if (employeesWithoutPayRate.length === 0) return null;
           
           return (
-            <div className="px-6 pt-2">
+            <div className="px-4 sm:px-6 pt-2">
               <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-start gap-2">
                 <svg className="h-5 w-5 mt-0.5 flex-shrink-0 text-red-500" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
@@ -2318,12 +2318,12 @@ const Payroll = () => {
         })()}
 
         {/* Controls Section */}
-        <div className="p-6 bg-gradient-to-br from-gray-50 to-white border-b">
+        <div className="p-4 sm:p-6 bg-gradient-to-br from-gray-50 to-white border-b">
           <div className="max-w-7xl mx-auto">
             {/* Top Row: Period Controls */}
-            <div className="grid grid-cols-12 gap-4 mb-4">
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 mb-4">
               {/* Date Inputs - Compact 3-column */}
-              <div className="col-span-9 grid grid-cols-3 gap-3">
+              <div className="sm:col-span-9 grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">
                     Pay Date
@@ -2362,7 +2362,7 @@ const Payroll = () => {
               </div>
 
               {/* Check Number Input */}
-              <div className="col-span-3">
+              <div className="sm:col-span-3">
                 <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">
                   Check # Start
                 </label>
@@ -2384,7 +2384,7 @@ const Payroll = () => {
             </div>
 
             {/* Bottom Row: Actions */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               {/* Left: Status & Info */}
               <div className="flex items-center gap-3">
                 {hoursDataLoaded ? (
@@ -2403,7 +2403,7 @@ const Payroll = () => {
               </div>
 
               {/* Right: Action Buttons */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 {/* Auto-Detect */}
                 <button
                   onClick={() => {
@@ -2503,24 +2503,24 @@ const Payroll = () => {
         </div>
 
         {/* Payroll View - Card or List */}
-        <div className="p-6">
+        <div className="p-3 sm:p-6">
           {viewMode === 'card' ? renderModernPayrollCards() : renderListView()}
         </div>
 
         {/* Action Buttons */}
-        <div className="p-6 bg-gray-50 border-t flex justify-between items-center">
+        <div className="p-4 sm:p-6 bg-gray-50 border-t flex justify-between items-center">
 
-          <div className="flex gap-4">
+          <div className="flex flex-col sm:flex-row w-full sm:w-auto gap-3 sm:gap-4">
             <button
               onClick={handleReset}
-              className="px-8 py-3 bg-gray-600 text-white font-medium rounded-md hover:bg-gray-700 transition-colors duration-200"
+              className="w-full sm:w-auto px-8 py-3 bg-gray-600 text-white font-medium rounded-md hover:bg-gray-700 transition-colors duration-200"
             >
               RESET
             </button>
             <button
               onClick={handleSavePayroll}
               disabled={saving || !hoursDataLoaded}
-              className={`px-8 py-3 font-medium rounded-md transition-colors duration-200 ${
+              className={`w-full sm:w-auto px-8 py-3 font-medium rounded-md transition-colors duration-200 ${
                 saving || !hoursDataLoaded
                   ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                   : 'bg-orange-600 text-white hover:bg-orange-700'
@@ -2559,17 +2559,17 @@ const Payroll = () => {
   };
 
   return (
-    <div className="p-6 bg-gray-50 min-h-screen">
+    <div className="p-3 sm:p-6 bg-gray-50 min-h-screen">
       <div className="bg-white rounded-lg shadow-md">
         {/* Header with Tabs */}
         <div className="border-b">
-          <div className="px-6 pt-6">
-            <h1 className="text-2xl font-bold text-gray-800 mb-6">Payroll Management</h1>
+          <div className="px-4 sm:px-6 pt-4 sm:pt-6">
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-800 mb-4 sm:mb-6">Payroll Management</h1>
           </div>
 
           {/* Tab Navigation */}
-          <div className="bg-white rounded-t-lg border-b">
-          <nav className="flex space-x-1 px-6">
+          <div className="bg-white rounded-t-lg border-b overflow-x-auto">
+          <nav className="flex space-x-1 px-4 sm:px-6 w-max min-w-full">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
@@ -2580,7 +2580,7 @@ const Payroll = () => {
                   }
                 }}
                 className={`
-                  relative px-6 py-3 text-sm font-medium border-b-2 transition-colors
+                  relative px-4 sm:px-6 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap
                   ${activeTab === tab.id
                     ? 'text-orange-600 border-orange-600'
                     : 'text-gray-600 border-transparent hover:text-gray-800'

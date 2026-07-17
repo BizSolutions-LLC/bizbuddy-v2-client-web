@@ -707,27 +707,27 @@ export default function Punch() {
   return (
     <LocationGuard>
       <TooltipProvider delayDuration={300}>
-        <div className="max-w-5xl mx-auto p-4 lg:px-8 space-y-8">
+        <div className="max-w-5xl mx-auto px-3 py-4 sm:p-4 lg:px-8 space-y-6 sm:space-y-8">
           <Toaster position="top-center" />
 
           {/* Header */}
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 px-2"
+            className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 px-1 sm:px-2"
           >
             <div>
-              <h2 className="text-3xl md:text-4xl font-bold tracking-tight flex items-center gap-3">
-                <div className="p-2 rounded-2xl bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-lg">
-                  <Clock className="h-8 w-8" />
+              <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight flex items-center gap-2 sm:gap-3">
+                <div className="p-1.5 sm:p-2 rounded-2xl bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-lg">
+                  <Clock className="h-6 w-6 sm:h-8 sm:w-8" />
                 </div>
                 Punch
               </h2>
             </div>
-            <div className="hidden md:flex gap-3 items-center">
+            <div className="flex gap-2 sm:gap-3 items-center">
               <Button
                 variant="outline"
-                className="flex items-center gap-2 hover:bg-neutral-100 dark:hover:bg-black"
+                className="flex-1 sm:flex-initial flex items-center justify-center gap-2 hover:bg-neutral-100 dark:hover:bg-black"
                 asChild
               >
                 <Link href="/dashboard/employee/punch-logs">
@@ -753,7 +753,7 @@ export default function Punch() {
                   : "bg-gradient-to-r from-neutral-300 to-neutral-400 dark:from-neutral-600 dark:to-neutral-700"
               }`} />
 
-              <CardHeader className="pb-4">
+              <CardHeader className="p-4 sm:p-6 pb-4">
                 <CardTitle className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div className="flex items-center gap-3">
                     <motion.div
@@ -907,9 +907,9 @@ export default function Punch() {
                 </CardTitle>
               </CardHeader>
 
-              <CardContent className="space-y-8 pt-0">
-                <div className="flex items-center justify-between p-6 rounded-2xl bg-gradient-to-r from-orange-50 to-orange-100 dark:from-orange-950 dark:to-orange-900 border border-orange-200 dark:border-orange-800">
-                  <div className="flex items-center gap-4">
+              <CardContent className="p-4 sm:p-6 space-y-6 sm:space-y-8 pt-0">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 sm:p-6 rounded-2xl bg-gradient-to-r from-orange-50 to-orange-100 dark:from-orange-950 dark:to-orange-900 border border-orange-200 dark:border-orange-800">
+                  <div className="flex flex-wrap items-center gap-2 sm:gap-4">
                     <Badge className={`px-4 py-2 text-sm font-semibold ${
                       isTimedIn
                         ? "bg-orange-500 text-white shadow-md"
@@ -926,14 +926,14 @@ export default function Punch() {
                       key={elapsed}
                       initial={{ scale: 1.1 }}
                       animate={{ scale: 1 }}
-                      className="text-4xl font-mono font-bold text-orange-600 dark:text-orange-400"
+                      className="text-3xl sm:text-4xl font-mono font-bold text-orange-600 dark:text-orange-400 self-end sm:self-auto"
                     >
                       {fmt(elapsed)}
                     </motion.div>
                   )}
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
                   <Metric icon={<Timer className="h-6 w-6" />} label="Work Session" value={fmt(elapsed)} active={isTimedIn} />
                   <Metric
                     icon={<Coffee className="h-6 w-6" />}
@@ -975,7 +975,7 @@ export default function Punch() {
                 </AnimatePresence>
               </CardContent>
 
-              <CardFooter className="flex flex-col gap-6 pt-4 pb-8">
+              <CardFooter className="p-4 sm:p-6 flex flex-col gap-4 sm:gap-6 pt-4 pb-6 sm:pb-8">
                 {/* Location restriction banners */}
                 <AnimatePresence>
                   {locationStatus === "outside" && (
@@ -1137,16 +1137,16 @@ export default function Punch() {
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
             <Card className="border-2 shadow-lg bg-gradient-to-br from-white to-neutral-50 dark:from-neutral-900 dark:to-neutral-800">
               <div className="h-1 w-full bg-orange-500" />
-              <CardHeader className="pb-4">
-                <CardTitle className="text-xl font-semibold flex items-center gap-2">
+              <CardHeader className="p-4 sm:p-6 pb-4">
+                <CardTitle className="text-lg sm:text-xl font-semibold flex items-center gap-2">
                   <div className="p-2 rounded-xl bg-orange-500 text-white">
                     <Calendar className="h-5 w-5" />
                   </div>
                   Today's Summary
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <CardContent className="p-4 sm:p-6 pt-0">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
                   <SummaryItem label="Work Time"     value={fmt(elapsed)}                              icon={<Timer className="h-5 w-5" />}    color="blue"   />
                   <SummaryItem label="Coffee Breaks" value={`${coffeeCount}/2`}                        icon={<Coffee className="h-5 w-5" />}   color="orange" />
                   <SummaryItem label="Lunch Break"   value={lunchElapsed > 0 ? "Taken" : "Not Taken"} icon={<Sandwich className="h-5 w-5" />} color="orange" />
@@ -1161,7 +1161,7 @@ export default function Punch() {
           ════════════════════════════════════════════════════════════════════ */}
           <Dialog open={noScheduleModalOpen} onOpenChange={setNoScheduleModalOpen}>
             <DialogContent
-              className="sm:max-w-md border-2 bg-gradient-to-br from-white to-yellow-50 dark:from-neutral-900 dark:to-yellow-950"
+              className="w-[calc(100%-2rem)] sm:max-w-md rounded-2xl border-2 bg-gradient-to-br from-white to-yellow-50 dark:from-neutral-900 dark:to-yellow-950"
               onInteractOutside={(e) => e.preventDefault()}
             >
               <div className="h-2 w-full bg-yellow-500 -mt-6 mb-4 rounded-t-lg" />
@@ -1250,7 +1250,7 @@ export default function Punch() {
             }
           }}>
             <DialogContent
-              className="sm:max-w-md border-2 bg-gradient-to-br from-white to-orange-50 dark:from-neutral-900 dark:to-orange-950"
+              className="w-[calc(100%-2rem)] sm:max-w-md rounded-2xl border-2 bg-gradient-to-br from-white to-orange-50 dark:from-neutral-900 dark:to-orange-950"
               onInteractOutside={(e) => e.preventDefault()}
             >
               <div className="h-2 w-full bg-orange-500 -mt-6 mb-4 rounded-t-lg" />
@@ -1264,24 +1264,24 @@ export default function Punch() {
                 <DialogDescription>{punchTypeModalDesc}</DialogDescription>
               </DialogHeader>
 
-              <div className="grid grid-cols-2 gap-4 py-2">
+              <div className="grid grid-cols-2 gap-3 sm:gap-4 py-2">
                 {/* Regular option */}
                 <motion.button
                   whileHover={{ scale: 1.03 }}
                   whileTap={{ scale: 0.97 }}
                   onClick={() => setSelectedPunchType(PUNCH_TYPES.REGULAR)}
-                  className={`relative flex flex-col items-center justify-center gap-3 p-6 rounded-2xl border-2 transition-all cursor-pointer ${
+                  className={`relative flex flex-col items-center justify-center gap-2 sm:gap-3 p-4 sm:p-6 rounded-2xl border-2 transition-all cursor-pointer ${
                     selectedPunchType === PUNCH_TYPES.REGULAR
                       ? "border-purple-500 bg-purple-50 dark:bg-purple-950 shadow-md"
                       : "border-neutral-200 dark:border-neutral-700 hover:border-purple-300 hover:bg-purple-50/50 dark:hover:bg-purple-950/30"
                   }`}
                 >
-                  <div className={`p-3 rounded-xl ${
+                  <div className={`p-2 sm:p-3 rounded-xl ${
                     selectedPunchType === PUNCH_TYPES.REGULAR
                       ? "bg-purple-500 text-white"
                       : "bg-neutral-100 dark:bg-neutral-800 text-neutral-500"
                   }`}>
-                    <UserCheck className="h-7 w-7" />
+                    <UserCheck className="h-6 w-6 sm:h-7 sm:w-7" />
                   </div>
                   <div className="text-center">
                     <p className={`font-bold text-sm ${
@@ -1305,18 +1305,18 @@ export default function Punch() {
                   whileHover={{ scale: 1.03 }}
                   whileTap={{ scale: 0.97 }}
                   onClick={() => setSelectedPunchType(driverAidePunchType)}
-                  className={`relative flex flex-col items-center justify-center gap-3 p-6 rounded-2xl border-2 transition-all cursor-pointer ${
+                  className={`relative flex flex-col items-center justify-center gap-2 sm:gap-3 p-4 sm:p-6 rounded-2xl border-2 transition-all cursor-pointer ${
                     selectedPunchType === driverAidePunchType
                       ? "border-blue-500 bg-blue-50 dark:bg-blue-950 shadow-md"
                       : "border-neutral-200 dark:border-neutral-700 hover:border-blue-300 hover:bg-blue-50/50 dark:hover:bg-blue-950/30"
                   }`}
                 >
-                  <div className={`p-3 rounded-xl ${
+                  <div className={`p-2 sm:p-3 rounded-xl ${
                     selectedPunchType === driverAidePunchType
                       ? "bg-blue-500 text-white"
                       : "bg-neutral-100 dark:bg-neutral-800 text-neutral-500"
                   }`}>
-                    <Car className="h-7 w-7" />
+                    <Car className="h-6 w-6 sm:h-7 sm:w-7" />
                   </div>
                   <div className="text-center">
                     <p className={`font-bold text-sm ${
@@ -1366,7 +1366,7 @@ export default function Punch() {
               CONFIRMATION DIALOG
           ════════════════════════════════════════════════════════════════════ */}
           <Dialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
-            <DialogContent className="sm:max-w-md border-2 bg-gradient-to-br from-white to-orange-50 dark:from-neutral-900 dark:to-orange-950">
+            <DialogContent className="w-[calc(100%-2rem)] sm:max-w-md rounded-2xl border-2 bg-gradient-to-br from-white to-orange-50 dark:from-neutral-900 dark:to-orange-950">
               <div className="h-2 w-full bg-orange-500 -mt-6 mb-4 rounded-t-lg" />
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
@@ -1469,7 +1469,7 @@ function Metric({ icon, label, value, active, progress, progressLabel, disabled 
   return (
     <motion.div
       whileHover={{ scale: disabled ? 1 : 1.02 }}
-      className={`rounded-2xl border-2 p-6 transition-all shadow-lg ${disabled ? "opacity-60" : ""} ${
+      className={`rounded-2xl border-2 p-4 sm:p-6 transition-all shadow-lg ${disabled ? "opacity-60" : ""} ${
         active
           ? "bg-orange-500 text-white shadow-xl"
           : "bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-700 hover:shadow-xl"
@@ -1491,7 +1491,7 @@ function Metric({ icon, label, value, active, progress, progressLabel, disabled 
         {active && <Badge className="bg-white/20 text-white border-white/30 text-xs">Active</Badge>}
       </div>
 
-      <div className={`font-mono text-3xl font-bold text-center my-4 ${
+      <div className={`font-mono text-2xl sm:text-3xl font-bold text-center my-4 ${
         active ? "text-white" : "text-neutral-800 dark:text-neutral-200"
       }`}>
         {value}

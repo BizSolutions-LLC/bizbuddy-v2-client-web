@@ -261,7 +261,7 @@ const Reports = () => {
     
     if (!selectedReport.employees || selectedReport.employees.length === 0) {
       return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg p-6 shadow-xl">
             <p className="text-gray-600">No employee data available</p>
             <button
@@ -284,8 +284,8 @@ const Reports = () => {
         
         <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-6xl mx-4 my-8 max-h-[90vh] overflow-hidden flex flex-col">
           {/* Header */}
-          <div className="sticky top-0 bg-gradient-to-r from-orange-600 to-orange-700 text-white px-6 py-4 rounded-t-xl flex-shrink-0">
-            <div className="flex items-center justify-between">
+          <div className="sticky top-0 bg-gradient-to-r from-orange-600 to-orange-700 text-white px-4 sm:px-6 py-4 rounded-t-xl flex-shrink-0">
+            <div className="flex items-center justify-between gap-3">
               <div>
                 <h3 className="text-xl font-bold">Payroll Run Details</h3>
                 <p className="text-sm text-orange-100 mt-1">
@@ -307,7 +307,7 @@ const Reports = () => {
           </div>
   
           {/* Summary */}
-          <div className="bg-gray-50 px-6 py-4 border-b grid grid-cols-4 gap-4 flex-shrink-0">
+          <div className="bg-gray-50 px-4 sm:px-6 py-4 border-b grid grid-cols-2 sm:grid-cols-4 gap-4 flex-shrink-0">
             <div className="text-center">
               <p className="text-xs text-gray-500 uppercase">Employees</p>
               <p className="text-lg font-bold text-gray-900">{selectedReport.employeeCount}</p>
@@ -327,22 +327,22 @@ const Reports = () => {
           </div>
   
           {/* Employee List */}
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6">
             <h4 className="text-sm font-bold text-gray-700 uppercase mb-4">Employee Breakdown</h4>
             
             <div className="space-y-4">
               {selectedReport.employees.map((emp, index) => (
                 <div key={index} className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                  <div className="flex items-center justify-between mb-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center">
+                      <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center shrink-0">
                         <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                         </svg>
                       </div>
                       <div>
                         <h5 className="font-semibold text-gray-900">{emp.employeeName || 'Employee'}</h5>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-xs text-gray-500">{emp.position || 'No position'}</span>
                           <span className={`text-xs px-2 py-0.5 rounded ${
                             emp.payType === 'salary' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'
@@ -352,8 +352,8 @@ const Reports = () => {
                         </div>
                       </div>
                     </div>
-                    <div className="text-right flex items-center gap-3">
-                      <div>
+                    <div className="flex items-center justify-between sm:justify-end gap-3">
+                      <div className="text-right">
                         <p className="text-xs text-gray-500">Check #{emp.checkNumber}</p>
                         <p className="text-lg font-bold text-orange-600">{formatCurrency(emp.netPay || 0)}</p>
                       </div>
@@ -392,7 +392,7 @@ const Reports = () => {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-3 text-sm">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
                     <div className="bg-green-50 rounded p-2">
                       <p className="text-xs text-gray-600 mb-1">Gross Pay</p>
                       <p className="font-semibold text-green-700">{formatCurrency(emp.grossPay || 0)}</p>
@@ -412,7 +412,7 @@ const Reports = () => {
           </div>
   
           {/* Footer */}
-          <div className="bg-gray-100 px-6 py-3 rounded-b-xl flex justify-end flex-shrink-0">
+          <div className="bg-gray-100 px-4 sm:px-6 py-3 rounded-b-xl flex justify-end flex-shrink-0">
             <button
               onClick={() => setIsDetailModalOpen(false)}
               className="px-6 py-2 bg-gray-600 text-white font-medium rounded-lg hover:bg-gray-700 transition-colors"
@@ -436,7 +436,7 @@ const Reports = () => {
     <div>
       <PayrollDetailModal />
       {/* Filters Section */}
-      <div className="p-6 bg-gray-50 border-b">
+      <div className="p-4 sm:p-6 bg-gray-50 border-b">
         {/* Filters Row */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
           <div>
@@ -488,11 +488,11 @@ const Reports = () => {
         </div>
 
         {/* Action Buttons Row */}
-        <div className="flex justify-end gap-3">
+        <div className="flex flex-col sm:flex-row sm:justify-end gap-3">
           <button
             onClick={fetchPayrollReports}
             disabled={loading}
-            className="px-8 py-2.5 bg-orange-600 text-white font-semibold rounded-lg hover:bg-orange-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+            className="w-full sm:w-auto px-8 py-2.5 bg-orange-600 text-white font-semibold rounded-lg hover:bg-orange-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
           >
             {loading ? 'LOADING...' : 'VIEW'}
           </button>
@@ -500,7 +500,7 @@ const Reports = () => {
           <button
             onClick={exportToExcel}
             disabled={payrollReports.length === 0}
-            className="px-8 py-2.5 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+            className="w-full sm:w-auto px-8 py-2.5 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
           >
             EXPORT EXCEL
           </button>
@@ -509,7 +509,7 @@ const Reports = () => {
 
       {/* Reports List or Empty State */}
       {payrollReports.length === 0 && !loading ? (
-        <div className="p-12 text-center">
+        <div className="p-6 sm:p-12 text-center">
           <div className="max-w-md mx-auto">
             <div className="bg-orange-100 rounded-full w-24 h-24 flex items-center justify-center mx-auto mb-4">
               <svg className="w-12 h-12 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -521,9 +521,9 @@ const Reports = () => {
           </div>
         </div>
       ) : (
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           <div className="overflow-x-auto">
-            <table className="min-w-full bg-white border border-gray-300">
+            <table className="min-w-[700px] w-full bg-white border border-gray-300">
               <thead className="bg-gray-100">
                 <tr>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 border-b">Pay Date</th>
@@ -587,15 +587,15 @@ const Reports = () => {
     <Toaster position="top-center" richColors />
     <div>
       <div className="bg-gray-50 border-b">
-        <div className="px-6 pt-4">
-          <nav className="flex space-x-2">
+        <div className="px-4 sm:px-6 pt-4 overflow-x-auto">
+          <nav className="flex space-x-2 w-max">
             {reportTabs.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => tab.enabled && setActiveReportTab(tab.id)}
                 disabled={!tab.enabled}
                 className={`
-                  px-6 py-2 text-sm font-medium rounded-t-lg transition-colors
+                  px-6 py-2 text-sm font-medium rounded-t-lg transition-colors whitespace-nowrap
                   ${activeReportTab === tab.id
                     ? 'bg-orange-500 text-white'
                     : tab.enabled 
