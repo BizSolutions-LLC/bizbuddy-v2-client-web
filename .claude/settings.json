@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "defaultMode": "plan",
+    "deny": [
+      "Bash(git push*)"
+    ]
+  }
+}
