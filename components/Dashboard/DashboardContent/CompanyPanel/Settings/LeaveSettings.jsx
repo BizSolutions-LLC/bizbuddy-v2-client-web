@@ -177,9 +177,8 @@ function LeaveAccrualCard({ loading, draft, setDraft }) {
 }
 
 // ── Leave Approval Card ──────────────────────────────────────────────────────
-function LeaveApprovalCard({ loading, draft, setDraft, approvers, loadingApprovers }) {
-  const enabled     = draft?.multiApprovalEnabled ?? false;
-  const approverId  = draft?.secondaryApproverId  ?? "";
+function LeaveApprovalCard({ loading, draft, setDraft }) {
+  const enabled = draft?.multiApprovalEnabled ?? false;
 
   return (
     <Card className="border-[1.5px] shadow-md overflow-hidden">
@@ -203,7 +202,7 @@ function LeaveApprovalCard({ loading, draft, setDraft, approvers, loadingApprove
               <div>
                 <p className="text-sm font-semibold">Enable Two-Step Leave Approval</p>
                 <p className="text-xs text-neutral-500 mt-0.5">
-                  When enabled, leave requests are approved by the employee's selected supervisor first, then by a company-wide final approver.
+                  When enabled, leave requests are approved by the employee's selected supervisor first, then escalated to an eligible admin or the employee's department supervisor, chosen at the time of escalation.
                 </p>
               </div>
               <button
@@ -219,51 +218,6 @@ function LeaveApprovalCard({ loading, draft, setDraft, approvers, loadingApprove
               </button>
             </div>
 
-            {/* Final approver picker — only shown when enabled */}
-            {enabled && (
-              <div className="space-y-1.5 max-w-sm">
-                <Label className="text-sm font-semibold flex items-center gap-1.5">
-                  <User className="w-3.5 h-3.5 text-orange-500" />
-                  Final Approver <span className="text-orange-500">*</span>
-                </Label>
-                <Select
-                  value={approverId ? String(approverId) : ""}
-                  onValueChange={(v) => setDraft((o) => ({ ...o, secondaryApproverId: v }))}
-                  disabled={loadingApprovers}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder={loadingApprovers ? "Loading..." : "Select final approver"} />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-60">
-                    {loadingApprovers ? (
-                      <div className="flex items-center justify-center py-4 gap-2 text-sm text-neutral-400">
-                        <Loader2 className="h-4 w-4 animate-spin" /> Loading...
-                      </div>
-                    ) : approvers.length === 0 ? (
-                      <div className="text-sm text-neutral-400 py-4 text-center">No approvers available</div>
-                    ) : (
-                      approvers.map((a) => (
-                        <SelectItem key={a.id} value={String(a.id)}>
-                          <div className="flex items-center gap-2">
-                            <span>{a.email || a.username}</span>
-                            <span className="text-xs text-neutral-400">({a.role})</span>
-                          </div>
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-neutral-400">
-                  The account that gives the final approval on all leave requests. Required when two-step approval is on.
-                </p>
-                {enabled && !approverId && (
-                  <p className="text-xs text-amber-600 flex items-center gap-1">
-                    <AlertCircle className="h-3 w-3" /> A final approver must be selected before saving.
-                  </p>
-                )}
-              </div>
-            )}
-
             {/* Info callout */}
             <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex gap-3 items-start">
               <Info className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
@@ -271,8 +225,8 @@ function LeaveApprovalCard({ loading, draft, setDraft, approvers, loadingApprove
                 <p className="text-[12px] font-bold text-blue-900 mb-1.5">How Two-Step Approval Works</p>
                 <ul className="text-[11px] text-blue-700 space-y-0.5">
                   <li>• Employee submits a leave request and selects their direct supervisor as approver</li>
-                  <li>• Supervisor approves → status moves to <strong>Pending Final Approval</strong></li>
-                  <li>• Final approver gives the last sign-off → status moves to <strong>Approved</strong></li>
+                  <li>• Supervisor approves and chooses an eligible admin or department supervisor to escalate to → status moves to <strong>Pending Final Approval</strong></li>
+                  <li>• The chosen escalation target gives the last sign-off → status moves to <strong>Approved</strong></li>
                   <li>• Either approver can reject at any stage — request is immediately rejected</li>
                   <li>• When disabled, the supervisor's approval is final</li>
                 </ul>
@@ -1307,8 +1261,6 @@ export default function LeaveSettings() {
   const [loadingSettings,  setLoadingSettings]  = useState(true);
   const [savingSettings,   setSavingSettings]   = useState(false);
   const [refreshing,       setRefreshing]       = useState(false);
-  const [approvers,        setApprovers]        = useState([]);
-  const [loadingApprovers, setLoadingApprovers] = useState(false);
 
   // ── Stats ────────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
@@ -1360,17 +1312,6 @@ export default function LeaveSettings() {
     setLoadingMatrix(false);
   };
 
-  const loadApprovers = async () => {
-    setLoadingApprovers(true);
-    try {
-      const r = await fetch(`${API}/api/leaves/approvers`, { headers: { Authorization: `Bearer ${token}` } });
-      const j = await r.json();
-      if (r.ok) setApprovers(Array.isArray(j.data) ? j.data : []);
-      else toast.error(j.message || "Failed to load approvers");
-    } catch { toast.error("Network error loading approvers"); }
-    setLoadingApprovers(false);
-  };
-
   // ── API: PATCH /api/company-settings ─────────────────────────────────────
   const saveSettings = async () => {
     setSavingSettings(true);
@@ -1389,13 +1330,13 @@ export default function LeaveSettings() {
 
   const refreshData = async () => {
     setRefreshing(true);
-    await Promise.all([loadData(), loadSettings(), loadApprovers()]);
+    await Promise.all([loadData(), loadSettings()]);
     toast.success("Data refreshed");
     setRefreshing(false);
   };
 
   useEffect(() => {
-    if (token) { loadSettings(); loadData(); loadApprovers(); }
+    if (token) { loadSettings(); loadData(); }
   }, [token]);
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -1445,10 +1386,7 @@ export default function LeaveSettings() {
 
       {/* Sections */}
       <LeaveAccrualCard loading={loadingSettings} draft={draft} setDraft={setDraft} />
-      <LeaveApprovalCard
-        loading={loadingSettings} draft={draft} setDraft={setDraft}
-        approvers={approvers} loadingApprovers={loadingApprovers}
-      />
+      <LeaveApprovalCard loading={loadingSettings} draft={draft} setDraft={setDraft} />
       <LeaveTypesCard API={API} token={token} policies={policies} reload={loadData} />
       <LeaveCreditsAccordionCard
         token={token} API={API} matrix={matrix} leaveTypes={leaveTypes} policies={policies}

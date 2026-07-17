@@ -5,6 +5,7 @@ import Reports from './Reports';
 import Employee from './Employee';
 import EmployeeSheet from './EmployeeSheet';
 import Company from './Company';
+import CheckSettings from '@/components/Dashboard/DashboardContent/CompanyPanel/Settings/CheckSettings';
 import useAuthStore from "@/store/useAuthStore";
 import { calculateDeductionValue } from '@/lib/payrollCompute';
 import ModalPortal from '@/components/ui/modal-portal';
@@ -2560,6 +2561,7 @@ const Payroll = () => {
     { id: 'reports', label: 'Reports', beta: true, badge: unviewedCount },
     { id: 'employee', label: 'Employee' },
     { id: 'company', label: 'Company' },
+    { id: 'check-printing', label: 'Check Printing' },
   ];
 
   const renderTabContent = () => {
@@ -2574,6 +2576,8 @@ const Payroll = () => {
         return <Employee />;
       case 'company':
         return <Company />;
+      case 'check-printing':
+        return <CheckSettings />;
       default:
         return renderCreatePaycheckTab();
     }

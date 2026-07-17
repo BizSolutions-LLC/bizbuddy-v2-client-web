@@ -1,7 +1,11 @@
 'use client';
 import React, { useState, useEffect } from 'react';
 import { toast } from 'sonner';
+import { Printer, Loader2, Lightbulb, Wrench } from 'lucide-react';
 import useAuthStore from "@/store/useAuthStore";
+import { Button } from "@/components/ui/button";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
@@ -173,46 +177,36 @@ const CheckSettings = () => {
 
   if (loading) {
     return (
-      <div className="p-6 flex items-center justify-center">
-        <div className="text-gray-600">Loading check settings...</div>
+      <div className="p-6 flex items-center justify-center gap-2 text-neutral-500 dark:text-neutral-400">
+        <Loader2 className="w-4 h-4 animate-spin" />
+        Loading check settings…
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="p-4 sm:p-6 space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800">Check Printing Setup</h2>
-          <p className="text-sm text-gray-600 mt-1">
+          <h2 className="text-2xl font-extrabold tracking-tight text-neutral-800 dark:text-neutral-100 flex items-center gap-2.5">
+            <div className="w-8 h-8 bg-orange-100 dark:bg-orange-950/40 rounded-full flex items-center justify-center flex-shrink-0">
+              <Printer className="w-4 h-4 text-orange-600" />
+            </div>
+            Check Printing Setup
+          </h2>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
             Adjust positions, font sizes, and preview changes in real-time
           </p>
         </div>
-        <div className="flex gap-2 self-start sm:self-auto">
-          <button
-            onClick={generateTestPDF}
-            disabled={generatingPDF}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center gap-2"
-          >
-            {generatingPDF ? (
-              <>
-                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
-                </svg>
-                Generating...
-              </>
-            ) : (
-              <>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-                </svg>
-                Generate Test PDF
-              </>
-            )}
-          </button>
-        </div>
+        <Button
+          onClick={generateTestPDF}
+          disabled={generatingPDF}
+          className="self-start sm:self-auto bg-orange-500 hover:bg-orange-600 text-white"
+        >
+          {generatingPDF ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Printer className="w-4 h-4 mr-2" />}
+          {generatingPDF ? "Generating…" : "Generate Test PDF"}
+        </Button>
       </div>
 
       {/* Split View */}
@@ -220,24 +214,28 @@ const CheckSettings = () => {
         {/* LEFT: Controls */}
         <div className="space-y-6">
           {/* Template Selection */}
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">Select Template</h3>
-            <div className="grid grid-cols-2 gap-3">
-              {Object.entries(templates).map(([key, template]) => (
-                <button
-                  key={key}
-                  onClick={() => handleTemplateChange(key)}
-                  className={`p-3 rounded-lg border-2 transition-all ${
-                    selectedTemplate === key
-                      ? 'border-orange-500 bg-orange-50'
-                      : 'border-gray-300 hover:border-gray-400'
-                  }`}
-                >
-                  <div className="font-medium text-sm text-gray-800">{template.name}</div>
-                </button>
-              ))}
-            </div>
-          </div>
+          <Card className="shadow-md">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base font-bold text-neutral-800 dark:text-neutral-100">Select Template</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-3">
+                {Object.entries(templates).map(([key, template]) => (
+                  <button
+                    key={key}
+                    onClick={() => handleTemplateChange(key)}
+                    className={`p-3 rounded-lg border-2 text-left transition-all focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-2 ${
+                      selectedTemplate === key
+                        ? 'border-orange-500 bg-orange-50 dark:bg-orange-950/20'
+                        : 'border-neutral-200 dark:border-neutral-700 hover:border-neutral-300 dark:hover:border-neutral-600'
+                    }`}
+                  >
+                    <div className="font-medium text-sm text-neutral-800 dark:text-neutral-100">{template.name}</div>
+                  </button>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Position & Font Size Adjustments */}
           <div className="bg-white rounded-lg shadow-md p-6">
@@ -317,47 +315,55 @@ const CheckSettings = () => {
           </div>
 
           {/* Save Button */}
-          <button
+          <Button
             onClick={handleSave}
             disabled={saving}
-            className="w-full px-6 py-3 bg-orange-600 text-white font-semibold rounded-lg hover:bg-orange-700 transition-colors disabled:opacity-50"
+            className="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold py-3 h-auto"
           >
-            {saving ? 'Saving...' : 'Save Settings'}
-          </button>
+            {saving && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+            {saving ? 'Saving…' : 'Save Settings'}
+          </Button>
         </div>
 
         {/* RIGHT: Live Preview */}
         <div className="lg:sticky lg:top-6 h-fit">
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-800">Live Preview</h3>
-              <span className="text-xs text-gray-500 bg-green-100 px-2 py-1 rounded flex items-center gap-1">
-                <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                Live
-              </span>
-            </div>
-            
-            <div className="border-2 border-gray-300 rounded-lg overflow-hidden bg-gray-50">
-              <LiveCheckPreview positions={positions} mockData={MOCK_DATA} />
-            </div>
+          <Card className="shadow-md">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base font-bold text-neutral-800 dark:text-neutral-100">Live Preview</CardTitle>
+                <Badge variant="secondary" className="bg-green-100 text-green-700 dark:bg-green-950/30 dark:text-green-400 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                  Live
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="border-2 border-neutral-200 dark:border-neutral-700 rounded-lg overflow-hidden bg-neutral-50">
+                <LiveCheckPreview positions={positions} mockData={MOCK_DATA} />
+              </div>
 
-            <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <h4 className="font-semibold text-blue-900 text-sm mb-2">💡 Preview Tips:</h4>
-              <ul className="text-xs text-blue-800 space-y-1">
-                <li>• Drag sliders to adjust position and size</li>
-                <li>• Changes appear instantly in preview</li>
-                <li>• Click "Generate Test PDF" for exact output</li>
-                <li>• Print test on plain paper before using check stock</li>
-              </ul>
-            </div>
-          </div>
+              <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900 rounded-lg p-4">
+                <p className="font-semibold text-blue-900 dark:text-blue-300 text-sm mb-2 flex items-center gap-1.5">
+                  <Lightbulb className="w-3.5 h-3.5" /> Preview Tips:
+                </p>
+                <ul className="text-xs text-blue-800 dark:text-blue-300/80 space-y-1">
+                  <li>• Drag sliders to adjust position and size</li>
+                  <li>• Changes appear instantly in preview</li>
+                  <li>• Click "Generate Test PDF" for exact output</li>
+                  <li>• Print test on plain paper before using check stock</li>
+                </ul>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
 
       {/* Instructions */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h4 className="font-semibold text-blue-900 mb-2">🔧 Calibration Workflow:</h4>
-        <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
+      <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900 rounded-lg p-4">
+        <p className="font-semibold text-blue-900 dark:text-blue-300 mb-2 flex items-center gap-1.5">
+          <Wrench className="w-3.5 h-3.5" /> Calibration Workflow:
+        </p>
+        <ol className="text-sm text-blue-800 dark:text-blue-300/80 space-y-1 list-decimal list-inside">
           <li>Select a template or start with default positions</li>
           <li>Use sliders to adjust X/Y positions and font sizes</li>
           <li>Watch the live preview update in real-time</li>
