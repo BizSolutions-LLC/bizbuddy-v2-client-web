@@ -609,14 +609,26 @@ export default function SupervisorLeaveRequests() {
             ) : (
               <div className="border rounded-md overflow-hidden bg-white dark:bg-neutral-900">
                 <div className="max-h-40 overflow-y-auto divide-y divide-neutral-100 dark:divide-neutral-800">
-                  {dayBreakdown.map((d) => (
-                    <div key={d.date} className="flex items-center justify-between px-3 py-1.5 text-xs">
-                      <span>{toLocalDate(d.date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</span>
+                  {/* BB-045: a day split by proration has two entries sharing the same
+                      date (one paid, one unpaid) — group by date so it renders as one
+                      row with both badges, not two colliding rows. */}
+                  {Object.values(
+                    dayBreakdown.reduce((acc, d) => {
+                      (acc[d.date] ??= []).push(d);
+                      return acc;
+                    }, {})
+                  ).map((entries) => (
+                    <div key={entries[0].date} className="flex items-center justify-between px-3 py-1.5 text-xs">
+                      <span>{toLocalDate(entries[0].date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</span>
                       <div className="flex items-center gap-2">
-                        <span className="text-muted-foreground">{d.hours}h</span>
-                        <Badge variant="outline" className={d.isPaid ? "text-green-700 border-green-300 bg-green-50" : "text-amber-700 border-amber-300 bg-amber-50"}>
-                          {d.isPaid ? "Paid" : "Unpaid"}
-                        </Badge>
+                        {entries.map((d, i) => (
+                          <React.Fragment key={i}>
+                            <span className="text-muted-foreground">{d.hours}h</span>
+                            <Badge variant="outline" className={d.isPaid ? "text-green-700 border-green-300 bg-green-50" : "text-amber-700 border-amber-300 bg-amber-50"}>
+                              {d.isPaid ? "Paid" : "Unpaid"}
+                            </Badge>
+                          </React.Fragment>
+                        ))}
                       </div>
                     </div>
                   ))}
@@ -1340,17 +1352,35 @@ export default function SupervisorLeaveRequests() {
                       Balance runs out partway through — {preview.unpaidHours}h of this request will fall back to unpaid.
                     </div>
                   )}
+                  {preview.unpaidHours > 0 && (preview.availableBalance ?? 0) - (preview.paidHours ?? 0) > 0 && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {((preview.availableBalance ?? 0) - (preview.paidHours ?? 0))}h of the available balance won't be used for this request —
+                      leave days are paid or unpaid as a whole, so a day can't be split partway. It stays banked for a future request.
+                    </p>
+                  )}
                   {Array.isArray(preview.days) && preview.days.length > 0 && (
                     <div className="border rounded-md overflow-hidden bg-white dark:bg-neutral-900 mt-2">
                       <div className="max-h-40 overflow-y-auto divide-y divide-neutral-100 dark:divide-neutral-800">
-                        {preview.days.map((d) => (
-                          <div key={d.date} className="flex items-center justify-between px-3 py-1.5 text-xs">
-                            <span>{toLocalDate(d.date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</span>
+                        {/* BB-045: a day split by proration has two entries sharing the
+                            same date (one paid, one unpaid) — group by date so a split
+                            day renders as one row with both badges, not two colliding rows. */}
+                        {Object.values(
+                          preview.days.reduce((acc, d) => {
+                            (acc[d.date] ??= []).push(d);
+                            return acc;
+                          }, {})
+                        ).map((entries) => (
+                          <div key={entries[0].date} className="flex items-center justify-between px-3 py-1.5 text-xs">
+                            <span>{toLocalDate(entries[0].date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</span>
                             <div className="flex items-center gap-2">
-                              <span className="text-muted-foreground">{d.hours}h</span>
-                              <Badge variant="outline" className={d.isPaid ? "text-green-700 border-green-300 bg-green-50" : "text-amber-700 border-amber-300 bg-amber-50"}>
-                                {d.isPaid ? "Paid" : "Unpaid"}
-                              </Badge>
+                              {entries.map((d, i) => (
+                                <React.Fragment key={i}>
+                                  <span className="text-muted-foreground">{d.hours}h</span>
+                                  <Badge variant="outline" className={d.isPaid ? "text-green-700 border-green-300 bg-green-50" : "text-amber-700 border-amber-300 bg-amber-50"}>
+                                    {d.isPaid ? "Paid" : "Unpaid"}
+                                  </Badge>
+                                </React.Fragment>
+                              ))}
                             </div>
                           </div>
                         ))}

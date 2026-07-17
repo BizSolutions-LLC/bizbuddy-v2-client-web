@@ -26,7 +26,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Label } from "@/components/ui/label";
-import CheckSettings from "./CheckSettings";
 
 // ── Timezones ────────────────────────────────────────────────────────────────
 const TIMEZONES = [
@@ -212,6 +211,22 @@ function NumberField({ label, value, onChange, step, icon: Icon, helpText }) {
         className="font-mono"
       />
       {helpText && <p className="text-xs text-neutral-400 italic">{helpText}</p>}
+    </div>
+  );
+}
+
+// ── Save Settings Bar (per tab section) ─────────────────────────────────────
+function SaveSettingsBar({ onSave, saving, label = "Save Settings" }) {
+  return (
+    <div className="flex justify-end pt-1">
+      <Button
+        onClick={onSave}
+        disabled={saving}
+        className="w-full sm:w-auto bg-orange-500 hover:bg-orange-600 text-white"
+      >
+        {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+        {saving ? "Saving…" : label}
+      </Button>
     </div>
   );
 }
@@ -1478,6 +1493,7 @@ export default function ModernCompanyConfigurations() {
   const [pendingTimezone,         setPendingTimezone]         = useState(null);
   const [currentTime,             setCurrentTime]             = useState("");
   const [guideOpen,               setGuideOpen]               = useState(false);
+  const [activeTab,               setActiveTab]               = useState("time-settings");
 
   // ── Live clock ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1662,6 +1678,14 @@ export default function ModernCompanyConfigurations() {
     .split(",").map((id) => id.trim()).filter(Boolean);
   const isDayCare = companyId ? DAYCARE_COMPANY_IDS.includes(companyId) : false;
 
+  // ── Tabs ─────────────────────────────────────────────────────────────────
+  const TABS = [
+    { id: "time-settings",  label: "Time Settings" },
+    { id: "ot-config",      label: "OT Configurations" },
+    ...(isDayCare ? [{ id: "daycare", label: "DayCare Settings" }] : []),
+    { id: "break-policy",   label: "Break Policy" },
+  ];
+
   // ── Render ───────────────────────────────────────────────────────────────
   return (
     <div className="p-4 sm:p-6 space-y-5 max-w-6xl mx-auto">
@@ -1683,58 +1707,95 @@ export default function ModernCompanyConfigurations() {
           <Button variant="outline" onClick={refreshData} disabled={refreshing} className="border-orange-200 text-orange-600 hover:bg-orange-50">
             <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? "animate-spin" : ""}`} /> Refresh
           </Button>
-          <Button onClick={saveSettings} disabled={savingSettings || loadingSettings} className="bg-orange-500 hover:bg-orange-600 text-white">
-            {savingSettings ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
-            Save Settings
-          </Button>
         </div>
       </div>
 
       {/* Quick Guide panel — spans full width below header */}
       <QuickGuidePanel open={guideOpen} onClose={() => setGuideOpen(false)} isDayCare={isDayCare} />
 
-      {/* Sections */}
-      <CompanyTimezoneCard
-        loading={loadingSettings} draft={draft}
-        currentTime={currentTime} onTimezoneChange={handleTimezoneChange}
-      />
+      {/* Tab navigation — horizontally scrollable on narrow viewports */}
+      <div className="border-b border-neutral-200 dark:border-neutral-800 -mx-4 sm:-mx-6 px-4 sm:px-6 overflow-x-auto">
+        <nav className="flex gap-1 min-w-max">
+          {TABS.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-3.5 sm:px-5 py-2.5 text-sm font-semibold border-b-2 whitespace-nowrap transition-colors focus:outline-none ${
+                activeTab === tab.id
+                  ? "text-orange-600 border-orange-600"
+                  : "text-neutral-500 border-transparent hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+      </div>
+
+      {/* Timezone confirm modal — shared across tabs, only ever opened from the Time Settings tab */}
       <TimezoneConfirmModal
         open={showTimezoneModal} onOpenChange={setShowTimezoneModal}
         pendingTz={pendingTimezone} currentTz={draft?.timezone || "America/Los_Angeles"}
         onConfirm={confirmTimezoneChange} previewTime={currentTime}
       />
-      <TimeDefaultsCard loading={loadingSettings} draft={draft} setDraft={setDraft} />
-      <OvertimeConfigCard loading={loadingSettings} draft={draft} setDraft={setDraft} />
-      <AutoClockOutCard loading={loadingSettings} draft={draft} setDraft={setDraft} />
-      {isDayCare && (
-        <DayCareSettingsCard loading={loadingSettings} draft={draft} setDraft={setDraft} />
+
+      {/* Tab content */}
+      {activeTab === "time-settings" && (
+        <div className="space-y-5">
+          <CompanyTimezoneCard
+            loading={loadingSettings} draft={draft}
+            currentTime={currentTime} onTimezoneChange={handleTimezoneChange}
+          />
+          <TimeDefaultsCard loading={loadingSettings} draft={draft} setDraft={setDraft} />
+          <AutoClockOutCard loading={loadingSettings} draft={draft} setDraft={setDraft} />
+          <SaveSettingsBar onSave={saveSettings} saving={savingSettings || loadingSettings} />
+        </div>
       )}
-      <AutoBreakPolicyCard loading={loadingSettings} draft={draft} setDraft={setDraft} />
-      <DepartmentBreakPolicyCard
-        departments={departments} departmentBreakSettings={departmentBreakSettings}
-        departmentAutoLunchSettings={departmentAutoLunchSettings}
-        setDepartmentAutoLunchSettings={setDepartmentAutoLunchSettings}
-        departmentLoading={departmentLoading}
-        updateDepartmentBreakSetting={updateDepartmentBreakSetting}
-        updateDepartmentAutoLunchSetting={updateDepartmentAutoLunchSetting}
-        loading={loadingDepartments}
-        autoBreakBasis={draft?.autoBreakBasis ?? "department"}
-        autoLunchEnabled={draft?.autoLunchEnabled ?? false}
-        departmentAutoBreakEntitlement={departmentAutoBreakEntitlement}
-        setDepartmentAutoBreakEntitlement={setDepartmentAutoBreakEntitlement}
-        updateDepartmentAutoBreakConfig={updateDepartmentAutoBreakConfig}
-      />
-      <DepartmentCoffeeBreakPolicyCard
-        departments={departments} departmentCoffeeSettings={departmentCoffeeSettings}
-        departmentLoading={departmentLoading} updateDepartmentCoffeeSetting={updateDepartmentCoffeeSetting}
-        loading={loadingDepartments}
-        autoBreakBasis={draft?.autoBreakBasis ?? "department"}
-        autoCoffeeEnabled={draft?.autoCoffeeEnabled ?? false}
-        departmentAutoBreakEntitlement={departmentAutoBreakEntitlement}
-        setDepartmentAutoBreakEntitlement={setDepartmentAutoBreakEntitlement}
-        updateDepartmentAutoBreakConfig={updateDepartmentAutoBreakConfig}
-      />
-      <CheckSettings />
+
+      {activeTab === "ot-config" && (
+        <div className="space-y-5">
+          <OvertimeConfigCard loading={loadingSettings} draft={draft} setDraft={setDraft} />
+          <SaveSettingsBar onSave={saveSettings} saving={savingSettings || loadingSettings} />
+        </div>
+      )}
+
+      {activeTab === "daycare" && isDayCare && (
+        <div className="space-y-5">
+          <DayCareSettingsCard loading={loadingSettings} draft={draft} setDraft={setDraft} />
+          <SaveSettingsBar onSave={saveSettings} saving={savingSettings || loadingSettings} />
+        </div>
+      )}
+
+      {activeTab === "break-policy" && (
+        <div className="space-y-5">
+          <AutoBreakPolicyCard loading={loadingSettings} draft={draft} setDraft={setDraft} />
+          <SaveSettingsBar onSave={saveSettings} saving={savingSettings || loadingSettings} label="Save Break Policy" />
+          <DepartmentBreakPolicyCard
+            departments={departments} departmentBreakSettings={departmentBreakSettings}
+            departmentAutoLunchSettings={departmentAutoLunchSettings}
+            setDepartmentAutoLunchSettings={setDepartmentAutoLunchSettings}
+            departmentLoading={departmentLoading}
+            updateDepartmentBreakSetting={updateDepartmentBreakSetting}
+            updateDepartmentAutoLunchSetting={updateDepartmentAutoLunchSetting}
+            loading={loadingDepartments}
+            autoBreakBasis={draft?.autoBreakBasis ?? "department"}
+            autoLunchEnabled={draft?.autoLunchEnabled ?? false}
+            departmentAutoBreakEntitlement={departmentAutoBreakEntitlement}
+            setDepartmentAutoBreakEntitlement={setDepartmentAutoBreakEntitlement}
+            updateDepartmentAutoBreakConfig={updateDepartmentAutoBreakConfig}
+          />
+          <DepartmentCoffeeBreakPolicyCard
+            departments={departments} departmentCoffeeSettings={departmentCoffeeSettings}
+            departmentLoading={departmentLoading} updateDepartmentCoffeeSetting={updateDepartmentCoffeeSetting}
+            loading={loadingDepartments}
+            autoBreakBasis={draft?.autoBreakBasis ?? "department"}
+            autoCoffeeEnabled={draft?.autoCoffeeEnabled ?? false}
+            departmentAutoBreakEntitlement={departmentAutoBreakEntitlement}
+            setDepartmentAutoBreakEntitlement={setDepartmentAutoBreakEntitlement}
+            updateDepartmentAutoBreakConfig={updateDepartmentAutoBreakConfig}
+          />
+        </div>
+      )}
     </div>
   );
 }

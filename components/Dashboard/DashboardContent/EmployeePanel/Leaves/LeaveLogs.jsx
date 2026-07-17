@@ -217,6 +217,18 @@ export default function EmployeeLeaveRequests() {
     [affectedSchedules]
   );
 
+  // BB-048: the entered daily time window only ever prices a day with no real
+  // shift plotted — if a real shift already covers every day in the range,
+  // the window is inert for this request, so the pickers are greyed out.
+  const hasRealShiftDay = useMemo(
+    () => affectedSchedules.some(s => !s.isFallback),
+    [affectedSchedules]
+  );
+  const hasFallbackDay = useMemo(
+    () => affectedSchedules.some(s => s.isFallback),
+    [affectedSchedules]
+  );
+
   // Date range filter, by leave period (startDate–endDate) — a request overlaps the
   // selected range if its period intersects it at all, so a leave spanning across a
   // cutoff boundary still shows up. Stats and status tabs derive from this filtered
@@ -436,7 +448,7 @@ export default function EmployeeLeaveRequests() {
     scheduleTimerRef.current = setTimeout(async () => {
       try {
         const res  = await fetch(
-          `${API_URL}/api/leaves/affected-schedules?startDate=${startDate}&endDate=${endDate}`,
+          `${API_URL}/api/leaves/affected-schedules?startDate=${startDate}&endDate=${endDate}&fromTime=${startTime}&toTime=${endTime}`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
         const data = await res.json();
@@ -449,7 +461,7 @@ export default function EmployeeLeaveRequests() {
     }, 500);
 
     return () => { if (scheduleTimerRef.current) clearTimeout(scheduleTimerRef.current); };
-  }, [token, startDate, endDate]);
+  }, [token, startDate, endDate, startTime, endTime]);
 
   useEffect(() => { fetchLeaves(); fetchPolicies(); fetchCutoffPeriods(); }, [fetchLeaves, fetchPolicies, fetchCutoffPeriods]);
 
@@ -526,6 +538,8 @@ export default function EmployeeLeaveRequests() {
           toDate,
           isPaid: resolvedIsPaid,
           affectedShiftIds,
+          fromTime: startTime,
+          toTime: endTime,
         }),
       });
       const data = await res.json();
@@ -810,21 +824,36 @@ export default function EmployeeLeaveRequests() {
                     ) : (
                       <div style={{ border: "0.5px solid #e5e5e5", borderRadius: 8, overflow: "hidden", marginBottom: 6 }}>
                         <div style={{ maxHeight: 140, overflowY: "auto" }}>
-                          {dayBreakdown.map((d, i) => (
-                            <div key={d.date} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 10px", borderBottom: i < dayBreakdown.length - 1 ? "0.5px solid #f0f0ee" : "none" }}>
-                              <span style={{ fontSize: 11, color: "#555" }}>{fmtDate(d.date)}</span>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                <span style={{ fontSize: 11, color: "#bbb" }}>{d.hours}h</span>
-                                <span style={{
-                                  fontSize: 10, fontWeight: 500, padding: "2px 7px", borderRadius: 20,
-                                  background: d.isPaid ? "#eaf3de" : "#faeeda",
-                                  color:      d.isPaid ? "#3b6d11" : "#633806",
-                                }}>
-                                  {d.isPaid ? "Paid" : "Unpaid"}
-                                </span>
+                          {/* BB-045: a day split by proration has two entries sharing the
+                              same date (one paid, one unpaid) — group by date so a split
+                              day renders as one row with both badges, not two colliding rows. */}
+                          {(() => {
+                            const grouped = Object.values(
+                              dayBreakdown.reduce((acc, d) => {
+                                (acc[d.date] ??= []).push(d);
+                                return acc;
+                              }, {})
+                            );
+                            return grouped.map((entries, i) => (
+                              <div key={entries[0].date} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 10px", borderBottom: i < grouped.length - 1 ? "0.5px solid #f0f0ee" : "none" }}>
+                                <span style={{ fontSize: 11, color: "#555" }}>{fmtDate(entries[0].date)}</span>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                  {entries.map((d, j) => (
+                                    <React.Fragment key={j}>
+                                      <span style={{ fontSize: 11, color: "#bbb" }}>{d.hours}h</span>
+                                      <span style={{
+                                        fontSize: 10, fontWeight: 500, padding: "2px 7px", borderRadius: 20,
+                                        background: d.isPaid ? "#eaf3de" : "#faeeda",
+                                        color:      d.isPaid ? "#3b6d11" : "#633806",
+                                      }}>
+                                        {d.isPaid ? "Paid" : "Unpaid"}
+                                      </span>
+                                    </React.Fragment>
+                                  ))}
+                                </div>
                               </div>
-                            </div>
-                          ))}
+                            ));
+                          })()}
                         </div>
                       </div>
                     )}
@@ -1128,7 +1157,13 @@ export default function EmployeeLeaveRequests() {
                   type="time"
                   value={startTime}
                   onChange={e => setStartTime(e.target.value)}
-                  style={{ ...INPUT_BASE, width: 110, border: "0.5px solid #d0d0d0" }}
+                  disabled={hasRealShiftDay}
+                  style={{
+                    ...INPUT_BASE, width: 110, border: "0.5px solid #d0d0d0",
+                    background: hasRealShiftDay ? "#f5f5f3" : undefined,
+                    color:      hasRealShiftDay ? "#bbb"    : undefined,
+                    cursor:     hasRealShiftDay ? "not-allowed" : undefined,
+                  }}
                 />
               </div>
               {errors.startDate && (
@@ -1154,7 +1189,13 @@ export default function EmployeeLeaveRequests() {
                   type="time"
                   value={endTime}
                   onChange={e => setEndTime(e.target.value)}
-                  style={{ ...INPUT_BASE, width: 110, border: "0.5px solid #d0d0d0" }}
+                  disabled={hasRealShiftDay}
+                  style={{
+                    ...INPUT_BASE, width: 110, border: "0.5px solid #d0d0d0",
+                    background: hasRealShiftDay ? "#f5f5f3" : undefined,
+                    color:      hasRealShiftDay ? "#bbb"    : undefined,
+                    cursor:     hasRealShiftDay ? "not-allowed" : undefined,
+                  }}
                 />
               </div>
               {errors.endDate && (
@@ -1162,6 +1203,15 @@ export default function EmployeeLeaveRequests() {
                   <AlertCircle size={11} />{errors.endDate}
                 </p>
               )}
+              {hasRealShiftDay ? (
+                <p style={{ fontSize: 11, color: "#bbb" }}>
+                  Time window not needed — every day in this range already has a scheduled shift.
+                </p>
+              ) : hasFallbackDay ? (
+                <p style={{ fontSize: 11, color: "#bbb" }}>
+                  Used to compute hours for days with no scheduled shift (including weekends/holidays), capped at your company&apos;s default shift length.
+                </p>
+              ) : null}
               {duration && (
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
                   <Clock size={12} color="#bbb" />
@@ -1219,11 +1269,17 @@ export default function EmployeeLeaveRequests() {
                       <div key={s.userShiftId ?? i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderBottom: i < affectedSchedules.length - 1 ? "0.5px solid #e5e5e5" : "none", gap: 10 }}>
                         <div>
                           <div style={{ fontSize: 12, fontWeight: 500 }}>{fmtDate(s.assignedDate.slice(0, 10))}</div>
-                          <div style={{ fontSize: 11, color: "#888", marginTop: 1 }}>{s.shiftName}</div>
-                          <div style={{ fontSize: 11, color: "#bbb", marginTop: 1, display: "flex", alignItems: "center", gap: 4 }}>
-                            <Clock size={11} />
-                            {fmtShiftTime(s.startTime)} → {fmtShiftTime(s.endTime)}
-                          </div>
+                          {s.isFallback ? (
+                            <div style={{ fontSize: 11, color: "#bbb", marginTop: 1 }}>No shift scheduled</div>
+                          ) : (
+                            <>
+                              <div style={{ fontSize: 11, color: "#888", marginTop: 1 }}>{s.shiftName}</div>
+                              <div style={{ fontSize: 11, color: "#bbb", marginTop: 1, display: "flex", alignItems: "center", gap: 4 }}>
+                                <Clock size={11} />
+                                {fmtShiftTime(s.startTime)} → {fmtShiftTime(s.endTime)}
+                              </div>
+                            </>
+                          )}
                         </div>
                         <div style={{ fontSize: 12, fontWeight: 500, color: "#f97316", whiteSpace: "nowrap" }}>
                           {Number(s.scheduledHours).toFixed(2)}h

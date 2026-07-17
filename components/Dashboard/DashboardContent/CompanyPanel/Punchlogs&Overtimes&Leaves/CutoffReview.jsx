@@ -2313,29 +2313,11 @@ export default function CutoffReview({ cutoffId }) {
         }
       );
       if (!res.ok) throw new Error();
-      // Server cascades exclude to all segments in the same driver group — mirror that
-      // client-side so siblings show as locked immediately and don't trigger stale PATCHes.
-      if (rec.segmentType !== null) {
-        const siblingIds = [];
-        for (const emp of mergedEmployees) {
-          for (const r of emp.records) {
-            if (r.type === "driver_group" && r.segments.some((s) => s.id === recId)) {
-              r.segments.forEach((s) => { if (s.id !== recId) siblingIds.push(s.id); });
-            }
-          }
-        }
-        if (siblingIds.length > 0) {
-          setLocalStatus((s) => {
-            const n = { ...s };
-            siblingIds.forEach((id) => { n[id] = "excluded"; });
-            return n;
-          });
-        }
-      }
       toast.success("Record excluded");
       setExcludeModal(null);
       setExcludeReason("");
       setExcludeNote("");
+      await refreshApprovals(recId);
       if (isBNC || otBasis === "cutoff") refreshOTBlocks();
     } catch {
       setLocalStatus((s) => { const n = { ...s }; delete n[recId]; return n; });
@@ -2343,7 +2325,7 @@ export default function CutoffReview({ cutoffId }) {
     } finally {
       setIsSaving(false);
     }
-  }, [token, cutoffId, excludeModal, excludeReason, excludeNote, findRecord, mergedEmployees, isBNC, otBasis, refreshOTBlocks]);
+  }, [token, cutoffId, excludeModal, excludeReason, excludeNote, findRecord, refreshApprovals, isBNC, otBasis, refreshOTBlocks]);
 
   const doBulkApprove = useCallback(async (empId) => {
     const emp = mergedEmployees.find((e) => e.id === empId);
