@@ -1,226 +1,471 @@
 'use client';
-import React, { useState } from 'react';
+
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { toast, Toaster } from 'sonner';
-import useAuthStore from "@/store/useAuthStore";
-import * as XLSX from 'xlsx';
+import useAuthStore from '@/store/useAuthStore';
+import MockPayrollBanner from '@/components/common/MockPayrollBanner';
+import PayslipActionButtons from '@/components/payroll/PayslipActionButtons';
+import { isMockPayrollId, withMockPayrollReports } from '@/lib/mockPayrollData';
+import {
+  viewPayslipPdf,
+  downloadPayslipPdf,
+  sendPayslipEmail,
+} from '@/lib/payslipActions';
+import { Printer, RefreshCw, FileSpreadsheet } from 'lucide-react';
+import {
+  downloadPayrollSummaryExcel,
+  mapReportEmployeeToSummaryRow,
+} from '@/lib/exportPayrollSummary';
+
+const STICKY_ROW_NUM_LEFT = 'left-0';
+const STICKY_NAME_LEFT = 'left-12';
+
+
+function getQuarterRange(year, quarter) {
+  const ranges = {
+    1: { from: `${year}-01-01`, to: `${year}-03-31` },
+    2: { from: `${year}-04-01`, to: `${year}-06-30` },
+    3: { from: `${year}-07-01`, to: `${year}-09-30` },
+    4: { from: `${year}-10-01`, to: `${year}-12-31` },
+  };
+  return ranges[quarter] ?? ranges[1];
+}
+
+function getMonthRange(year, month) {
+  const lastDay = new Date(year, month, 0).getDate();
+  const mm = String(month).padStart(2, '0');
+  return {
+    from: `${year}-${mm}-01`,
+    to: `${year}-${mm}-${String(lastDay).padStart(2, '0')}`,
+  };
+}
+
+function getYearRange(year) {
+  const today = new Date();
+  const isCurrentYear = year === today.getFullYear();
+  return {
+    from: `${year}-01-01`,
+    to: isCurrentYear ? today.toLocaleDateString('en-CA') : `${year}-12-31`,
+  };
+}
+
+function getCurrentQuarter() {
+  return Math.floor(new Date().getMonth() / 3) + 1;
+}
+
+const PERIOD_MODES = [
+  { id: 'custom', label: 'Custom Range' },
+  { id: 'monthly', label: 'Monthly' },
+  { id: 'quarterly', label: 'Quarterly' },
+  { id: 'yearly', label: 'Yearly' },
+];
+
+const QUARTER_OPTIONS = [
+  { value: 1, label: 'Q1 (Jan – Mar)' },
+  { value: 2, label: 'Q2 (Apr – Jun)' },
+  { value: 3, label: 'Q3 (Jul – Sep)' },
+  { value: 4, label: 'Q4 (Oct – Dec)' },
+];
+
+const MONTH_OPTIONS = [
+  { value: 1, label: 'January' },
+  { value: 2, label: 'February' },
+  { value: 3, label: 'March' },
+  { value: 4, label: 'April' },
+  { value: 5, label: 'May' },
+  { value: 6, label: 'June' },
+  { value: 7, label: 'July' },
+  { value: 8, label: 'August' },
+  { value: 9, label: 'September' },
+  { value: 10, label: 'October' },
+  { value: 11, label: 'November' },
+  { value: 12, label: 'December' },
+];
+
+function formatCurrency(num) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(num ?? 0);
+}
+
+function formatDate(value) {
+  if (!value) return '—';
+  return new Date(value).toLocaleDateString();
+}
+
+
+function toDateKey(value) {
+  if (!value) return null;
+  return String(value).split('T')[0];
+}
+
+/** Include runs whose pay period overlaps the selected range (not just pay date). */
+function reportMatchesDateRange(report, rangeFrom, rangeTo) {
+  const periodStart = toDateKey(report.periodStart);
+  const periodEnd = toDateKey(report.periodEnd);
+  const payDate = toDateKey(report.payDate);
+
+  if (periodStart && periodEnd) {
+    if (periodStart <= rangeTo && periodEnd >= rangeFrom) return true;
+  }
+
+  if (payDate && payDate >= rangeFrom && payDate <= rangeTo) return true;
+
+  return false;
+}
+
+function getYearsInRange(rangeFrom, rangeTo) {
+  const startYear = parseInt(rangeFrom.split('-')[0], 10);
+  const endYear = parseInt(rangeTo.split('-')[0], 10);
+  const years = [];
+  for (let year = startYear; year <= endYear; year += 1) {
+    years.push(year);
+  }
+  return years;
+}
+
+const PERIOD_AGGREGATE_ID = 'period-aggregate';
+
+function buildAggregatedPeriodReport(reports, periodLabel, dateRange) {
+  const employeeMap = new Map();
+
+  reports.forEach((report) => {
+    (report.employees || []).forEach((emp) => {
+      const key = emp.employeeId || emp.employeeName;
+      if (!key) return;
+
+      const taxes = emp.totalTaxes ?? emp.taxes?.totalTaxes ?? (typeof emp.taxes === 'number' ? emp.taxes : 0);
+      const existing = employeeMap.get(key);
+
+      if (!existing) {
+        employeeMap.set(key, {
+          employeeId: emp.employeeId,
+          employeeName: emp.employeeName,
+          position: emp.position,
+          payType: emp.payType,
+          payrollDetails: emp.payrollDetails,
+          earningRates: emp.earningRates || {},
+          taxes: emp.taxes,
+          checkNumbers: emp.checkNumber ? [emp.checkNumber] : [],
+          grossPay: emp.grossPay || 0,
+          totalTaxes: taxes,
+          totalDeductions: emp.totalDeductions || 0,
+          netPay: emp.netPay || 0,
+          paycheckCount: 1,
+        });
+        return;
+      }
+
+      existing.grossPay += emp.grossPay || 0;
+      existing.totalTaxes += taxes;
+      existing.totalDeductions += emp.totalDeductions || 0;
+      existing.netPay += emp.netPay || 0;
+      existing.paycheckCount += 1;
+      if (emp.checkNumber) existing.checkNumbers.push(emp.checkNumber);
+    });
+  });
+
+  const employees = Array.from(employeeMap.values()).map((emp) => ({
+    ...emp,
+    checkNumber:
+      emp.checkNumbers.length > 1
+        ? `${emp.checkNumbers.length} checks`
+        : emp.checkNumbers[0] || '—',
+  }));
+
+  const totals = employees.reduce(
+    (acc, emp) => {
+      acc.gross += emp.grossPay || 0;
+      acc.taxes += emp.totalTaxes || 0;
+      acc.deductions += emp.totalDeductions || 0;
+      acc.net += emp.netPay || 0;
+      return acc;
+    },
+    { gross: 0, taxes: 0, deductions: 0, net: 0 }
+  );
+
+  return {
+    id: PERIOD_AGGREGATE_ID,
+    isPeriodAggregate: true,
+    periodLabel,
+    periodStart: dateRange.from,
+    periodEnd: dateRange.to,
+    payDate: null,
+    employeeCount: employees.length,
+    employees,
+    totalGross: totals.gross,
+    totalTaxes: totals.taxes,
+    totalDeductions: totals.deductions,
+    totalNet: totals.net,
+    runsIncluded: reports.length,
+    isMock: reports.some((r) => r.isMock),
+  };
+}
+
+function usesPeriodAggregateView(periodMode) {
+  return periodMode !== 'custom';
+}
 
 const Reports = () => {
   const { token } = useAuthStore();
   const API_URL = process.env.NEXT_PUBLIC_API_URL;
+
   const [activeReportTab, setActiveReportTab] = useState('payroll-detail');
-  const [filters, setFilters] = useState({
-    from: '01-01',
-    to: '12-31',
-    year: '2025',
-    sortBy: 'Pay Date',
-  });
+  const currentYear = new Date().getFullYear();
+  const [periodMode, setPeriodMode] = useState('quarterly');
+  const [selectedYear, setSelectedYear] = useState(currentYear);
+  const [selectedQuarter, setSelectedQuarter] = useState(getCurrentQuarter());
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
+  const [dateRange, setDateRange] = useState(() => getQuarterRange(currentYear, getCurrentQuarter()));
+  const [sortBy, setSortBy] = useState('Pay Date');
+  const [search, setSearch] = useState('');
+  const [employeeSearch, setEmployeeSearch] = useState('');
+
   const [payrollReports, setPayrollReports] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [selectedReport, setSelectedReport] = useState(null);
-  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [selectedRunId, setSelectedRunId] = useState(null);
+  const [usingMockData, setUsingMockData] = useState(false);
+  const [payslipLoading, setPayslipLoading] = useState({});
 
+  const yearOptions = useMemo(() => {
+    return Array.from({ length: 6 }, (_, i) => currentYear - i);
+  }, [currentYear]);
 
-  const formatCurrency = (num) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(num);
+  const applyPeriodPreset = useCallback((mode, year, quarter, month) => {
+    switch (mode) {
+      case 'monthly':
+        setDateRange(getMonthRange(year, month));
+        break;
+      case 'quarterly':
+        setDateRange(getQuarterRange(year, quarter));
+        break;
+      case 'yearly':
+        setDateRange(getYearRange(year));
+        break;
+      default:
+        break;
+    }
+  }, []);
+
+  const handlePeriodModeChange = (mode) => {
+    setPeriodMode(mode);
+    if (mode !== 'custom') {
+      applyPeriodPreset(mode, selectedYear, selectedQuarter, selectedMonth);
+    }
   };
 
-  const exportToExcel = () => {
-    if (payrollReports.length === 0) {
-      toast.error("No data available to export");
-      return;
+  const handleYearChange = (year) => {
+    setSelectedYear(year);
+    if (periodMode !== 'custom') {
+      applyPeriodPreset(periodMode, year, selectedQuarter, selectedMonth);
     }
-  
+  };
+
+  const handleQuarterChange = (quarter) => {
+    setSelectedQuarter(quarter);
+    if (periodMode === 'quarterly') {
+      setDateRange(getQuarterRange(selectedYear, quarter));
+    }
+  };
+
+  const handleMonthChange = (month) => {
+    setSelectedMonth(month);
+    if (periodMode === 'monthly') {
+      setDateRange(getMonthRange(selectedYear, month));
+    }
+  };
+
+  const periodLabel = useMemo(() => {
+    if (periodMode === 'quarterly') {
+      return `Q${selectedQuarter} ${selectedYear}`;
+    }
+    if (periodMode === 'monthly') {
+      const monthName = MONTH_OPTIONS.find((m) => m.value === selectedMonth)?.label;
+      return `${monthName} ${selectedYear}`;
+    }
+    if (periodMode === 'yearly') {
+      return `${selectedYear}`;
+    }
+    return `${dateRange.from} to ${dateRange.to}`;
+  }, [periodMode, selectedQuarter, selectedYear, selectedMonth, dateRange.from, dateRange.to]);
+
+  const fetchPayrollReports = useCallback(async () => {
+    if (!token) return;
+
     try {
-      const workbook = XLSX.utils.book_new();
-  
-      const summaryData = payrollReports.map(report => ({
-        'Pay Date': new Date(report.payDate).toLocaleDateString(),
-        'Period Start': new Date(report.periodStart).toLocaleDateString(),
-        'Period End': new Date(report.periodEnd).toLocaleDateString(),
-        'Employees': report.employeeCount,
-        'Gross Pay': report.totalGross,
-        'Taxes': report.totalTaxes,
-        'Deductions': report.totalDeductions,
-        'Net Pay': report.totalNet,
-      }));
-  
-      const summarySheet = XLSX.utils.json_to_sheet(summaryData);
-      
-      summarySheet['!cols'] = [
-        { wch: 12 },  // Pay Date
-        { wch: 12 },  // Period Start
-        { wch: 12 },  // Period End
-        { wch: 10 },  // Employees
-        { wch: 12 },  // Gross Pay
-        { wch: 12 },  // Taxes
-        { wch: 12 },  // Deductions
-        { wch: 12 },  // Net Pay
-      ];
-  
-      XLSX.utils.book_append_sheet(workbook, summarySheet, "Payroll Summary");
-  
-      const employeeData = [];
-  
-      payrollReports.forEach(report => {
-        report.employees.forEach(emp => {
-          employeeData.push({
-            'Pay Date': new Date(report.payDate).toLocaleDateString(),
-            'Period': `${new Date(report.periodStart).toLocaleDateString()} - ${new Date(report.periodEnd).toLocaleDateString()}`,
-            'Employee Name': emp.employeeName,
-            'Position': emp.position || 'N/A',
-            'Pay Type': emp.payType?.toUpperCase() || 'N/A',
-            'Check Number': emp.checkNumber,
-            'Gross Pay': emp.grossPay || 0,
-            'Federal Tax': emp.taxes?.federalTax || 0,
-            'State Tax': emp.taxes?.stateTax || 0,
-            'FICA': emp.taxes?.fica || 0,
-            'Medicare': emp.taxes?.medicare || 0,
-            'SDI': emp.taxes?.sdi || 0,
-            'CalSavers': emp.taxes?.calSavers || 0,
-            'Total Taxes': emp.totalTaxes || 0,
-            'Deductions': emp.totalDeductions || 0,
-            'Net Pay': emp.netPay || 0,
+      setLoading(true);
+
+      // Fetch full calendar year(s) — the API filters by pay date (MM-DD), but runs are
+      // often saved with today's pay date while the period falls in the selected quarter.
+      const years = getYearsInRange(dateRange.from, dateRange.to);
+      const yearResults = await Promise.all(
+        years.map(async (year) => {
+          const params = new URLSearchParams({
+            from: '01-01',
+            to: '12-31',
+            year: String(year),
+            sortBy,
           });
-        });
+
+          const response = await fetch(
+            `${API_URL}/api/payroll-system/payroll-reports?${params}`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+
+          const result = await response.json();
+          if (!response.ok) {
+            throw new Error(result.message || 'Failed to fetch reports');
+          }
+
+          return result.data?.reports || [];
+        })
+      );
+
+      const apiReports = [...new Map(
+        yearResults.flat().map((report) => [report.id, report])
+      ).values()];
+
+      const rangeFiltered = apiReports.filter((report) =>
+        reportMatchesDateRange(report, dateRange.from, dateRange.to)
+      );
+
+      const merged = withMockPayrollReports(rangeFiltered);
+      setPayrollReports(merged);
+      setUsingMockData(apiReports.length === 0 && merged.length > 0);
+      setSelectedRunId((prev) => {
+        if (merged.length === 0) return null;
+        if (usesPeriodAggregateView(periodMode)) return PERIOD_AGGREGATE_ID;
+        if (prev && merged.some((r) => r.id === prev)) return prev;
+        return merged[0].id;
       });
-  
-      const detailSheet = XLSX.utils.json_to_sheet(employeeData);
-  
-      detailSheet['!cols'] = [
-        { wch: 12 },  // Pay Date
-        { wch: 25 },  // Period
-        { wch: 20 },  // Employee Name
-        { wch: 18 },  // Position
-        { wch: 10 },  // Pay Type
-        { wch: 12 },  // Check Number
-        { wch: 12 },  // Gross Pay
-        { wch: 12 },  // Federal Tax
-        { wch: 12 },  // State Tax
-        { wch: 12 },  // FICA
-        { wch: 12 },  // Medicare
-        { wch: 12 },  // SDI
-        { wch: 12 },  // CalSavers
-        { wch: 12 },  // Total Taxes
-        { wch: 12 },  // Deductions
-        { wch: 12 },  // Net Pay
-      ];
-  
-      XLSX.utils.book_append_sheet(workbook, detailSheet, "Employee Details");
-  
-      const filename = `Payroll_Report_${filters.year}_${filters.from}_to_${filters.to}.xlsx`;
-      XLSX.writeFile(workbook, filename);
-  
-      toast.success(`Excel file generated with ${employeeData.length} employee records!`);
-  
     } catch (error) {
-      console.error('Error generating Excel:', error);
-      toast.error('Failed to generate Excel file');
+      console.error('Error fetching reports:', error);
+      toast.error(error.message || 'Failed to fetch reports');
+      setPayrollReports([]);
+      setSelectedRunId(null);
+    } finally {
+      setLoading(false);
     }
-  };
+  }, [API_URL, token, dateRange.from, dateRange.to, sortBy, periodMode]);
 
-  const handleViewPayslip = async (payrollRunId, employeeId) => {
-    try {
-      const response = await fetch(
-        `${API_URL}/api/payroll-system/generate-payslip-pdf/${payrollRunId}/${employeeId}`, // ✅ Admin route with employeeId
-        {
-          method: 'GET',
-          headers: { 'Authorization': `Bearer ${token}` },
-        }
-      );
-  
-      if (!response.ok) throw new Error('Failed to generate payslip');
-  
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      window.open(url, '_blank');
-      setTimeout(() => window.URL.revokeObjectURL(url), 100);
-      
-    } catch (error) {
-      console.error('Error viewing payslip:', error);
-      toast.error('Failed to view payslip');
+  useEffect(() => {
+    fetchPayrollReports();
+  }, [fetchPayrollReports]);
+
+  useEffect(() => {
+    if (usesPeriodAggregateView(periodMode) && payrollReports.length > 0) {
+      setSelectedRunId(PERIOD_AGGREGATE_ID);
     }
-  };
+  }, [periodMode, periodLabel, payrollReports.length]);
 
-  const handleDownloadPayslip = async (payrollRunId, employeeId) => {
-    try {
-      toast.info('Generating payslip PDF...');
-  
-      const response = await fetch(
-        `${API_URL}/api/payroll-system/generate-payslip-pdf/${payrollRunId}/${employeeId}`, // ✅ Admin route with employeeId
-        {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-        }
+  const filteredReports = useMemo(() => {
+    if (!search.trim()) return payrollReports;
+    const q = search.trim().toLowerCase();
+    return payrollReports.filter((report) => {
+      const period = `${formatDate(report.periodStart)} - ${formatDate(report.periodEnd)}`;
+      return (
+        formatDate(report.payDate).toLowerCase().includes(q) ||
+        period.toLowerCase().includes(q) ||
+        String(report.checkNumberStart || '').toLowerCase().includes(q)
       );
-  
-      if (!response.ok) {
-        throw new Error('Failed to generate payslip');
-      }
+    });
+  }, [payrollReports, search]);
 
-      const contentDisposition = response.headers.get('Content-Disposition');
-      let filename = 'payslip.pdf';
+  const periodReport = useMemo(
+    () => buildAggregatedPeriodReport(filteredReports, periodLabel, dateRange),
+    [filteredReports, periodLabel, dateRange]
+  );
 
-      if (contentDisposition) {
-        const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
-        if (filenameMatch && filenameMatch[1]) {
-          filename = filenameMatch[1].replace(/['"]/g, '');
-        }
+  const selectedReport = useMemo(() => {
+    if (selectedRunId === PERIOD_AGGREGATE_ID) return periodReport;
+    return payrollReports.find((r) => r.id === selectedRunId) ?? null;
+  }, [payrollReports, selectedRunId, periodReport]);
+
+  const isViewingPeriodReport = selectedRunId === PERIOD_AGGREGATE_ID;
+
+  const filteredEmployees = useMemo(() => {
+    if (!selectedReport?.employees) return [];
+    if (!employeeSearch.trim()) return selectedReport.employees;
+    const q = employeeSearch.trim().toLowerCase();
+    return selectedReport.employees.filter((emp) =>
+      [emp.employeeName, emp.position, emp.payType, emp.checkNumber]
+        .filter(Boolean)
+        .some((v) => String(v).toLowerCase().includes(q))
+    );
+  }, [selectedReport, employeeSearch]);
+
+  const rangeTotals = useMemo(() => {
+    return filteredReports.reduce(
+      (acc, r) => {
+        acc.runs += 1;
+        acc.employees += r.employeeCount || 0;
+        acc.gross += r.totalGross || 0;
+        acc.taxes += r.totalTaxes || 0;
+        acc.deductions += r.totalDeductions || 0;
+        acc.net += r.totalNet || 0;
+        return acc;
+      },
+      { runs: 0, employees: 0, gross: 0, taxes: 0, deductions: 0, net: 0 }
+    );
+  }, [filteredReports]);
+
+  const employeeTotals = useMemo(() => {
+    return filteredEmployees.reduce(
+      (acc, emp) => {
+        acc.gross += emp.grossPay || 0;
+        acc.taxes += emp.totalTaxes || emp.taxes?.totalTaxes || 0;
+        acc.deductions += emp.totalDeductions || 0;
+        acc.net += emp.netPay || 0;
+        return acc;
+      },
+      { gross: 0, taxes: 0, deductions: 0, net: 0 }
+    );
+  }, [filteredEmployees]);
+
+  const runPayslipAction = async (payrollRunId, employee, action) => {
+    const loadingKey = `${payrollRunId}-${employee.employeeId}`;
+    setPayslipLoading((prev) => ({ ...prev, [loadingKey]: action }));
+
+    try {
+      const params = { apiUrl: API_URL, token, payrollRunId, employeeId: employee.employeeId };
+
+      if (action === 'view') {
+        await viewPayslipPdf(params);
+      } else if (action === 'download') {
+        await downloadPayslipPdf(params);
+        toast.success('Payslip downloaded!');
+      } else {
+        await sendPayslipEmail(params);
+        toast.success(`Payslip sent to ${employee.employeeName}`);
       }
-  
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename; 
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-  
-      toast.success('Payslip downloaded!');
     } catch (error) {
-      console.error('Error downloading payslip:', error);
-      toast.error('Failed to download payslip');
+      console.error('Payslip action error:', error);
+      toast.error(error.message || 'Payslip action failed');
+    } finally {
+      setPayslipLoading((prev) => ({ ...prev, [loadingKey]: null }));
     }
   };
 
   const handlePrintCheck = async (payrollRunId, employeeId) => {
+    if (isMockPayrollId(payrollRunId)) {
+      toast.info('Check printing is not available for demo payroll runs.');
+      return;
+    }
     try {
       toast.info('Generating check for printing...');
-  
       const response = await fetch(
         `${API_URL}/api/payroll-system/generate-check-pdf/${payrollRunId}/${employeeId}`,
-        {
-          method: 'GET',
-          headers: { 'Authorization': `Bearer ${token}` },
-        }
+        { headers: { Authorization: `Bearer ${token}` } }
       );
-  
       if (!response.ok) throw new Error('Failed to generate check');
-  
-      const contentDisposition = response.headers.get('Content-Disposition');
-      let filename = 'check.pdf';
-      if (contentDisposition) {
-        const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
-        if (match && match[1]) filename = match[1].replace(/['"]/g, '');
-      }
-  
+
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
-      
-      // Open in new window for printing
       const printWindow = window.open(url, '_blank');
-      printWindow.addEventListener('load', () => {
-        printWindow.print();
-      });
-      
+      printWindow?.addEventListener('load', () => printWindow.print());
       setTimeout(() => window.URL.revokeObjectURL(url), 1000);
       toast.success('Check ready for printing!');
     } catch (error) {
@@ -229,200 +474,59 @@ const Reports = () => {
     }
   };
 
-  const fetchPayrollReports = async () => {
+  const exportPayrollSummary = async () => {
+    if (!selectedReport?.employees?.length) {
+      toast.error('No payroll data in this report to export');
+      return;
+    }
+
+    const eligible = filteredEmployees.filter((emp) => emp.grossPay != null);
+    if (eligible.length === 0) {
+      toast.error('No payroll data to summarize');
+      return;
+    }
+
+    const periodFrom = isViewingPeriodReport
+      ? dateRange.from
+      : selectedReport.periodStart?.split('T')[0] || dateRange.from;
+    const periodTo = isViewingPeriodReport
+      ? dateRange.to
+      : selectedReport.periodEnd?.split('T')[0] || dateRange.to;
+
     try {
-      setLoading(true);
-      const response = await fetch(
-        `${API_URL}/api/payroll-system/payroll-reports?from=${filters.from}&to=${filters.to}&year=${filters.year}&sortBy=${filters.sortBy}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-        }
+      const [settingsRes, futaRes] = await Promise.all([
+        fetch(`${API_URL}/api/company-information/company-settings`, {
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        }),
+        fetch(`${API_URL}/api/deductions/settings`, {
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        }),
+      ]);
+
+      const settingsData = await settingsRes.json();
+      const futaData = await futaRes.json();
+
+      const companyName = settingsRes.ok && settingsData.success
+        ? settingsData.data?.company?.name || 'Company'
+        : 'Company';
+      const futaEnabled = futaRes.ok && futaData.success
+        ? Boolean(futaData.data?.futaEnabled)
+        : false;
+
+      const filename = await downloadPayrollSummaryExcel({
+        companyName,
+        dateFrom: periodFrom,
+        dateTo: periodTo,
+        employees: eligible.map(mapReportEmployeeToSummaryRow),
+        futaEnabled,
+      });
+      toast.success(
+        `${isViewingPeriodReport ? 'Period' : 'Payroll'} summary exported (${eligible.length} employees) — ${filename}`
       );
-
-      const result = await response.json();
-
-      if (response.ok) {
-        setPayrollReports(result.data.reports);
-      } else {
-        toast.error(result.message || 'Failed to fetch reports');
-      }
     } catch (error) {
-      console.error('Error fetching reports:', error);
-      toast.error('Failed to fetch reports');
-    } finally {
-      setLoading(false);
+      console.error('Error exporting payroll summary:', error);
+      toast.error(error.message || 'Failed to export payroll summary');
     }
-  };
-
-  const PayrollDetailModal = () => {
-    if (!isDetailModalOpen || !selectedReport) return null;
-    
-    if (!selectedReport.employees || selectedReport.employees.length === 0) {
-      return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg p-6 shadow-xl">
-            <p className="text-gray-600">No employee data available</p>
-            <button
-              onClick={() => setIsDetailModalOpen(false)}
-              className="mt-4 px-4 py-2 bg-gray-600 text-white rounded"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      );
-    }
-    
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto">
-        <div 
-          className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-          onClick={() => setIsDetailModalOpen(false)}
-        ></div>
-        
-        <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-6xl mx-4 my-8 max-h-[90vh] overflow-hidden flex flex-col">
-          {/* Header */}
-          <div className="sticky top-0 bg-gradient-to-r from-orange-600 to-orange-700 text-white px-4 sm:px-6 py-4 rounded-t-xl flex-shrink-0">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h3 className="text-xl font-bold">Payroll Run Details</h3>
-                <p className="text-sm text-orange-100 mt-1">
-                  Period: {new Date(selectedReport.periodStart).toLocaleDateString()} - {new Date(selectedReport.periodEnd).toLocaleDateString()}
-                </p>
-                <p className="text-sm text-orange-100">
-                  Pay Date: {new Date(selectedReport.payDate).toLocaleDateString()}
-                </p>
-              </div>
-              <button
-                onClick={() => setIsDetailModalOpen(false)}
-                className="p-2 hover:bg-white/20 rounded-full transition-colors"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-          </div>
-  
-          {/* Summary */}
-          <div className="bg-gray-50 px-4 sm:px-6 py-4 border-b grid grid-cols-2 sm:grid-cols-4 gap-4 flex-shrink-0">
-            <div className="text-center">
-              <p className="text-xs text-gray-500 uppercase">Employees</p>
-              <p className="text-lg font-bold text-gray-900">{selectedReport.employeeCount}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-xs text-gray-500 uppercase">Gross Pay</p>
-              <p className="text-lg font-bold text-green-600">{formatCurrency(selectedReport.totalGross)}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-xs text-gray-500 uppercase">Total Taxes</p>
-              <p className="text-lg font-bold text-blue-600">{formatCurrency(selectedReport.totalTaxes)}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-xs text-gray-500 uppercase">Net Pay</p>
-              <p className="text-lg font-bold text-orange-600">{formatCurrency(selectedReport.totalNet)}</p>
-            </div>
-          </div>
-  
-          {/* Employee List */}
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6">
-            <h4 className="text-sm font-bold text-gray-700 uppercase mb-4">Employee Breakdown</h4>
-            
-            <div className="space-y-4">
-              {selectedReport.employees.map((emp, index) => (
-                <div key={index} className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center shrink-0">
-                        <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                        </svg>
-                      </div>
-                      <div>
-                        <h5 className="font-semibold text-gray-900">{emp.employeeName || 'Employee'}</h5>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs text-gray-500">{emp.position || 'No position'}</span>
-                          <span className={`text-xs px-2 py-0.5 rounded ${
-                            emp.payType === 'salary' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'
-                          }`}>
-                            {emp.payType?.toUpperCase()}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between sm:justify-end gap-3">
-                      <div className="text-right">
-                        <p className="text-xs text-gray-500">Check #{emp.checkNumber}</p>
-                        <p className="text-lg font-bold text-orange-600">{formatCurrency(emp.netPay || 0)}</p>
-                      </div>
-                      {/* PDF Button */}
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleViewPayslip(selectedReport.id, emp.employeeId)}
-                          className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                          title="View PDF Payslip"
-                        >
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                          </svg>
-                        </button>
-                        
-                        <button
-                          onClick={() => handleDownloadPayslip(selectedReport.id, emp.employeeId)}
-                          className="p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                          title="Download PDF Payslip"
-                        >
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                          </svg>
-                        </button>
-                        <button
-                          onClick={() => handlePrintCheck(selectedReport.id, emp.employeeId)}
-                          className="p-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                          title="Print Check"
-                        >
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-                          </svg>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
-                    <div className="bg-green-50 rounded p-2">
-                      <p className="text-xs text-gray-600 mb-1">Gross Pay</p>
-                      <p className="font-semibold text-green-700">{formatCurrency(emp.grossPay || 0)}</p>
-                    </div>
-                    <div className="bg-blue-50 rounded p-2">
-                      <p className="text-xs text-gray-600 mb-1">Taxes</p>
-                      <p className="font-semibold text-blue-700">{formatCurrency(emp.taxes?.totalTaxes || 0)}</p>
-                    </div>
-                    <div className="bg-red-50 rounded p-2">
-                      <p className="text-xs text-gray-600 mb-1">Deductions</p>
-                      <p className="font-semibold text-red-700">{formatCurrency(emp.totalDeductions || 0)}</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-  
-          {/* Footer */}
-          <div className="bg-gray-100 px-4 sm:px-6 py-3 rounded-b-xl flex justify-end flex-shrink-0">
-            <button
-              onClick={() => setIsDetailModalOpen(false)}
-              className="px-6 py-2 bg-gray-600 text-white font-medium rounded-lg hover:bg-gray-700 transition-colors"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      </div>
-    );
   };
 
   const reportTabs = [
@@ -431,189 +535,573 @@ const Reports = () => {
     { id: 'de-9c', label: 'DE-9C', enabled: false },
   ];
 
-  // Render Payroll Detail Tab
   const renderPayrollDetailTab = () => (
-    <div>
-      <PayrollDetailModal />
-      {/* Filters Section */}
-      <div className="p-4 sm:p-6 bg-gray-50 border-b">
-        {/* Filters Row */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+    <div className="p-6 space-y-4">
+      {/* Report period filter */}
+      <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+        <p className="text-xs font-semibold text-blue-800 uppercase tracking-wide mb-3">
+          Report Period
+        </p>
+        <div className="flex flex-wrap items-end gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">From</label>
-            <input
-              type="text"
-              value={filters.from}
-              onChange={(e) => setFilters({ ...filters, from: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
-              placeholder="01-01"
-            />
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">To</label>
-            <input
-              type="text"
-              value={filters.to}
-              onChange={(e) => setFilters({ ...filters, to: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
-              placeholder="12-31"
-            />
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Year</label>
+            <label className="block text-xs font-medium text-blue-700 mb-1">Period type</label>
             <select
-              value={filters.year}
-              onChange={(e) => setFilters({ ...filters, year: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+              value={periodMode}
+              onChange={(e) => handlePeriodModeChange(e.target.value)}
+              className="px-3 py-2 text-sm border border-blue-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 min-w-[150px]"
             >
-              {Array.from({ length: new Date().getFullYear() - 2024 }, (_, i) => 2025 + i).map(year => (
-                <option key={year} value={year}>{year}</option>
+              {PERIOD_MODES.map((mode) => (
+                <option key={mode.id} value={mode.id}>
+                  {mode.label}
+                </option>
               ))}
             </select>
           </div>
-          
+
+          {periodMode !== 'custom' && (
+            <div>
+              <label className="block text-xs font-medium text-blue-700 mb-1">Year</label>
+              <select
+                value={selectedYear}
+                onChange={(e) => handleYearChange(Number(e.target.value))}
+                className="px-3 py-2 text-sm border border-blue-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 min-w-[100px]"
+              >
+                {yearOptions.map((year) => (
+                  <option key={year} value={year}>
+                    {year}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {periodMode === 'quarterly' && (
+            <div>
+              <label className="block text-xs font-medium text-blue-700 mb-1">Quarter</label>
+              <select
+                value={selectedQuarter}
+                onChange={(e) => handleQuarterChange(Number(e.target.value))}
+                className="px-3 py-2 text-sm border border-blue-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 min-w-[160px]"
+              >
+                {QUARTER_OPTIONS.map((q) => (
+                  <option key={q.value} value={q.value}>
+                    {q.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {periodMode === 'monthly' && (
+            <div>
+              <label className="block text-xs font-medium text-blue-700 mb-1">Month</label>
+              <select
+                value={selectedMonth}
+                onChange={(e) => handleMonthChange(Number(e.target.value))}
+                className="px-3 py-2 text-sm border border-blue-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 min-w-[140px]"
+              >
+                {MONTH_OPTIONS.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {periodMode === 'custom' && (
+            <>
+              <div>
+                <label className="block text-xs font-medium text-blue-700 mb-1">From</label>
+                <input
+                  type="date"
+                  value={dateRange.from}
+                  onChange={(e) => setDateRange((prev) => ({ ...prev, from: e.target.value }))}
+                  className="px-3 py-2 text-sm border border-blue-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-blue-700 mb-1">To</label>
+                <input
+                  type="date"
+                  value={dateRange.to}
+                  onChange={(e) => setDateRange((prev) => ({ ...prev, to: e.target.value }))}
+                  className="px-3 py-2 text-sm border border-blue-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </>
+          )}
+
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Sort By</label>
+            <label className="block text-xs font-medium text-blue-700 mb-1">Sort by</label>
             <select
-              value={filters.sortBy}
-              onChange={(e) => setFilters({ ...filters, sortBy: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="px-3 py-2 text-sm border border-blue-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 min-w-[140px]"
             >
-              <option>Pay Date</option>
-              <option>Amount</option>
+              <option value="Pay Date">Pay Date</option>
+              <option value="Amount">Net Pay Amount</option>
             </select>
           </div>
-        </div>
-
-        {/* Action Buttons Row */}
-        <div className="flex flex-col sm:flex-row sm:justify-end gap-3">
           <button
             onClick={fetchPayrollReports}
             disabled={loading}
-            className="w-full sm:w-auto px-8 py-2.5 bg-orange-600 text-white font-semibold rounded-lg hover:bg-orange-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
           >
-            {loading ? 'LOADING...' : 'VIEW'}
-          </button>
-
-          <button
-            onClick={exportToExcel}
-            disabled={payrollReports.length === 0}
-            className="w-full sm:w-auto px-8 py-2.5 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-          >
-            EXPORT EXCEL
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            {loading ? 'Loading...' : 'Generate Report'}
           </button>
         </div>
+        {periodMode !== 'custom' && (
+          <p className="mt-2 text-xs text-blue-600">
+            Date range: <span className="font-medium">{dateRange.from}</span> to{' '}
+            <span className="font-medium">{dateRange.to}</span>
+          </p>
+        )}
+        {!loading && payrollReports.length > 0 && (
+          <p className="mt-2 text-xs text-blue-700">
+            Showing {filteredReports.length} payroll run{filteredReports.length !== 1 ? 's' : ''} for{' '}
+            <span className="font-medium">{periodLabel}</span> ({dateRange.from} to {dateRange.to})
+          </p>
+        )}
       </div>
 
-      {/* Reports List or Empty State */}
-      {payrollReports.length === 0 && !loading ? (
-        <div className="p-6 sm:p-12 text-center">
-          <div className="max-w-md mx-auto">
-            <div className="bg-orange-100 rounded-full w-24 h-24 flex items-center justify-center mx-auto mb-4">
-              <svg className="w-12 h-12 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
+      <MockPayrollBanner showingMock={usingMockData} />
+
+      {/* Period report summary */}
+      {!loading && filteredReports.length > 0 && isViewingPeriodReport && (
+        <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-orange-900">
+                {periodLabel} Payroll Report
+              </p>
+              <p className="text-xs text-orange-800 mt-0.5">
+                {periodReport.runsIncluded} payroll run{periodReport.runsIncluded !== 1 ? 's' : ''} combined ·{' '}
+                {periodReport.employeeCount} unique employee{periodReport.employeeCount !== 1 ? 's' : ''} ·{' '}
+                {dateRange.from} to {dateRange.to}
+              </p>
             </div>
-            <h3 className="text-xl font-semibold text-gray-800 mb-2">No Payroll Reports Found</h3>
-            <p className="text-gray-600">Click "VIEW" to load reports or create a payroll first.</p>
-          </div>
-        </div>
-      ) : (
-        <div className="p-4 sm:p-6">
-          <div className="overflow-x-auto">
-            <table className="min-w-[700px] w-full bg-white border border-gray-300">
-              <thead className="bg-gray-100">
-                <tr>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 border-b">Pay Date</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 border-b">Period</th>
-                  <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 border-b">Employees</th>
-                  <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 border-b">Gross Pay</th>
-                  <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 border-b">Taxes</th>
-                  <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 border-b">Deductions</th>
-                  <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 border-b">Net Pay</th>
-                  <th className="px-4 py-3 text-center text-sm font-semibold text-gray-700 border-b">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {payrollReports.map((report) => (
-                  <tr key={report.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-sm text-gray-900 border-b">
-                      {new Date(report.payDate).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900 border-b">
-                      {new Date(report.periodStart).toLocaleDateString()} - {new Date(report.periodEnd).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900 text-right border-b">{report.employeeCount}</td>
-                    <td className="px-4 py-3 text-sm text-gray-900 text-right border-b">{formatCurrency(report.totalGross)}</td>
-                    <td className="px-4 py-3 text-sm text-gray-900 text-right border-b">{formatCurrency(report.totalTaxes)}</td>
-                    <td className="px-4 py-3 text-sm text-gray-900 text-right border-b">{formatCurrency(report.totalDeductions)}</td>
-                    <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right border-b">{formatCurrency(report.totalNet)}</td>
-                    <td className="px-4 py-3 text-center border-b">
-                      <button
-                        onClick={() => {
-                          setSelectedReport(report);
-                          setIsDetailModalOpen(true);
-                        }}
-                        className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
-                      >
-                        View Details
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={exportPayrollSummary}
+                disabled={periodReport.employees.length === 0}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-50"
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+                Export {periodLabel} Report
+              </button>
+              <div className="text-right">
+                <p className="text-xs text-orange-800 uppercase tracking-wide">Period Net Payroll</p>
+                <p className="text-2xl font-bold text-orange-900">{formatCurrency(periodReport.totalNet)}</p>
+              </div>
+            </div>
           </div>
         </div>
       )}
-    </div>
-  );
 
-  // ... other tab render functions remain the same ...
+      {/* Runs summary banner */}
+      {!loading && filteredReports.length > 0 && !isViewingPeriodReport && (
+        <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-green-800">Saved payroll runs in range</p>
+              <p className="text-xs text-green-700 mt-0.5">
+                {rangeTotals.runs} run{rangeTotals.runs !== 1 ? 's' : ''} ·{' '}
+                {rangeTotals.employees} employee record{rangeTotals.employees !== 1 ? 's' : ''}
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-green-700 uppercase tracking-wide">Total Net Payroll</p>
+              <p className="text-2xl font-bold text-green-800">{formatCurrency(rangeTotals.net)}</p>
+            </div>
+          </div>
+        </div>
+      )}
 
-  const renderReportTabContent = () => {
-    switch (activeReportTab) {
-      case 'payroll-detail':
-        return renderPayrollDetailTab();
-      default:
-        return renderPayrollDetailTab();
-    }
-  };
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search runs by date or period..."
+          className="w-64 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+        />
+        <span className="text-sm text-gray-500">
+          {filteredReports.length} of {payrollReports.length} runs
+        </span>
+        {!loading && filteredReports.length > 0 && (
+          <span className="text-sm font-medium text-orange-700">
+            Σ {formatCurrency(rangeTotals.gross)} gross
+          </span>
+        )}
+      </div>
 
-  return (
-    <>
-    <Toaster position="top-center" richColors />
-    <div>
-      <div className="bg-gray-50 border-b">
-        <div className="px-4 sm:px-6 pt-4 overflow-x-auto">
-          <nav className="flex space-x-2 w-max">
-            {reportTabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => tab.enabled && setActiveReportTab(tab.id)}
-                disabled={!tab.enabled}
-                className={`
-                  px-6 py-2 text-sm font-medium rounded-t-lg transition-colors whitespace-nowrap
-                  ${activeReportTab === tab.id
-                    ? 'bg-orange-500 text-white'
-                    : tab.enabled 
-                      ? 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                      : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                  }
-                `}
-              >
-                {tab.label}
-                {!tab.enabled}
-              </button>
-            ))}
-          </nav>
+      {/* Payroll runs spreadsheet */}
+      <div className="border border-gray-400 rounded-lg overflow-hidden shadow-sm bg-white">
+        <div className="px-4 py-2 bg-gray-100 border-b border-gray-300">
+          <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+            {usesPeriodAggregateView(periodMode)
+              ? 'Report views — period summary or individual payroll runs'
+              : 'Payroll Runs — select a row to view employees below'}
+          </p>
+        </div>
+        <div className="overflow-auto max-h-[280px]">
+          {loading ? (
+            <div className="flex items-center justify-center py-16 gap-3">
+              <div className="w-8 h-8 border-4 border-orange-200 border-t-orange-600 rounded-full animate-spin" />
+              <span className="text-gray-600 text-sm">Loading payroll reports...</span>
+            </div>
+          ) : filteredReports.length === 0 ? (
+            <div className="py-16 text-center text-gray-500 text-sm">
+              No saved payroll runs found for this period. Save payroll from the Employee Sheet first.
+            </div>
+          ) : (
+            <table className="w-full border-collapse text-sm min-w-[900px]">
+              <thead className="sticky top-0 z-10">
+                <tr className="bg-[#f3f3f3]">
+                  {['View', 'Pay Date', 'Period', 'Employees', 'Gross Pay', 'Taxes', 'Deductions', 'Net Pay'].map(
+                    (label, i) => (
+                      <th
+                        key={label}
+                        className={`px-3 py-2 text-xs font-semibold text-gray-700 border border-gray-300 whitespace-nowrap ${
+                          i <= 1 ? 'text-left' : 'text-right'
+                        } ${label === 'Net Pay' ? 'bg-orange-100 text-orange-800' : ''} ${
+                          label === 'Gross Pay' ? 'bg-green-100 text-green-800' : ''
+                        } ${label === 'Taxes' ? 'bg-blue-100 text-blue-800' : ''} ${
+                          label === 'Deductions' ? 'bg-red-100 text-red-800' : ''
+                        } ${label === 'View' ? 'bg-orange-50 text-orange-800 min-w-[140px]' : ''}`}
+                      >
+                        {label}
+                      </th>
+                    )
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                {usesPeriodAggregateView(periodMode) && (
+                  <tr
+                    onClick={() => setSelectedRunId(PERIOD_AGGREGATE_ID)}
+                    className={`cursor-pointer transition-colors ${
+                      isViewingPeriodReport
+                        ? 'bg-orange-50 ring-1 ring-inset ring-orange-300'
+                        : 'bg-orange-50/40 hover:bg-orange-50'
+                    }`}
+                  >
+                    <td className="px-3 py-2 border border-gray-300 font-semibold text-orange-800 text-xs">
+                      {periodLabel} Summary
+                    </td>
+                    <td className="px-3 py-2 border border-gray-300 text-gray-500 text-xs">
+                      All runs
+                    </td>
+                    <td className="px-3 py-2 border border-gray-300 text-right text-gray-700 text-xs whitespace-nowrap">
+                      {formatDate(dateRange.from)} – {formatDate(dateRange.to)}
+                    </td>
+                    <td className="px-3 py-2 border border-gray-300 text-right font-mono text-xs">
+                      {periodReport.employeeCount}
+                    </td>
+                    <td className="px-3 py-2 border border-gray-300 text-right font-mono text-xs text-green-700">
+                      {formatCurrency(periodReport.totalGross)}
+                    </td>
+                    <td className="px-3 py-2 border border-gray-300 text-right font-mono text-xs text-blue-700">
+                      {formatCurrency(periodReport.totalTaxes)}
+                    </td>
+                    <td className="px-3 py-2 border border-gray-300 text-right font-mono text-xs text-red-700">
+                      {formatCurrency(periodReport.totalDeductions)}
+                    </td>
+                    <td className="px-3 py-2 border border-gray-300 text-right font-mono text-xs font-semibold text-orange-700">
+                      {formatCurrency(periodReport.totalNet)}
+                    </td>
+                  </tr>
+                )}
+                {filteredReports.map((report, index) => {
+                  const isSelected = report.id === selectedRunId;
+                  return (
+                    <tr
+                      key={report.id}
+                      onClick={() => setSelectedRunId(report.id)}
+                      className={`cursor-pointer transition-colors ${
+                        isSelected
+                          ? 'bg-orange-50 ring-1 ring-inset ring-orange-300'
+                          : index % 2 === 0
+                            ? 'bg-white hover:bg-gray-50'
+                            : 'bg-[#fafafa] hover:bg-gray-50'
+                      }`}
+                    >
+                      <td className="px-3 py-2 border border-gray-300 text-xs text-gray-600">
+                        Single run
+                      </td>
+                      <td className="px-3 py-2 border border-gray-300 font-medium text-gray-900">
+                        {formatDate(report.payDate)}
+                        {report.isMock && (
+                          <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">
+                            DEMO
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 border border-gray-300 text-right text-gray-700 text-xs whitespace-nowrap">
+                        {formatDate(report.periodStart)} – {formatDate(report.periodEnd)}
+                      </td>
+                      <td className="px-3 py-2 border border-gray-300 text-right font-mono text-xs">
+                        {report.employeeCount}
+                      </td>
+                      <td className="px-3 py-2 border border-gray-300 text-right font-mono text-xs text-green-700">
+                        {formatCurrency(report.totalGross)}
+                      </td>
+                      <td className="px-3 py-2 border border-gray-300 text-right font-mono text-xs text-blue-700">
+                        {formatCurrency(report.totalTaxes)}
+                      </td>
+                      <td className="px-3 py-2 border border-gray-300 text-right font-mono text-xs text-red-700">
+                        {formatCurrency(report.totalDeductions)}
+                      </td>
+                      <td className="px-3 py-2 border border-gray-300 text-right font-mono text-xs font-semibold text-orange-700">
+                        {formatCurrency(report.totalNet)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
 
-      {renderReportTabContent()}
+      {/* Employee detail spreadsheet */}
+      {selectedReport && (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-gray-800">
+                {isViewingPeriodReport
+                  ? `Employees — ${periodLabel} (${periodReport.runsIncluded} runs combined)`
+                  : `Employees — Pay date ${formatDate(selectedReport.payDate)}`}
+              </p>
+              <p className="text-xs text-gray-500">
+                Period {formatDate(selectedReport.periodStart)} to {formatDate(selectedReport.periodEnd)}
+                {isViewingPeriodReport && ' · Totals summed per employee across all runs in range'}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                value={employeeSearch}
+                onChange={(e) => setEmployeeSearch(e.target.value)}
+                placeholder="Search employees..."
+                className="w-56 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+              />
+              <button
+                type="button"
+                onClick={exportPayrollSummary}
+                disabled={filteredEmployees.length === 0}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+                {isViewingPeriodReport ? `Export ${periodLabel} Report` : 'Payroll Summary'}
+              </button>
+            </div>
+          </div>
+
+          <div className="border border-gray-400 rounded-lg overflow-hidden shadow-sm bg-white">
+            <div className="overflow-auto max-h-[calc(100vh-520px)]">
+              <table className="w-full border-collapse text-sm min-w-[1100px]">
+                <thead className="sticky top-0 z-20">
+                  <tr className="bg-[#f3f3f3]">
+                    <th
+                      className={`sticky ${STICKY_ROW_NUM_LEFT} z-40 min-w-[48px] px-2 py-2 text-center text-xs font-semibold text-gray-600 border border-gray-300 bg-[#e8e8e8]`}
+                    >
+                      #
+                    </th>
+                    <th
+                      className={`sticky ${STICKY_NAME_LEFT} z-30 min-w-[160px] px-3 py-2 text-xs font-semibold text-gray-700 border border-gray-300 bg-[#f3f3f3] text-left`}
+                    >
+                      Name
+                    </th>
+                    {[
+                      { key: 'position', label: 'Position', align: 'left' },
+                      { key: 'payType', label: 'Pay Type', align: 'center' },
+                      { key: 'check', label: 'Check #', align: 'right' },
+                      { key: 'gross', label: 'Gross Pay', align: 'right', highlight: 'green' },
+                      { key: 'taxes', label: 'Taxes', align: 'right', highlight: 'blue' },
+                      { key: 'deductions', label: 'Deductions', align: 'right', highlight: 'red' },
+                      { key: 'net', label: 'Net Pay', align: 'right', highlight: 'orange' },
+                      ...(isViewingPeriodReport
+                        ? []
+                        : [{ key: 'actions', label: 'Payslip', align: 'center', sticky: true }]),
+                    ].map((col) => (
+                      <th
+                        key={col.key}
+                        className={`px-3 py-2 text-xs font-semibold border border-gray-300 whitespace-nowrap ${
+                          col.highlight === 'green' ? 'bg-green-100 text-green-800' : ''
+                        } ${col.highlight === 'blue' ? 'bg-blue-100 text-blue-800' : ''
+                        } ${col.highlight === 'red' ? 'bg-red-100 text-red-800' : ''
+                        } ${col.highlight === 'orange' ? 'bg-orange-100 text-orange-800' : ''
+                        } ${col.sticky ? 'sticky right-0 z-30 bg-violet-50 text-violet-800 min-w-[140px]' : 'bg-[#f3f3f3] text-gray-700'}`}
+                        style={{ textAlign: col.align }}
+                      >
+                        {col.label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredEmployees.length === 0 ? (
+                    <tr>
+                      <td colSpan={isViewingPeriodReport ? 9 : 10} className="px-4 py-12 text-center text-gray-500 border border-gray-300">
+                        No employees match your search
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredEmployees.map((emp, index) => (
+                      <tr
+                        key={`${emp.employeeId}-${index}`}
+                        className={index % 2 === 0 ? 'bg-white' : 'bg-[#fafafa]'}
+                      >
+                        <td
+                          className={`sticky ${STICKY_ROW_NUM_LEFT} z-20 px-2 py-1.5 text-center text-xs font-mono text-gray-500 border border-gray-300 ${
+                            index % 2 === 0 ? 'bg-white' : 'bg-[#fafafa]'
+                          }`}
+                        >
+                          {index + 1}
+                        </td>
+                        <td
+                          className={`sticky ${STICKY_NAME_LEFT} z-10 px-3 py-1.5 text-sm font-medium text-gray-900 border border-gray-300 ${
+                            index % 2 === 0 ? 'bg-white' : 'bg-[#fafafa]'
+                          }`}
+                        >
+                          {emp.employeeName || '—'}
+                        </td>
+                        <td className="px-3 py-1.5 text-sm text-gray-700 border border-gray-300">
+                          {emp.position || '—'}
+                        </td>
+                        <td className="px-3 py-1.5 border border-gray-300 text-center">
+                          <span
+                            className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
+                              emp.payType === 'salary'
+                                ? 'bg-purple-100 text-purple-800'
+                                : 'bg-blue-100 text-blue-800'
+                            }`}
+                          >
+                            {emp.payType?.toUpperCase() || '—'}
+                          </span>
+                        </td>
+                        <td className="px-3 py-1.5 text-xs font-mono text-gray-700 border border-gray-300 text-right">
+                          {emp.checkNumber || '—'}
+                        </td>
+                        <td className="px-3 py-1.5 text-xs font-mono text-green-700 border border-gray-300 text-right">
+                          {formatCurrency(emp.grossPay)}
+                        </td>
+                        <td className="px-3 py-1.5 text-xs font-mono text-blue-700 border border-gray-300 text-right">
+                          {formatCurrency(emp.totalTaxes || emp.taxes?.totalTaxes)}
+                        </td>
+                        <td className="px-3 py-1.5 text-xs font-mono text-red-700 border border-gray-300 text-right">
+                          {formatCurrency(emp.totalDeductions)}
+                        </td>
+                        <td className="px-3 py-1.5 text-xs font-mono font-semibold text-orange-700 bg-orange-50/40 border border-gray-300 text-right">
+                          {formatCurrency(emp.netPay)}
+                        </td>
+                        {!isViewingPeriodReport && (
+                          <td className="sticky right-0 z-10 px-2 py-1.5 border border-gray-300 text-center bg-inherit">
+                            <div className="inline-flex items-center gap-1">
+                              <PayslipActionButtons
+                                disabled={selectedReport.isMock}
+                                loadingAction={payslipLoading[`${selectedReport.id}-${emp.employeeId}`]}
+                                onView={() => runPayslipAction(selectedReport.id, emp, 'view')}
+                                onDownload={() => runPayslipAction(selectedReport.id, emp, 'download')}
+                                onSend={() => runPayslipAction(selectedReport.id, emp, 'send')}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handlePrintCheck(selectedReport.id, emp.employeeId)}
+                                disabled={selectedReport.isMock}
+                                title={selectedReport.isMock ? 'Not available for demo data' : 'Print check'}
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-100 disabled:opacity-40"
+                              >
+                                <Printer className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+                {filteredEmployees.length > 0 && (
+                  <tfoot className="sticky bottom-0 z-10 bg-gray-200">
+                    <tr>
+                      <td
+                        className={`sticky ${STICKY_ROW_NUM_LEFT} z-30 px-2 py-2 text-xs font-bold text-gray-700 border border-gray-300 text-center bg-gray-200`}
+                      >
+                        Σ
+                      </td>
+                      <td
+                        className={`sticky ${STICKY_NAME_LEFT} z-20 px-3 py-2 text-xs font-bold text-gray-800 border border-gray-300 bg-gray-200`}
+                      >
+                        Totals
+                      </td>
+                      <td colSpan={3} className="border border-gray-300 bg-gray-200" />
+                      <td className="px-3 py-2 text-xs font-bold font-mono text-green-800 border border-gray-300 text-right">
+                        {formatCurrency(employeeTotals.gross)}
+                      </td>
+                      <td className="px-3 py-2 text-xs font-bold font-mono text-blue-800 border border-gray-300 text-right">
+                        {formatCurrency(employeeTotals.taxes)}
+                      </td>
+                      <td className="px-3 py-2 text-xs font-bold font-mono text-red-800 border border-gray-300 text-right">
+                        {formatCurrency(employeeTotals.deductions)}
+                      </td>
+                      <td className="px-3 py-2 text-xs font-bold font-mono text-orange-800 border border-gray-300 text-right">
+                        {formatCurrency(employeeTotals.net)}
+                      </td>
+                      {!isViewingPeriodReport && (
+                        <td className="sticky right-0 z-20 border border-gray-300 bg-gray-200" />
+                      )}
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+
+      <p className="text-xs text-gray-500">
+        {usesPeriodAggregateView(periodMode)
+          ? `Quarterly, monthly, and yearly views build a combined period report across all saved runs in the date range. Use Export to download the full period summary.`
+          : `Custom range reports show saved payroll runs — select a run to view employees or export a single-run summary.`}
+      </p>
     </div>
+  );
+
+  return (
+    <>
+      <Toaster position="top-center" richColors />
+      <div>
+        <div className="bg-gray-50 border-b">
+          <div className="px-6 pt-4">
+            <nav className="flex space-x-2">
+              {reportTabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => tab.enabled && setActiveReportTab(tab.id)}
+                  disabled={!tab.enabled}
+                  className={`px-6 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+                    activeReportTab === tab.id
+                      ? 'bg-orange-500 text-white'
+                      : tab.enabled
+                        ? 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
+          </div>
+        </div>
+        {renderPayrollDetailTab()}
+      </div>
     </>
   );
 };
