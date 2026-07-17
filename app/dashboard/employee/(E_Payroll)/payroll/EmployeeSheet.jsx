@@ -22,7 +22,28 @@ import {
 import PayslipActionButtons from '@/components/payroll/PayslipActionButtons';
 import ModalPortal from '@/components/ui/modal-portal';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Info, Plus, X, Mail, Save } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import Link from 'next/link';
+import {
+  Info,
+  Plus,
+  X,
+  Mail,
+  Save,
+  MoreHorizontal,
+  RefreshCw,
+  Download,
+  Calculator,
+  Clock,
+  ChevronRight,
+  ExternalLink,
+} from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
@@ -71,17 +92,6 @@ const TAX_COLUMNS = [
 const TAX_TOTAL_COLUMN = { key: 'taxes', label: 'Tax Total', align: 'right', isTaxTotal: true };
 
 const FUTA_DEDUCTION_COLUMN = { key: 'futaDeduction', label: 'FUTA', align: 'right', isFuta: true };
-
-function getDefaultDateRange() {
-  const today = new Date();
-  const payTo = new Date(today);
-  const payFrom = new Date(today);
-  payFrom.setDate(payFrom.getDate() - 13);
-  return {
-    from: payFrom.toLocaleDateString('en-CA'),
-    to: payTo.toLocaleDateString('en-CA'),
-  };
-}
 
 function toLocalDateStr(isoDate, tz = 'UTC') {
   if (!isoDate) return '';
@@ -273,8 +283,22 @@ function dedupeCutoffPeriodsByRange(periods, tz = 'UTC') {
   });
 }
 
-function isClosedCutoff(period) {
-  return period.status && period.status !== 'open';
+function isProcessedCutoff(period) {
+  return period?.status === 'processed';
+}
+
+function isPendingCutoff(period) {
+  return period?.status === 'open' || period?.status === 'locked';
+}
+
+function initCreateCutoffForm() {
+  return {
+    departmentId: '',
+    periodStart: '',
+    periodEnd: '',
+    paymentDate: '',
+    frequency: 'bi-weekly',
+  };
 }
 
 const EmployeeSheet = () => {
@@ -285,7 +309,8 @@ const EmployeeSheet = () => {
   const [hoursLoaded, setHoursLoaded] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [dateRange, setDateRange] = useState(getDefaultDateRange);
+  const [dateRange, setDateRange] = useState({ from: '', to: '' });
+  const [selectedCutoffId, setSelectedCutoffId] = useState('');
   const [companyTimezone, setCompanyTimezone] = useState('UTC');
   const [cutoffPeriods, setCutoffPeriods] = useState([]);
   const [salaryComputed, setSalaryComputed] = useState(false);
@@ -304,6 +329,10 @@ const EmployeeSheet = () => {
   const [savingPayroll, setSavingPayroll] = useState(false);
   const [sendingAllPayslips, setSendingAllPayslips] = useState(false);
   const [payslipLoading, setPayslipLoading] = useState({});
+  const [departments, setDepartments] = useState([]);
+  const [showCreateCutoffModal, setShowCreateCutoffModal] = useState(false);
+  const [createCutoffForm, setCreateCutoffForm] = useState(initCreateCutoffForm);
+  const [creatingCutoff, setCreatingCutoff] = useState(false);
 
   const invalidateSavedPayroll = useCallback(() => {
     setSavedPayrollRunId(null);
@@ -312,29 +341,31 @@ const EmployeeSheet = () => {
   const fetchCutoffPeriods = useCallback(async () => {
     if (!token) return [];
 
-    const fetchList = async (query = '') => {
-      const res = await fetch(`${API_URL}/api/cutoff-periods?limit=200${query}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      return res.ok ? data.data || [] : [];
-    };
-
-    const statuses = ['open', 'locked', 'processed', 'closed'];
-    const responses = await Promise.all([
-      fetchList(),
-      ...statuses.map((status) => fetchList(`&status=${status}`)),
-    ]);
-
-    const seenIds = new Set();
-    const merged = responses.flat().filter((period) => {
-      if (!period?.id || seenIds.has(period.id)) return false;
-      seenIds.add(period.id);
-      return true;
+    const res = await fetch(`${API_URL}/api/cutoff-periods?limit=200`, {
+      headers: { Authorization: `Bearer ${token}` },
     });
-
-    return merged.sort((a, b) => new Date(b.periodStart) - new Date(a.periodStart));
+    const data = await res.json();
+    const periods = res.ok ? data.data || [] : [];
+    return periods.sort((a, b) => new Date(b.periodStart) - new Date(a.periodStart));
   }, [token]);
+
+  const fetchDepartments = useCallback(async () => {
+    if (!token) return [];
+
+    const res = await fetch(`${API_URL}/api/departments`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return;
+
+    const data = await res.json();
+    setDepartments(data.data || []);
+  }, [token]);
+
+  const refreshCutoffPeriods = useCallback(async () => {
+    const periods = await fetchCutoffPeriods();
+    setCutoffPeriods(periods);
+    return periods;
+  }, [fetchCutoffPeriods]);
 
   const fetchHoursForPeriod = useCallback(async (from, to) => {
     if (!token || !from || !to) return { hoursByUserId: {}, summary: null };
@@ -775,9 +806,20 @@ const EmployeeSheet = () => {
     });
   }, [token]);
 
-  const loadHours = useCallback(async (from, to, currentRows) => {
+  const loadHours = useCallback(async (from, to, currentRows, cutoffId) => {
+    if (!cutoffId) {
+      toast.error('Select a processed cutoff period before loading hours');
+      return;
+    }
+
+    const period = cutoffPeriods.find((p) => p.id === cutoffId);
+    if (!period || !isProcessedCutoff(period)) {
+      toast.error('Hours can only be loaded from processed cutoff periods');
+      return;
+    }
+
     if (!from || !to) {
-      toast.error('Please select both From and To dates');
+      toast.error('Please select a processed cutoff period');
       return;
     }
 
@@ -811,7 +853,7 @@ const EmployeeSheet = () => {
     } finally {
       setHoursLoading(false);
     }
-  }, [fetchHoursForPeriod, mergeHoursIntoRows]);
+  }, [cutoffPeriods, fetchHoursForPeriod, mergeHoursIntoRows]);
 
   useEffect(() => {
     if (!token) return;
@@ -837,6 +879,7 @@ const EmployeeSheet = () => {
         const [employeeRows, periods, settingsRes] = await Promise.all([
           fetchEmployees(),
           fetchCutoffPeriods(),
+          fetchDepartments(),
           fetch(`${API_URL}/api/company-information/company-settings`, {
             headers: { Authorization: `Bearer ${token}` },
           })
@@ -853,9 +896,6 @@ const EmployeeSheet = () => {
 
         setCutoffPeriods(periods);
         setRows(employeeRows);
-
-        const { from, to } = getDefaultDateRange();
-        await loadHours(from, to, employeeRows);
       } catch (err) {
         toast.error(err.message || 'Failed to initialize sheet');
       } finally {
@@ -872,7 +912,7 @@ const EmployeeSheet = () => {
     setDeductionInputs({});
     setColumnHeaderInputs({});
     invalidateSavedPayroll();
-    await loadHours(dateRange.from, dateRange.to, baseRows);
+    await loadHours(dateRange.from, dateRange.to, baseRows, selectedCutoffId);
   };
 
   const handleComputeSalary = async () => {
@@ -1035,24 +1075,64 @@ const EmployeeSheet = () => {
     }
   };
 
-  const handleQuickFillCutoff = async (cutoffId) => {
+  const handleCreateCutoff = async () => {
+    const { periodStart, periodEnd, paymentDate } = createCutoffForm;
+    if (!periodStart || !periodEnd || !paymentDate) {
+      toast.error('Please fill in period start, end, and payment date');
+      return;
+    }
+
+    if (new Date(periodStart) > new Date(periodEnd)) {
+      toast.error('Period start must be before or equal to period end');
+      return;
+    }
+
+    try {
+      setCreatingCutoff(true);
+      const res = await fetch(`${API_URL}/api/cutoff-periods/create`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...createCutoffForm,
+          departmentId: createCutoffForm.departmentId || null,
+        }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.message || 'Failed to create cutoff period');
+      }
+
+      toast.success('Cutoff period created — review and process it before loading hours');
+      setShowCreateCutoffModal(false);
+      setCreateCutoffForm(initCreateCutoffForm());
+      await refreshCutoffPeriods();
+    } catch (err) {
+      toast.error(err.message || 'Failed to create cutoff period');
+    } finally {
+      setCreatingCutoff(false);
+    }
+  };
+
+  const handleSelectCutoff = (cutoffId) => {
     if (!cutoffId) return;
     const period = cutoffPeriods.find((p) => p.id === cutoffId);
-    if (!period) return;
+    if (!period || !isProcessedCutoff(period)) {
+      toast.error('Select a processed cutoff period');
+      return;
+    }
 
     const from = toLocalDateStr(period.periodStart, companyTimezone);
     const to = toLocalDateStr(period.periodEnd, companyTimezone);
 
+    setSelectedCutoffId(cutoffId);
     setDateRange({ from, to });
     setHoursLoaded(false);
     setSalaryComputed(false);
     setDeductionInputs({});
     setColumnHeaderInputs({});
     invalidateSavedPayroll();
-
-    const baseRows = clearSalaryFromRows(clearHoursFromRows(rows));
-    setRows(baseRows);
-    await loadHours(from, to, baseRows);
+    setRows((prev) => clearSalaryFromRows(clearHoursFromRows(prev)));
   };
 
   const handleRefresh = async () => {
@@ -1064,7 +1144,10 @@ const EmployeeSheet = () => {
       setColumnHeaderInputs({});
       invalidateSavedPayroll();
       const employeeRows = await fetchEmployees();
-      await loadHours(dateRange.from, dateRange.to, employeeRows);
+      await refreshCutoffPeriods();
+      if (selectedCutoffId) {
+        await loadHours(dateRange.from, dateRange.to, employeeRows, selectedCutoffId);
+      }
       toast.success('Sheet refreshed');
       if (shouldRecompute) {
         await handleComputeSalary();
@@ -1076,18 +1159,20 @@ const EmployeeSheet = () => {
     }
   };
 
-  const { openCutoffPeriods, closedCutoffPeriods } = useMemo(() => {
-    const unique = dedupeCutoffPeriodsByRange(cutoffPeriods, companyTimezone);
-    const open = [];
-    const closed = [];
-    unique.forEach((period) => {
-      if (isClosedCutoff(period)) closed.push(period);
-      else open.push(period);
-    });
-    const byDateDesc = (a, b) => new Date(b.periodStart) - new Date(a.periodStart);
-    open.sort(byDateDesc);
-    closed.sort(byDateDesc);
-    return { openCutoffPeriods: open, closedCutoffPeriods: closed };
+  const processedCutoffPeriods = useMemo(() => {
+    const unique = dedupeCutoffPeriodsByRange(
+      cutoffPeriods.filter(isProcessedCutoff),
+      companyTimezone,
+    );
+    return unique.sort((a, b) => new Date(b.periodStart) - new Date(a.periodStart));
+  }, [cutoffPeriods, companyTimezone]);
+
+  const pendingCutoffPeriods = useMemo(() => {
+    const unique = dedupeCutoffPeriodsByRange(
+      cutoffPeriods.filter(isPendingCutoff),
+      companyTimezone,
+    );
+    return unique.sort((a, b) => new Date(b.periodStart) - new Date(a.periodStart));
   }, [cutoffPeriods, companyTimezone]);
 
   const sheetColumns = useMemo(() => {
@@ -1162,8 +1247,14 @@ const EmployeeSheet = () => {
       });
 
       const sent = result.data?.sent ?? result.sent ?? eligible.length;
-      toast.success(`Sent ${sent} payslip(s)${skipped > 0 ? ` (${skipped} skipped — no email)` : ''}`);
+      const failed = result.failed ?? result.data?.failed ?? 0;
+      if (failed > 0) {
+        toast.warning(`Sent ${sent} payslip(s), ${failed} failed${skipped > 0 ? ` (${skipped} skipped — no email)` : ''}`);
+      } else {
+        toast.success(`Sent ${sent} payslip(s)${skipped > 0 ? ` (${skipped} skipped — no email)` : ''}`);
+      }
     } catch (err) {
+      console.error('Send all payslips error:', err);
       toast.error(err.message || 'Failed to send payslips');
     } finally {
       setSendingAllPayslips(false);
@@ -1352,87 +1443,196 @@ const EmployeeSheet = () => {
     <>
       <Toaster position="top-center" richColors />
       <div className="p-6">
-        {/* Date range selector */}
-        <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-          <p className="text-xs font-semibold text-blue-800 uppercase tracking-wide mb-3">
-            Cutoff Period (Date Range)
-          </p>
-          <div className="flex flex-wrap items-end gap-4">
-            <div>
-              <label className="block text-xs font-medium text-blue-700 mb-1">From</label>
-              <input
-                type="date"
-                value={dateRange.from}
-                onChange={(e) => {
-                  setDateRange((prev) => ({ ...prev, from: e.target.value }));
-                  setHoursLoaded(false);
-                  setSalaryComputed(false);
-                  setRows((prev) => clearHoursFromRows(prev));
-                }}
-                className="px-3 py-2 text-sm border border-blue-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
-              />
+        {/* Payroll workflow — steps 1–3 */}
+        <div className="mb-4 rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
+            <p className="text-sm font-semibold text-gray-800">Payroll workflow</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Load hours for the period, compute salaries, then send payslips
+            </p>
+          </div>
+
+          {/* Step 1 — period & hours */}
+          <div className="p-4 bg-blue-50/60 border-b border-blue-100">
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-600 text-[10px] font-bold text-white">
+                1
+              </span>
+              <span className="text-xs font-semibold text-blue-900 uppercase tracking-wide">
+                Load hours
+              </span>
             </div>
-            <div>
-              <label className="block text-xs font-medium text-blue-700 mb-1">To</label>
-              <input
-                type="date"
-                value={dateRange.to}
-                onChange={(e) => {
-                  setDateRange((prev) => ({ ...prev, to: e.target.value }));
-                  setHoursLoaded(false);
-                  setSalaryComputed(false);
-                  setRows((prev) => clearHoursFromRows(prev));
-                }}
-                className="px-3 py-2 text-sm border border-blue-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <button
-              onClick={handleLoadHours}
-              disabled={hoursLoading || !dateRange.from || !dateRange.to}
-              className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {hoursLoading ? 'Loading...' : 'Load Hours'}
-            </button>
-            {(openCutoffPeriods.length > 0 || closedCutoffPeriods.length > 0) && (
+            <div className="flex flex-wrap items-end gap-3">
               <div>
-                <label className="block text-xs font-medium text-blue-700 mb-1">Cut-offs</label>
+                <label className="block text-xs font-medium text-blue-700 mb-1">Processed cutoff</label>
                 <select
-                  defaultValue=""
-                  onChange={(e) => {
-                    handleQuickFillCutoff(e.target.value);
-                    e.target.value = '';
-                  }}
-                  className="px-3 py-2 text-sm border border-blue-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 min-w-[220px]"
+                  value={selectedCutoffId}
+                  onChange={(e) => handleSelectCutoff(e.target.value)}
+                  className="px-3 py-2 text-sm border border-blue-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 min-w-[240px]"
                 >
-                  <option value="" disabled>Select cutoff range...</option>
-                  {openCutoffPeriods.length > 0 && (
-                    <optgroup label="Open">
-                      {openCutoffPeriods.map((period) => (
-                        <option key={period.id} value={period.id}>
-                          {formatCutoffRangeLabel(period, companyTimezone)}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                  {closedCutoffPeriods.length > 0 && (
-                    <optgroup label="Closed">
-                      {closedCutoffPeriods.map((period) => (
-                        <option key={period.id} value={period.id}>
-                          {formatCutoffRangeLabel(period, companyTimezone)}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
+                  <option value="" disabled>
+                    {processedCutoffPeriods.length > 0
+                      ? 'Select processed cutoff...'
+                      : 'No processed cutoffs available'}
+                  </option>
+                  {processedCutoffPeriods.map((period) => (
+                    <option key={period.id} value={period.id}>
+                      {formatCutoffRangeLabel(period, companyTimezone)}
+                    </option>
+                  ))}
                 </select>
               </div>
+              <div>
+                <label className="block text-xs font-medium text-blue-700 mb-1">From</label>
+                <input
+                  type="date"
+                  value={dateRange.from}
+                  readOnly
+                  disabled
+                  className="px-3 py-2 text-sm border border-blue-200 rounded-lg bg-blue-50 text-blue-900 cursor-not-allowed"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-blue-700 mb-1">To</label>
+                <input
+                  type="date"
+                  value={dateRange.to}
+                  readOnly
+                  disabled
+                  className="px-3 py-2 text-sm border border-blue-200 rounded-lg bg-blue-50 text-blue-900 cursor-not-allowed"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCreateCutoffModal(true)}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-blue-700 bg-white border border-blue-300 rounded-lg hover:bg-blue-50"
+              >
+                <Plus className="w-4 h-4" />
+                Create Cutoff
+              </button>
+              <button
+                onClick={handleLoadHours}
+                disabled={hoursLoading || !selectedCutoffId || !dateRange.from || !dateRange.to}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Clock className="w-4 h-4" />
+                {hoursLoading ? 'Loading...' : hoursLoaded ? 'Reload Hours' : 'Load Hours'}
+              </button>
+            </div>
+            {pendingCutoffPeriods.length > 0 && (
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/80 p-3">
+                <p className="text-xs font-semibold text-amber-900 mb-2">
+                  Pending cutoffs — review punches and mark as processed before loading hours
+                </p>
+                <ul className="space-y-1.5">
+                  {pendingCutoffPeriods.slice(0, 5).map((period) => (
+                    <li key={period.id} className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <span className="text-amber-900">
+                        {formatCutoffRangeLabel(period, companyTimezone)}
+                        <span className="ml-2 capitalize text-amber-700">({period.status})</span>
+                      </span>
+                      <Link
+                        href={`/dashboard/company/cutoff-periods/${period.id}/review`}
+                        className="inline-flex items-center gap-1 font-medium text-blue-700 hover:text-blue-900"
+                      >
+                        Review &amp; process
+                        <ExternalLink className="w-3 h-3" />
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {!selectedCutoffId && processedCutoffPeriods.length === 0 && (
+              <p className="mt-2 text-xs text-amber-700">
+                Create a cutoff period, review punches, mark it processed, then load payroll hours here.
+              </p>
+            )}
+            {!selectedCutoffId && processedCutoffPeriods.length > 0 && (
+              <p className="mt-2 text-xs text-blue-700">
+                Select a processed cutoff period, then load hours for that pay window.
+              </p>
+            )}
+            {hoursLoaded && !hoursLoading && selectedCutoffId && (
+              <p className="mt-2 text-xs text-blue-700">
+                Hours loaded from processed cutoff {dateRange.from} to {dateRange.to} — active employees
+                &amp; supervisors only (OT includes approved hours only)
+              </p>
             )}
           </div>
-          {hoursLoaded && !hoursLoading && (
-            <p className="mt-2 text-xs text-blue-700">
-              Showing punch hours for {dateRange.from} to {dateRange.to} (active employees &amp; supervisors
-              only — same import as Create Paycheck; OT includes approved hours only)
-            </p>
-          )}
+
+          {/* Steps 2–3 — compute & send */}
+          <div className="p-4 flex flex-wrap items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-orange-600 text-[10px] font-bold text-white">
+                2
+              </span>
+              <button
+                onClick={handleComputeSalary}
+                disabled={salaryComputing || loading || !dateRange.from || !dateRange.to}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-orange-600 rounded-lg hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Calculator className="w-4 h-4" />
+                {salaryComputing ? 'Computing...' : salaryComputed ? 'Recompute Salary' : 'Compute Salary'}
+              </button>
+
+              <ChevronRight className="w-4 h-4 text-gray-300 hidden sm:block" aria-hidden />
+
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-green-600 text-[10px] font-bold text-white">
+                3
+              </span>
+              <button
+                onClick={handleSendAllPayslips}
+                disabled={!salaryComputed || savingPayroll || sendingAllPayslips}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Mail className="w-4 h-4" />
+                {sendingAllPayslips ? 'Sending...' : 'Send All Payslips'}
+              </button>
+            </div>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+                  aria-label="More payroll actions"
+                >
+                  <MoreHorizontal className="w-4 h-4" />
+                  More
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                {salaryComputed && (
+                  <>
+                    <DropdownMenuItem
+                      onClick={handleSavePayroll}
+                      disabled={savingPayroll || sendingAllPayslips}
+                    >
+                      <Save className="text-indigo-600" />
+                      {savingPayroll ? 'Saving...' : savedPayrollRunId ? 'Re-save Payroll' : 'Save Payroll'}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setShowAddDeductionColumn(true)}>
+                      <Plus className="text-red-600" />
+                      Add Deduction Column
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
+                <DropdownMenuItem onClick={exportToExcel} disabled={filteredRows.length === 0}>
+                  <Download className="text-green-600" />
+                  Export Excel
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={handleRefresh}
+                  disabled={loading || hoursLoading || salaryComputing}
+                >
+                  <RefreshCw className="text-gray-600" />
+                  Refresh Data
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
 
         {salaryComputed && companyConfig && (
@@ -1470,90 +1670,38 @@ const EmployeeSheet = () => {
           </div>
         )}
 
-        {/* Toolbar */}
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search employees..."
-              className="w-64 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-            />
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
-            >
-              <option value="all">All ({statusCounts.all})</option>
-              <option value="active">Active ({statusCounts.active})</option>
-              <option value="inactive">Inactive ({statusCounts.inactive})</option>
-              <option value="deleted">Deleted ({statusCounts.deleted})</option>
-            </select>
-            <span className="text-sm text-gray-500">
-              {filteredRows.length} of {rows.length} rows
+        {/* Table filters */}
+        <div className="flex flex-wrap items-center gap-3 mb-4">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search employees..."
+            className="w-64 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+          />
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+          >
+            <option value="all">All ({statusCounts.all})</option>
+            <option value="active">Active ({statusCounts.active})</option>
+            <option value="inactive">Inactive ({statusCounts.inactive})</option>
+            <option value="deleted">Deleted ({statusCounts.deleted})</option>
+          </select>
+          <span className="text-sm text-gray-500">
+            {filteredRows.length} of {rows.length} rows
+          </span>
+          {hoursLoaded && !hoursLoading && (
+            <span className="text-sm font-medium text-green-700">
+              Σ {hoursTotals.totalPunch.toFixed(2)} total punch hrs
             </span>
-            {hoursLoaded && !hoursLoading && (
-              <span className="text-sm font-medium text-green-700">
-                Σ {hoursTotals.totalPunch.toFixed(2)} total punch hrs
-              </span>
-            )}
-            {salaryComputed && !salaryComputing && (
-              <span className="text-sm font-medium text-orange-700">
-                Σ {formatCurrency(salaryTotals.gross)} gross
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            {salaryComputed && (
-              <>
-                <button
-                  onClick={() => setShowAddDeductionColumn(true)}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add Deduction Column
-                </button>
-                <button
-                  onClick={handleSavePayroll}
-                  disabled={savingPayroll || sendingAllPayslips}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Save className="w-4 h-4" />
-                  {savingPayroll ? 'Saving...' : savedPayrollRunId ? 'Re-save Payroll' : 'Save Payroll'}
-                </button>
-                <button
-                  onClick={handleSendAllPayslips}
-                  disabled={savingPayroll || sendingAllPayslips}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Mail className="w-4 h-4" />
-                  {sendingAllPayslips ? 'Sending...' : 'Send All Payslips'}
-                </button>
-              </>
-            )}
-            <button
-              onClick={handleComputeSalary}
-              disabled={salaryComputing || loading}
-              className="px-4 py-2 text-sm font-semibold text-white bg-orange-600 rounded-lg hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {salaryComputing ? 'Computing...' : 'Compute Salary'}
-            </button>
-            <button
-              onClick={handleRefresh}
-              disabled={loading || hoursLoading || salaryComputing}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
-            >
-              Refresh
-            </button>
-            <button
-              onClick={exportToExcel}
-              disabled={filteredRows.length === 0}
-              className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Export Excel
-            </button>
-          </div>
+          )}
+          {salaryComputed && !salaryComputing && (
+            <span className="text-sm font-medium text-orange-700">
+              Σ {formatCurrency(salaryTotals.gross)} gross
+            </span>
+          )}
         </div>
 
         {/* Spreadsheet */}
@@ -1828,6 +1976,121 @@ const EmployeeSheet = () => {
           1) Set dates and Load Hours · 2) Compute Salary · 3) Adjust deductions · 4) Save payroll · 5) Export{' '}
           <strong>Payroll Summary</strong> from the Reports tab or use row <strong>Payslip</strong> actions.
         </p>
+
+        {showCreateCutoffModal && (
+          <ModalPortal>
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+              <div
+                className="absolute inset-0 bg-black/50"
+                onClick={() => {
+                  if (creatingCutoff) return;
+                  setShowCreateCutoffModal(false);
+                  setCreateCutoffForm(initCreateCutoffForm());
+                }}
+              />
+              <div className="relative bg-white rounded-xl p-6 w-full max-w-lg shadow-2xl">
+                <h3 className="text-xl font-bold mb-1 text-gray-900">Create Cutoff Period</h3>
+                <p className="text-sm text-gray-500 mb-4">
+                  Creates an open cutoff for punch review. After processing, it will appear in the
+                  processed cutoff dropdown for loading hours.
+                </p>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Department (optional)
+                    </label>
+                    <select
+                      value={createCutoffForm.departmentId}
+                      onChange={(e) =>
+                        setCreateCutoffForm((prev) => ({ ...prev, departmentId: e.target.value }))
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    >
+                      <option value="">Company-wide (all departments)</option>
+                      {departments.map((dept) => (
+                        <option key={dept.id} value={dept.id}>
+                          {dept.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Period start</label>
+                      <input
+                        type="date"
+                        value={createCutoffForm.periodStart}
+                        onChange={(e) =>
+                          setCreateCutoffForm((prev) => ({ ...prev, periodStart: e.target.value }))
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Period end</label>
+                      <input
+                        type="date"
+                        value={createCutoffForm.periodEnd}
+                        onChange={(e) =>
+                          setCreateCutoffForm((prev) => ({ ...prev, periodEnd: e.target.value }))
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Payment date</label>
+                      <input
+                        type="date"
+                        value={createCutoffForm.paymentDate}
+                        onChange={(e) =>
+                          setCreateCutoffForm((prev) => ({ ...prev, paymentDate: e.target.value }))
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Frequency</label>
+                      <select
+                        value={createCutoffForm.frequency}
+                        onChange={(e) =>
+                          setCreateCutoffForm((prev) => ({ ...prev, frequency: e.target.value }))
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      >
+                        <option value="bi-weekly">Bi-Weekly</option>
+                        <option value="bi-monthly">Bi-Monthly</option>
+                        <option value="monthly">Monthly</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-6 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={handleCreateCutoff}
+                    disabled={creatingCutoff}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {creatingCutoff ? 'Creating...' : 'Create Cutoff'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCreateCutoffModal(false);
+                      setCreateCutoffForm(initCreateCutoffForm());
+                    }}
+                    disabled={creatingCutoff}
+                    className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          </ModalPortal>
+        )}
 
         {showAddDeductionColumn && (
           <ModalPortal>

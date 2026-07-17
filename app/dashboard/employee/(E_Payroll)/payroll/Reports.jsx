@@ -20,14 +20,67 @@ import {
 const STICKY_ROW_NUM_LEFT = 'left-0';
 const STICKY_NAME_LEFT = 'left-12';
 
-function getDefaultDateRange() {
-  const today = new Date();
-  const year = today.getFullYear();
+
+function getQuarterRange(year, quarter) {
+  const ranges = {
+    1: { from: `${year}-01-01`, to: `${year}-03-31` },
+    2: { from: `${year}-04-01`, to: `${year}-06-30` },
+    3: { from: `${year}-07-01`, to: `${year}-09-30` },
+    4: { from: `${year}-10-01`, to: `${year}-12-31` },
+  };
+  return ranges[quarter] ?? ranges[1];
+}
+
+function getMonthRange(year, month) {
+  const lastDay = new Date(year, month, 0).getDate();
+  const mm = String(month).padStart(2, '0');
   return {
-    from: `${year}-01-01`,
-    to: today.toLocaleDateString('en-CA'),
+    from: `${year}-${mm}-01`,
+    to: `${year}-${mm}-${String(lastDay).padStart(2, '0')}`,
   };
 }
+
+function getYearRange(year) {
+  const today = new Date();
+  const isCurrentYear = year === today.getFullYear();
+  return {
+    from: `${year}-01-01`,
+    to: isCurrentYear ? today.toLocaleDateString('en-CA') : `${year}-12-31`,
+  };
+}
+
+function getCurrentQuarter() {
+  return Math.floor(new Date().getMonth() / 3) + 1;
+}
+
+const PERIOD_MODES = [
+  { id: 'custom', label: 'Custom Range' },
+  { id: 'monthly', label: 'Monthly' },
+  { id: 'quarterly', label: 'Quarterly' },
+  { id: 'yearly', label: 'Yearly' },
+];
+
+const QUARTER_OPTIONS = [
+  { value: 1, label: 'Q1 (Jan – Mar)' },
+  { value: 2, label: 'Q2 (Apr – Jun)' },
+  { value: 3, label: 'Q3 (Jul – Sep)' },
+  { value: 4, label: 'Q4 (Oct – Dec)' },
+];
+
+const MONTH_OPTIONS = [
+  { value: 1, label: 'January' },
+  { value: 2, label: 'February' },
+  { value: 3, label: 'March' },
+  { value: 4, label: 'April' },
+  { value: 5, label: 'May' },
+  { value: 6, label: 'June' },
+  { value: 7, label: 'July' },
+  { value: 8, label: 'August' },
+  { value: 9, label: 'September' },
+  { value: 10, label: 'October' },
+  { value: 11, label: 'November' },
+  { value: 12, label: 'December' },
+];
 
 function formatCurrency(num) {
   return new Intl.NumberFormat('en-US', {
@@ -43,9 +96,117 @@ function formatDate(value) {
   return new Date(value).toLocaleDateString();
 }
 
-function toApiDateParts(dateStr) {
-  const [y, m, d] = dateStr.split('-');
-  return { year: y, mmdd: `${m}-${d}` };
+
+function toDateKey(value) {
+  if (!value) return null;
+  return String(value).split('T')[0];
+}
+
+/** Include runs whose pay period overlaps the selected range (not just pay date). */
+function reportMatchesDateRange(report, rangeFrom, rangeTo) {
+  const periodStart = toDateKey(report.periodStart);
+  const periodEnd = toDateKey(report.periodEnd);
+  const payDate = toDateKey(report.payDate);
+
+  if (periodStart && periodEnd) {
+    if (periodStart <= rangeTo && periodEnd >= rangeFrom) return true;
+  }
+
+  if (payDate && payDate >= rangeFrom && payDate <= rangeTo) return true;
+
+  return false;
+}
+
+function getYearsInRange(rangeFrom, rangeTo) {
+  const startYear = parseInt(rangeFrom.split('-')[0], 10);
+  const endYear = parseInt(rangeTo.split('-')[0], 10);
+  const years = [];
+  for (let year = startYear; year <= endYear; year += 1) {
+    years.push(year);
+  }
+  return years;
+}
+
+const PERIOD_AGGREGATE_ID = 'period-aggregate';
+
+function buildAggregatedPeriodReport(reports, periodLabel, dateRange) {
+  const employeeMap = new Map();
+
+  reports.forEach((report) => {
+    (report.employees || []).forEach((emp) => {
+      const key = emp.employeeId || emp.employeeName;
+      if (!key) return;
+
+      const taxes = emp.totalTaxes ?? emp.taxes?.totalTaxes ?? (typeof emp.taxes === 'number' ? emp.taxes : 0);
+      const existing = employeeMap.get(key);
+
+      if (!existing) {
+        employeeMap.set(key, {
+          employeeId: emp.employeeId,
+          employeeName: emp.employeeName,
+          position: emp.position,
+          payType: emp.payType,
+          payrollDetails: emp.payrollDetails,
+          earningRates: emp.earningRates || {},
+          taxes: emp.taxes,
+          checkNumbers: emp.checkNumber ? [emp.checkNumber] : [],
+          grossPay: emp.grossPay || 0,
+          totalTaxes: taxes,
+          totalDeductions: emp.totalDeductions || 0,
+          netPay: emp.netPay || 0,
+          paycheckCount: 1,
+        });
+        return;
+      }
+
+      existing.grossPay += emp.grossPay || 0;
+      existing.totalTaxes += taxes;
+      existing.totalDeductions += emp.totalDeductions || 0;
+      existing.netPay += emp.netPay || 0;
+      existing.paycheckCount += 1;
+      if (emp.checkNumber) existing.checkNumbers.push(emp.checkNumber);
+    });
+  });
+
+  const employees = Array.from(employeeMap.values()).map((emp) => ({
+    ...emp,
+    checkNumber:
+      emp.checkNumbers.length > 1
+        ? `${emp.checkNumbers.length} checks`
+        : emp.checkNumbers[0] || '—',
+  }));
+
+  const totals = employees.reduce(
+    (acc, emp) => {
+      acc.gross += emp.grossPay || 0;
+      acc.taxes += emp.totalTaxes || 0;
+      acc.deductions += emp.totalDeductions || 0;
+      acc.net += emp.netPay || 0;
+      return acc;
+    },
+    { gross: 0, taxes: 0, deductions: 0, net: 0 }
+  );
+
+  return {
+    id: PERIOD_AGGREGATE_ID,
+    isPeriodAggregate: true,
+    periodLabel,
+    periodStart: dateRange.from,
+    periodEnd: dateRange.to,
+    payDate: null,
+    employeeCount: employees.length,
+    employees,
+    totalGross: totals.gross,
+    totalTaxes: totals.taxes,
+    totalDeductions: totals.deductions,
+    totalNet: totals.net,
+    runsIncluded: reports.length,
+    isMock: reports.some((r) => r.isMock),
+  };
+}
+
+function usesPeriodAggregateView(periodMode) {
+  return periodMode !== 'custom';
 }
 
 const Reports = () => {
@@ -53,7 +214,12 @@ const Reports = () => {
   const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
   const [activeReportTab, setActiveReportTab] = useState('payroll-detail');
-  const [dateRange, setDateRange] = useState(getDefaultDateRange);
+  const currentYear = new Date().getFullYear();
+  const [periodMode, setPeriodMode] = useState('quarterly');
+  const [selectedYear, setSelectedYear] = useState(currentYear);
+  const [selectedQuarter, setSelectedQuarter] = useState(getCurrentQuarter());
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
+  const [dateRange, setDateRange] = useState(() => getQuarterRange(currentYear, getCurrentQuarter()));
   const [sortBy, setSortBy] = useState('Pay Date');
   const [search, setSearch] = useState('');
   const [employeeSearch, setEmployeeSearch] = useState('');
@@ -64,56 +230,136 @@ const Reports = () => {
   const [usingMockData, setUsingMockData] = useState(false);
   const [payslipLoading, setPayslipLoading] = useState({});
 
+  const yearOptions = useMemo(() => {
+    return Array.from({ length: 6 }, (_, i) => currentYear - i);
+  }, [currentYear]);
+
+  const applyPeriodPreset = useCallback((mode, year, quarter, month) => {
+    switch (mode) {
+      case 'monthly':
+        setDateRange(getMonthRange(year, month));
+        break;
+      case 'quarterly':
+        setDateRange(getQuarterRange(year, quarter));
+        break;
+      case 'yearly':
+        setDateRange(getYearRange(year));
+        break;
+      default:
+        break;
+    }
+  }, []);
+
+  const handlePeriodModeChange = (mode) => {
+    setPeriodMode(mode);
+    if (mode !== 'custom') {
+      applyPeriodPreset(mode, selectedYear, selectedQuarter, selectedMonth);
+    }
+  };
+
+  const handleYearChange = (year) => {
+    setSelectedYear(year);
+    if (periodMode !== 'custom') {
+      applyPeriodPreset(periodMode, year, selectedQuarter, selectedMonth);
+    }
+  };
+
+  const handleQuarterChange = (quarter) => {
+    setSelectedQuarter(quarter);
+    if (periodMode === 'quarterly') {
+      setDateRange(getQuarterRange(selectedYear, quarter));
+    }
+  };
+
+  const handleMonthChange = (month) => {
+    setSelectedMonth(month);
+    if (periodMode === 'monthly') {
+      setDateRange(getMonthRange(selectedYear, month));
+    }
+  };
+
+  const periodLabel = useMemo(() => {
+    if (periodMode === 'quarterly') {
+      return `Q${selectedQuarter} ${selectedYear}`;
+    }
+    if (periodMode === 'monthly') {
+      const monthName = MONTH_OPTIONS.find((m) => m.value === selectedMonth)?.label;
+      return `${monthName} ${selectedYear}`;
+    }
+    if (periodMode === 'yearly') {
+      return `${selectedYear}`;
+    }
+    return `${dateRange.from} to ${dateRange.to}`;
+  }, [periodMode, selectedQuarter, selectedYear, selectedMonth, dateRange.from, dateRange.to]);
+
   const fetchPayrollReports = useCallback(async () => {
     if (!token) return;
 
-    const fromParts = toApiDateParts(dateRange.from);
-    const toParts = toApiDateParts(dateRange.to);
-
     try {
       setLoading(true);
-      const params = new URLSearchParams({
-        from: fromParts.mmdd,
-        to: toParts.mmdd,
-        year: fromParts.year,
-        sortBy,
-      });
 
-      const response = await fetch(
-        `${API_URL}/api/payroll-system/payroll-reports?${params}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+      // Fetch full calendar year(s) — the API filters by pay date (MM-DD), but runs are
+      // often saved with today's pay date while the period falls in the selected quarter.
+      const years = getYearsInRange(dateRange.from, dateRange.to);
+      const yearResults = await Promise.all(
+        years.map(async (year) => {
+          const params = new URLSearchParams({
+            from: '01-01',
+            to: '12-31',
+            year: String(year),
+            sortBy,
+          });
+
+          const response = await fetch(
+            `${API_URL}/api/payroll-system/payroll-reports?${params}`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+
+          const result = await response.json();
+          if (!response.ok) {
+            throw new Error(result.message || 'Failed to fetch reports');
+          }
+
+          return result.data?.reports || [];
+        })
       );
 
-      const result = await response.json();
+      const apiReports = [...new Map(
+        yearResults.flat().map((report) => [report.id, report])
+      ).values()];
 
-      if (response.ok) {
-        const apiReports = result.data.reports || [];
-        const merged = withMockPayrollReports(apiReports);
-        setPayrollReports(merged);
-        setUsingMockData(apiReports.length === 0 && merged.length > 0);
-        setSelectedRunId((prev) => {
-          if (merged.length === 0) return null;
-          if (prev && merged.some((r) => r.id === prev)) return prev;
-          return merged[0].id;
-        });
-      } else {
-        toast.error(result.message || 'Failed to fetch reports');
-        setPayrollReports([]);
-        setSelectedRunId(null);
-      }
+      const rangeFiltered = apiReports.filter((report) =>
+        reportMatchesDateRange(report, dateRange.from, dateRange.to)
+      );
+
+      const merged = withMockPayrollReports(rangeFiltered);
+      setPayrollReports(merged);
+      setUsingMockData(apiReports.length === 0 && merged.length > 0);
+      setSelectedRunId((prev) => {
+        if (merged.length === 0) return null;
+        if (usesPeriodAggregateView(periodMode)) return PERIOD_AGGREGATE_ID;
+        if (prev && merged.some((r) => r.id === prev)) return prev;
+        return merged[0].id;
+      });
     } catch (error) {
       console.error('Error fetching reports:', error);
-      toast.error('Failed to fetch reports');
+      toast.error(error.message || 'Failed to fetch reports');
       setPayrollReports([]);
       setSelectedRunId(null);
     } finally {
       setLoading(false);
     }
-  }, [API_URL, token, dateRange.from, dateRange.to, sortBy]);
+  }, [API_URL, token, dateRange.from, dateRange.to, sortBy, periodMode]);
 
   useEffect(() => {
     fetchPayrollReports();
   }, [fetchPayrollReports]);
+
+  useEffect(() => {
+    if (usesPeriodAggregateView(periodMode) && payrollReports.length > 0) {
+      setSelectedRunId(PERIOD_AGGREGATE_ID);
+    }
+  }, [periodMode, periodLabel, payrollReports.length]);
 
   const filteredReports = useMemo(() => {
     if (!search.trim()) return payrollReports;
@@ -128,10 +374,17 @@ const Reports = () => {
     });
   }, [payrollReports, search]);
 
-  const selectedReport = useMemo(
-    () => payrollReports.find((r) => r.id === selectedRunId) ?? null,
-    [payrollReports, selectedRunId]
+  const periodReport = useMemo(
+    () => buildAggregatedPeriodReport(filteredReports, periodLabel, dateRange),
+    [filteredReports, periodLabel, dateRange]
   );
+
+  const selectedReport = useMemo(() => {
+    if (selectedRunId === PERIOD_AGGREGATE_ID) return periodReport;
+    return payrollReports.find((r) => r.id === selectedRunId) ?? null;
+  }, [payrollReports, selectedRunId, periodReport]);
+
+  const isViewingPeriodReport = selectedRunId === PERIOD_AGGREGATE_ID;
 
   const filteredEmployees = useMemo(() => {
     if (!selectedReport?.employees) return [];
@@ -223,7 +476,7 @@ const Reports = () => {
 
   const exportPayrollSummary = async () => {
     if (!selectedReport?.employees?.length) {
-      toast.error('Select a payroll run with employees to export');
+      toast.error('No payroll data in this report to export');
       return;
     }
 
@@ -233,8 +486,12 @@ const Reports = () => {
       return;
     }
 
-    const periodFrom = selectedReport.periodStart?.split('T')[0] || dateRange.from;
-    const periodTo = selectedReport.periodEnd?.split('T')[0] || dateRange.to;
+    const periodFrom = isViewingPeriodReport
+      ? dateRange.from
+      : selectedReport.periodStart?.split('T')[0] || dateRange.from;
+    const periodTo = isViewingPeriodReport
+      ? dateRange.to
+      : selectedReport.periodEnd?.split('T')[0] || dateRange.to;
 
     try {
       const [settingsRes, futaRes] = await Promise.all([
@@ -263,7 +520,9 @@ const Reports = () => {
         employees: eligible.map(mapReportEmployeeToSummaryRow),
         futaEnabled,
       });
-      toast.success(`Payroll summary exported (${eligible.length} employees) — ${filename}`);
+      toast.success(
+        `${isViewingPeriodReport ? 'Period' : 'Payroll'} summary exported (${eligible.length} employees) — ${filename}`
+      );
     } catch (error) {
       console.error('Error exporting payroll summary:', error);
       toast.error(error.message || 'Failed to export payroll summary');
@@ -278,30 +537,101 @@ const Reports = () => {
 
   const renderPayrollDetailTab = () => (
     <div className="p-6 space-y-4">
-      {/* Date range filter — matches Employee Sheet */}
+      {/* Report period filter */}
       <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
         <p className="text-xs font-semibold text-blue-800 uppercase tracking-wide mb-3">
           Report Period
         </p>
         <div className="flex flex-wrap items-end gap-4">
           <div>
-            <label className="block text-xs font-medium text-blue-700 mb-1">From</label>
-            <input
-              type="date"
-              value={dateRange.from}
-              onChange={(e) => setDateRange((prev) => ({ ...prev, from: e.target.value }))}
-              className="px-3 py-2 text-sm border border-blue-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
-            />
+            <label className="block text-xs font-medium text-blue-700 mb-1">Period type</label>
+            <select
+              value={periodMode}
+              onChange={(e) => handlePeriodModeChange(e.target.value)}
+              className="px-3 py-2 text-sm border border-blue-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 min-w-[150px]"
+            >
+              {PERIOD_MODES.map((mode) => (
+                <option key={mode.id} value={mode.id}>
+                  {mode.label}
+                </option>
+              ))}
+            </select>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-blue-700 mb-1">To</label>
-            <input
-              type="date"
-              value={dateRange.to}
-              onChange={(e) => setDateRange((prev) => ({ ...prev, to: e.target.value }))}
-              className="px-3 py-2 text-sm border border-blue-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
+
+          {periodMode !== 'custom' && (
+            <div>
+              <label className="block text-xs font-medium text-blue-700 mb-1">Year</label>
+              <select
+                value={selectedYear}
+                onChange={(e) => handleYearChange(Number(e.target.value))}
+                className="px-3 py-2 text-sm border border-blue-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 min-w-[100px]"
+              >
+                {yearOptions.map((year) => (
+                  <option key={year} value={year}>
+                    {year}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {periodMode === 'quarterly' && (
+            <div>
+              <label className="block text-xs font-medium text-blue-700 mb-1">Quarter</label>
+              <select
+                value={selectedQuarter}
+                onChange={(e) => handleQuarterChange(Number(e.target.value))}
+                className="px-3 py-2 text-sm border border-blue-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 min-w-[160px]"
+              >
+                {QUARTER_OPTIONS.map((q) => (
+                  <option key={q.value} value={q.value}>
+                    {q.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {periodMode === 'monthly' && (
+            <div>
+              <label className="block text-xs font-medium text-blue-700 mb-1">Month</label>
+              <select
+                value={selectedMonth}
+                onChange={(e) => handleMonthChange(Number(e.target.value))}
+                className="px-3 py-2 text-sm border border-blue-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 min-w-[140px]"
+              >
+                {MONTH_OPTIONS.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {periodMode === 'custom' && (
+            <>
+              <div>
+                <label className="block text-xs font-medium text-blue-700 mb-1">From</label>
+                <input
+                  type="date"
+                  value={dateRange.from}
+                  onChange={(e) => setDateRange((prev) => ({ ...prev, from: e.target.value }))}
+                  className="px-3 py-2 text-sm border border-blue-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-blue-700 mb-1">To</label>
+                <input
+                  type="date"
+                  value={dateRange.to}
+                  onChange={(e) => setDateRange((prev) => ({ ...prev, to: e.target.value }))}
+                  className="px-3 py-2 text-sm border border-blue-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </>
+          )}
+
           <div>
             <label className="block text-xs font-medium text-blue-700 mb-1">Sort by</label>
             <select
@@ -319,21 +649,60 @@ const Reports = () => {
             className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            {loading ? 'Loading...' : 'Refresh'}
+            {loading ? 'Loading...' : 'Generate Report'}
           </button>
         </div>
+        {periodMode !== 'custom' && (
+          <p className="mt-2 text-xs text-blue-600">
+            Date range: <span className="font-medium">{dateRange.from}</span> to{' '}
+            <span className="font-medium">{dateRange.to}</span>
+          </p>
+        )}
         {!loading && payrollReports.length > 0 && (
           <p className="mt-2 text-xs text-blue-700">
             Showing {filteredReports.length} payroll run{filteredReports.length !== 1 ? 's' : ''} for{' '}
-            {dateRange.from} to {dateRange.to}
+            <span className="font-medium">{periodLabel}</span> ({dateRange.from} to {dateRange.to})
           </p>
         )}
       </div>
 
       <MockPayrollBanner showingMock={usingMockData} />
 
-      {/* Summary banner */}
-      {!loading && filteredReports.length > 0 && (
+      {/* Period report summary */}
+      {!loading && filteredReports.length > 0 && isViewingPeriodReport && (
+        <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-orange-900">
+                {periodLabel} Payroll Report
+              </p>
+              <p className="text-xs text-orange-800 mt-0.5">
+                {periodReport.runsIncluded} payroll run{periodReport.runsIncluded !== 1 ? 's' : ''} combined ·{' '}
+                {periodReport.employeeCount} unique employee{periodReport.employeeCount !== 1 ? 's' : ''} ·{' '}
+                {dateRange.from} to {dateRange.to}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={exportPayrollSummary}
+                disabled={periodReport.employees.length === 0}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-50"
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+                Export {periodLabel} Report
+              </button>
+              <div className="text-right">
+                <p className="text-xs text-orange-800 uppercase tracking-wide">Period Net Payroll</p>
+                <p className="text-2xl font-bold text-orange-900">{formatCurrency(periodReport.totalNet)}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Runs summary banner */}
+      {!loading && filteredReports.length > 0 && !isViewingPeriodReport && (
         <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -374,7 +743,9 @@ const Reports = () => {
       <div className="border border-gray-400 rounded-lg overflow-hidden shadow-sm bg-white">
         <div className="px-4 py-2 bg-gray-100 border-b border-gray-300">
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
-            Payroll Runs — select a row to view employees below
+            {usesPeriodAggregateView(periodMode)
+              ? 'Report views — period summary or individual payroll runs'
+              : 'Payroll Runs — select a row to view employees below'}
           </p>
         </div>
         <div className="overflow-auto max-h-[280px]">
@@ -391,17 +762,17 @@ const Reports = () => {
             <table className="w-full border-collapse text-sm min-w-[900px]">
               <thead className="sticky top-0 z-10">
                 <tr className="bg-[#f3f3f3]">
-                  {['Pay Date', 'Period', 'Employees', 'Gross Pay', 'Taxes', 'Deductions', 'Net Pay'].map(
+                  {['View', 'Pay Date', 'Period', 'Employees', 'Gross Pay', 'Taxes', 'Deductions', 'Net Pay'].map(
                     (label, i) => (
                       <th
                         key={label}
                         className={`px-3 py-2 text-xs font-semibold text-gray-700 border border-gray-300 whitespace-nowrap ${
-                          i === 0 ? 'text-left' : 'text-right'
+                          i <= 1 ? 'text-left' : 'text-right'
                         } ${label === 'Net Pay' ? 'bg-orange-100 text-orange-800' : ''} ${
                           label === 'Gross Pay' ? 'bg-green-100 text-green-800' : ''
                         } ${label === 'Taxes' ? 'bg-blue-100 text-blue-800' : ''} ${
                           label === 'Deductions' ? 'bg-red-100 text-red-800' : ''
-                        }`}
+                        } ${label === 'View' ? 'bg-orange-50 text-orange-800 min-w-[140px]' : ''}`}
                       >
                         {label}
                       </th>
@@ -410,6 +781,41 @@ const Reports = () => {
                 </tr>
               </thead>
               <tbody>
+                {usesPeriodAggregateView(periodMode) && (
+                  <tr
+                    onClick={() => setSelectedRunId(PERIOD_AGGREGATE_ID)}
+                    className={`cursor-pointer transition-colors ${
+                      isViewingPeriodReport
+                        ? 'bg-orange-50 ring-1 ring-inset ring-orange-300'
+                        : 'bg-orange-50/40 hover:bg-orange-50'
+                    }`}
+                  >
+                    <td className="px-3 py-2 border border-gray-300 font-semibold text-orange-800 text-xs">
+                      {periodLabel} Summary
+                    </td>
+                    <td className="px-3 py-2 border border-gray-300 text-gray-500 text-xs">
+                      All runs
+                    </td>
+                    <td className="px-3 py-2 border border-gray-300 text-right text-gray-700 text-xs whitespace-nowrap">
+                      {formatDate(dateRange.from)} – {formatDate(dateRange.to)}
+                    </td>
+                    <td className="px-3 py-2 border border-gray-300 text-right font-mono text-xs">
+                      {periodReport.employeeCount}
+                    </td>
+                    <td className="px-3 py-2 border border-gray-300 text-right font-mono text-xs text-green-700">
+                      {formatCurrency(periodReport.totalGross)}
+                    </td>
+                    <td className="px-3 py-2 border border-gray-300 text-right font-mono text-xs text-blue-700">
+                      {formatCurrency(periodReport.totalTaxes)}
+                    </td>
+                    <td className="px-3 py-2 border border-gray-300 text-right font-mono text-xs text-red-700">
+                      {formatCurrency(periodReport.totalDeductions)}
+                    </td>
+                    <td className="px-3 py-2 border border-gray-300 text-right font-mono text-xs font-semibold text-orange-700">
+                      {formatCurrency(periodReport.totalNet)}
+                    </td>
+                  </tr>
+                )}
                 {filteredReports.map((report, index) => {
                   const isSelected = report.id === selectedRunId;
                   return (
@@ -424,6 +830,9 @@ const Reports = () => {
                             : 'bg-[#fafafa] hover:bg-gray-50'
                       }`}
                     >
+                      <td className="px-3 py-2 border border-gray-300 text-xs text-gray-600">
+                        Single run
+                      </td>
                       <td className="px-3 py-2 border border-gray-300 font-medium text-gray-900">
                         {formatDate(report.payDate)}
                         {report.isMock && (
@@ -465,10 +874,13 @@ const Reports = () => {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-gray-800">
-                Employees — Pay date {formatDate(selectedReport.payDate)}
+                {isViewingPeriodReport
+                  ? `Employees — ${periodLabel} (${periodReport.runsIncluded} runs combined)`
+                  : `Employees — Pay date ${formatDate(selectedReport.payDate)}`}
               </p>
               <p className="text-xs text-gray-500">
                 Period {formatDate(selectedReport.periodStart)} to {formatDate(selectedReport.periodEnd)}
+                {isViewingPeriodReport && ' · Totals summed per employee across all runs in range'}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -486,7 +898,7 @@ const Reports = () => {
                 className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <FileSpreadsheet className="w-4 h-4" />
-                Payroll Summary
+                {isViewingPeriodReport ? `Export ${periodLabel} Report` : 'Payroll Summary'}
               </button>
             </div>
           </div>
@@ -514,7 +926,9 @@ const Reports = () => {
                       { key: 'taxes', label: 'Taxes', align: 'right', highlight: 'blue' },
                       { key: 'deductions', label: 'Deductions', align: 'right', highlight: 'red' },
                       { key: 'net', label: 'Net Pay', align: 'right', highlight: 'orange' },
-                      { key: 'actions', label: 'Payslip', align: 'center', sticky: true },
+                      ...(isViewingPeriodReport
+                        ? []
+                        : [{ key: 'actions', label: 'Payslip', align: 'center', sticky: true }]),
                     ].map((col) => (
                       <th
                         key={col.key}
@@ -534,7 +948,7 @@ const Reports = () => {
                 <tbody>
                   {filteredEmployees.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="px-4 py-12 text-center text-gray-500 border border-gray-300">
+                      <td colSpan={isViewingPeriodReport ? 9 : 10} className="px-4 py-12 text-center text-gray-500 border border-gray-300">
                         No employees match your search
                       </td>
                     </tr>
@@ -587,26 +1001,28 @@ const Reports = () => {
                         <td className="px-3 py-1.5 text-xs font-mono font-semibold text-orange-700 bg-orange-50/40 border border-gray-300 text-right">
                           {formatCurrency(emp.netPay)}
                         </td>
-                        <td className="sticky right-0 z-10 px-2 py-1.5 border border-gray-300 text-center bg-inherit">
-                          <div className="inline-flex items-center gap-1">
-                            <PayslipActionButtons
-                              disabled={selectedReport.isMock}
-                              loadingAction={payslipLoading[`${selectedReport.id}-${emp.employeeId}`]}
-                              onView={() => runPayslipAction(selectedReport.id, emp, 'view')}
-                              onDownload={() => runPayslipAction(selectedReport.id, emp, 'download')}
-                              onSend={() => runPayslipAction(selectedReport.id, emp, 'send')}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => handlePrintCheck(selectedReport.id, emp.employeeId)}
-                              disabled={selectedReport.isMock}
-                              title={selectedReport.isMock ? 'Not available for demo data' : 'Print check'}
-                              className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-100 disabled:opacity-40"
-                            >
-                              <Printer className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
+                        {!isViewingPeriodReport && (
+                          <td className="sticky right-0 z-10 px-2 py-1.5 border border-gray-300 text-center bg-inherit">
+                            <div className="inline-flex items-center gap-1">
+                              <PayslipActionButtons
+                                disabled={selectedReport.isMock}
+                                loadingAction={payslipLoading[`${selectedReport.id}-${emp.employeeId}`]}
+                                onView={() => runPayslipAction(selectedReport.id, emp, 'view')}
+                                onDownload={() => runPayslipAction(selectedReport.id, emp, 'download')}
+                                onSend={() => runPayslipAction(selectedReport.id, emp, 'send')}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handlePrintCheck(selectedReport.id, emp.employeeId)}
+                                disabled={selectedReport.isMock}
+                                title={selectedReport.isMock ? 'Not available for demo data' : 'Print check'}
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-100 disabled:opacity-40"
+                              >
+                                <Printer className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        )}
                       </tr>
                     ))
                   )}
@@ -637,7 +1053,9 @@ const Reports = () => {
                       <td className="px-3 py-2 text-xs font-bold font-mono text-orange-800 border border-gray-300 text-right">
                         {formatCurrency(employeeTotals.net)}
                       </td>
-                      <td className="sticky right-0 z-20 border border-gray-300 bg-gray-200" />
+                      {!isViewingPeriodReport && (
+                        <td className="sticky right-0 z-20 border border-gray-300 bg-gray-200" />
+                      )}
                     </tr>
                   </tfoot>
                 )}
@@ -648,8 +1066,9 @@ const Reports = () => {
       )}
 
       <p className="text-xs text-gray-500">
-        Reports show saved payroll runs only. Select a run to view employees — use{' '}
-        <strong>Payroll Summary</strong> to export the formatted Excel report for that run.
+        {usesPeriodAggregateView(periodMode)
+          ? `Quarterly, monthly, and yearly views build a combined period report across all saved runs in the date range. Use Export to download the full period summary.`
+          : `Custom range reports show saved payroll runs — select a run to view employees or export a single-run summary.`}
       </p>
     </div>
   );
