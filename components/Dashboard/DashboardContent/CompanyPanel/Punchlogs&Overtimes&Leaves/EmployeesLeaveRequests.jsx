@@ -112,6 +112,7 @@ export default function SupervisorLeaveRequests() {
   const [leaves, setLeaves] = useState([]);
   const [loading, setLoading] = useState(false);
   const [generatingPdf, setGeneratingPdf] = useState(false);
+  const [generatingCalendarPdf, setGeneratingCalendarPdf] = useState(false);
 
   // Leave credits matrix
   const [leaveMatrix, setLeaveMatrix] = useState([]); // [{ email, balances: { [type]: { credits, used, available } } }]
@@ -143,6 +144,10 @@ export default function SupervisorLeaveRequests() {
   const [detailDialog, setDetailDialog] = useState({ open: false, request: null });
   const [actionDialog, setActionDialog] = useState({ open: false, type: null, request: null });
   const [deleteDialog, setDeleteDialog] = useState({ open: false, request: null });
+  const [calendarPdfDialog, setCalendarPdfDialog] = useState({
+    open: false,
+    statuses: { pending: true, approved: true, rejected: true, cancelled: true },
+  });
   const [comment, setComment] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
 
@@ -167,10 +172,14 @@ export default function SupervisorLeaveRequests() {
   /**
    * leavesByDate: { "YYYY-MM-DD": [leave, ...] }
    * A leave spans every calendar day from startDate to endDate (inclusive).
+   * Each day's list is ordered by submission time (createdAt) ascending —
+   * whoever submitted first is first in the list, both here and in the
+   * Calendar PDF export (which reads the same submission-ordered source).
    */
   const leavesByDate = useMemo(() => {
     const map = {};
-    leaves.forEach((leave) => {
+    const bySubmission = [...leaves].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    bySubmission.forEach((leave) => {
       const start = toLocalDate(leave.startDate);
       const end = toLocalDate(leave.endDate);
       const cur = new Date(start);
@@ -188,6 +197,24 @@ export default function SupervisorLeaveRequests() {
     if (!selectedDate) return [];
     return leavesByDate[format(selectedDate, "yyyy-MM-dd")] || [];
   }, [selectedDate, leavesByDate]);
+
+  // Leaves whose [startDate, endDate] span overlaps the month currently shown
+  // in the calendar — an overlap check (not "starts in this month"), so a
+  // leave that starts in June and runs into July still counts for July.
+  // Sorted by submission time (createdAt) ascending — feeds the Calendar PDF
+  // export, which relies on this order to put the earliest submitter first.
+  const calendarMonthLeaves = useMemo(() => {
+    const monthStart = format(calendarMonth, "yyyy-MM-dd");
+    const monthEnd = format(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 0), "yyyy-MM-dd");
+    return leaves
+      .filter((r) => {
+        if (!r.startDate) return false;
+        const s = r.startDate.slice(0, 10);
+        const e = (r.endDate || r.startDate).slice(0, 10);
+        return e >= monthStart && s <= monthEnd;
+      })
+      .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  }, [leaves, calendarMonth]);
 
   // ── Table config ──────────────────────────────────────────────────────────
 
@@ -500,6 +527,38 @@ export default function SupervisorLeaveRequests() {
       toast.error(e.message || "Failed to generate PDF");
     } finally {
       setGeneratingPdf(false);
+    }
+  };
+
+  // Generates a PDF for the Calendar view — scoped to the month currently
+  // displayed, filtered to whichever statuses were checked in the dialog.
+  // "Pending" covers both pending and pending_secondary, since those are just
+  // the first/second step of the same not-yet-decided state.
+  const handleGenerateCalendarPdf = async () => {
+    const { pending, approved, rejected, cancelled } = calendarPdfDialog.statuses;
+    const filtered = calendarMonthLeaves.filter((r) => {
+      if (r.status === "pending" || r.status === "pending_secondary") return pending;
+      if (r.status === "approved") return approved;
+      if (r.status === "rejected") return rejected;
+      if (r.status === "cancelled") return cancelled;
+      return false;
+    });
+    if (filtered.length === 0) {
+      toast.error("No leave requests to export for the selected month and statuses.");
+      return;
+    }
+    setGeneratingCalendarPdf(true);
+    try {
+      const { exportLeaveCalendarPDF } = await import("@/lib/exports/leaveCalendar");
+      const result = await exportLeaveCalendarPDF({ data: filtered, month: calendarMonth });
+      if (result.success) {
+        toast.success(`Downloaded ${result.filename}`);
+        setCalendarPdfDialog((d) => ({ ...d, open: false }));
+      }
+    } catch (e) {
+      toast.error(e.message || "Failed to generate PDF");
+    } finally {
+      setGeneratingCalendarPdf(false);
     }
   };
 
@@ -1062,9 +1121,20 @@ export default function SupervisorLeaveRequests() {
                     <Calendar className="h-5 w-5 text-orange-600" />
                     <CardTitle className="text-base">Leave Calendar</CardTitle>
                   </div>
-                  <Button variant="outline" size="sm" className="text-xs h-8" onClick={goToToday}>
-                    Today
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" className="text-xs h-8" onClick={goToToday}>
+                      Today
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-xs h-8 border-orange-200 text-orange-600 hover:bg-orange-50 dark:border-orange-800/50 dark:text-orange-400 dark:hover:bg-orange-900/20"
+                      onClick={() => setCalendarPdfDialog((d) => ({ ...d, open: true }))}
+                    >
+                      <Download className="h-3.5 w-3.5 mr-1.5" />
+                      Generate PDF
+                    </Button>
+                  </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-4 mt-2 text-xs text-muted-foreground">
                   <span className="flex items-center gap-1.5">
@@ -1478,6 +1548,65 @@ export default function SupervisorLeaveRequests() {
               <Button variant="outline" onClick={() => setDeleteDialog({ open: false, request: null })}>Cancel</Button>
               <Button variant="destructive" onClick={handleDelete} disabled={actionLoading} className="bg-red-500 hover:bg-red-600">
                 {actionLoading ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Deleting...</> : <><Trash2 className="h-4 w-4 mr-2" />Delete Request</>}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* ── Calendar PDF Export Dialog ── */}
+        <Dialog
+          open={calendarPdfDialog.open}
+          onOpenChange={(open) => setCalendarPdfDialog((d) => ({ ...d, open }))}
+        >
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <div className="p-2 rounded-full bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400">
+                  <Download className="h-5 w-5" />
+                </div>
+                Export Leave Calendar
+              </DialogTitle>
+              <DialogDescription>
+                Generate a PDF of {format(calendarMonth, "MMMM yyyy")}'s leave requests. Choose which statuses to include.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-3 py-2">
+              {[
+                { key: "pending", label: "Pending" },
+                { key: "approved", label: "Approved" },
+                { key: "rejected", label: "Rejected" },
+                { key: "cancelled", label: "Cancelled" },
+              ].map(({ key, label }) => (
+                <div key={key} className="flex items-center gap-2">
+                  <Checkbox
+                    id={`calendarPdfStatus-${key}`}
+                    checked={calendarPdfDialog.statuses[key]}
+                    onCheckedChange={(v) =>
+                      setCalendarPdfDialog((d) => ({ ...d, statuses: { ...d.statuses, [key]: !!v } }))
+                    }
+                  />
+                  <label htmlFor={`calendarPdfStatus-${key}`} className="text-sm font-medium cursor-pointer">
+                    {label}
+                  </label>
+                </div>
+              ))}
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setCalendarPdfDialog((d) => ({ ...d, open: false }))}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleGenerateCalendarPdf}
+                disabled={generatingCalendarPdf || !Object.values(calendarPdfDialog.statuses).some(Boolean)}
+                className="bg-orange-500 hover:bg-orange-600 text-white"
+              >
+                {generatingCalendarPdf ? (
+                  <><Loader2 className="h-4 w-4 animate-spin mr-2" />Generating…</>
+                ) : (
+                  <><Download className="h-4 w-4 mr-2" />Generate PDF</>
+                )}
               </Button>
             </DialogFooter>
           </DialogContent>
