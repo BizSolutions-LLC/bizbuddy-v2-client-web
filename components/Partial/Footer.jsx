@@ -2,7 +2,6 @@
 "use client";
 
 import React from "react";
-import Script from "next/script";
 import Link from "next/link";
 import Image from "next/image";
 import { FaLinkedin, FaFacebook, FaTwitter, FaTiktok, FaInstagram, FaYoutube } from "react-icons/fa";
@@ -48,10 +47,7 @@ const Footer = () => {
   ];
 
   return (
-    <>
-      <Script async data-cfasync="false" src="https://pl28936865.effectivegatecpm.com/1c7f0a653cf4336c856b10980ada0fbe/invoke.js" />
-      <div id="container-1c7f0a653cf4336c856b10980ada0fbe" />
-      <motion.footer className="w-full px-2 mt-28" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+    <motion.footer className="w-full px-2 mt-28" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
       <div className="container mx-auto px-2 sm:px-6 lg:px-8 py-12">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-12 lg:gap-16 items-center justify-center">
           <div className="space-y-6">
@@ -145,8 +141,7 @@ const Footer = () => {
           </div>
         </div>
       </div>
-      </motion.footer>
-    </>
+    </motion.footer>
   );
 };
 
