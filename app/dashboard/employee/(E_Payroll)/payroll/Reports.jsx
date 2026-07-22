@@ -536,7 +536,7 @@ const Reports = () => {
   ];
 
   const renderPayrollDetailTab = () => (
-    <div className="p-6 space-y-4">
+    <div className="p-3 sm:p-6 space-y-4">
       {/* Report period filter */}
       <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
         <p className="text-xs font-semibold text-blue-800 uppercase tracking-wide mb-3">
@@ -646,7 +646,7 @@ const Reports = () => {
           <button
             onClick={fetchPayrollReports}
             disabled={loading}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-1.5 w-full sm:w-auto px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             {loading ? 'Loading...' : 'Generate Report'}
@@ -682,14 +682,14 @@ const Reports = () => {
                 {dateRange.from} to {dateRange.to}
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
               <button
                 type="button"
                 onClick={exportPayrollSummary}
                 disabled={periodReport.employees.length === 0}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-50"
+                className="inline-flex items-center justify-center gap-1.5 w-full sm:w-auto px-4 py-2 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-50"
               >
-                <FileSpreadsheet className="w-4 h-4" />
+                <FileSpreadsheet className="w-4 h-4 shrink-0" />
                 Export {periodLabel} Report
               </button>
               <div className="text-right">
@@ -727,7 +727,7 @@ const Reports = () => {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search runs by date or period..."
-          className="w-64 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+          className="w-full sm:w-64 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
         />
         <span className="text-sm text-gray-500">
           {filteredReports.length} of {payrollReports.length} runs
@@ -883,21 +883,21 @@ const Reports = () => {
                 {isViewingPeriodReport && ' · Totals summed per employee across all runs in range'}
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2 w-full sm:w-auto min-w-0">
               <input
                 type="text"
                 value={employeeSearch}
                 onChange={(e) => setEmployeeSearch(e.target.value)}
                 placeholder="Search employees..."
-                className="w-56 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                className="w-full sm:w-56 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
               />
               <button
                 type="button"
                 onClick={exportPayrollSummary}
                 disabled={filteredEmployees.length === 0}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center justify-center gap-1.5 w-full sm:w-auto px-4 py-2 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <FileSpreadsheet className="w-4 h-4" />
+                <FileSpreadsheet className="w-4 h-4 shrink-0" />
                 {isViewingPeriodReport ? `Export ${periodLabel} Report` : 'Payroll Summary'}
               </button>
             </div>
@@ -909,12 +909,12 @@ const Reports = () => {
                 <thead className="sticky top-0 z-20">
                   <tr className="bg-[#f3f3f3]">
                     <th
-                      className={`sticky ${STICKY_ROW_NUM_LEFT} z-40 min-w-[48px] px-2 py-2 text-center text-xs font-semibold text-gray-600 border border-gray-300 bg-[#e8e8e8]`}
+                      className={`sm:sticky ${STICKY_ROW_NUM_LEFT} z-40 min-w-[48px] px-2 py-2 text-center text-xs font-semibold text-gray-600 border border-gray-300 bg-[#e8e8e8]`}
                     >
                       #
                     </th>
                     <th
-                      className={`sticky ${STICKY_NAME_LEFT} z-30 min-w-[160px] px-3 py-2 text-xs font-semibold text-gray-700 border border-gray-300 bg-[#f3f3f3] text-left`}
+                      className={`sm:sticky ${STICKY_NAME_LEFT} z-30 min-w-[160px] px-3 py-2 text-xs font-semibold text-gray-700 border border-gray-300 bg-[#f3f3f3] text-left`}
                     >
                       Name
                     </th>
@@ -937,7 +937,7 @@ const Reports = () => {
                         } ${col.highlight === 'blue' ? 'bg-blue-100 text-blue-800' : ''
                         } ${col.highlight === 'red' ? 'bg-red-100 text-red-800' : ''
                         } ${col.highlight === 'orange' ? 'bg-orange-100 text-orange-800' : ''
-                        } ${col.sticky ? 'sticky right-0 z-30 bg-violet-50 text-violet-800 min-w-[140px]' : 'bg-[#f3f3f3] text-gray-700'}`}
+                        } ${col.sticky ? 'sm:sticky right-0 z-30 bg-violet-50 text-violet-800 min-w-[140px]' : 'bg-[#f3f3f3] text-gray-700'}`}
                         style={{ textAlign: col.align }}
                       >
                         {col.label}
@@ -959,14 +959,14 @@ const Reports = () => {
                         className={index % 2 === 0 ? 'bg-white' : 'bg-[#fafafa]'}
                       >
                         <td
-                          className={`sticky ${STICKY_ROW_NUM_LEFT} z-20 px-2 py-1.5 text-center text-xs font-mono text-gray-500 border border-gray-300 ${
+                          className={`sm:sticky ${STICKY_ROW_NUM_LEFT} z-20 px-2 py-1.5 text-center text-xs font-mono text-gray-500 border border-gray-300 ${
                             index % 2 === 0 ? 'bg-white' : 'bg-[#fafafa]'
                           }`}
                         >
                           {index + 1}
                         </td>
                         <td
-                          className={`sticky ${STICKY_NAME_LEFT} z-10 px-3 py-1.5 text-sm font-medium text-gray-900 border border-gray-300 ${
+                          className={`sm:sticky ${STICKY_NAME_LEFT} z-10 px-3 py-1.5 text-sm font-medium text-gray-900 border border-gray-300 ${
                             index % 2 === 0 ? 'bg-white' : 'bg-[#fafafa]'
                           }`}
                         >
@@ -1002,7 +1002,7 @@ const Reports = () => {
                           {formatCurrency(emp.netPay)}
                         </td>
                         {!isViewingPeriodReport && (
-                          <td className="sticky right-0 z-10 px-2 py-1.5 border border-gray-300 text-center bg-inherit">
+                          <td className="sm:sticky right-0 z-10 px-2 py-1.5 border border-gray-300 text-center bg-inherit">
                             <div className="inline-flex items-center gap-1">
                               <PayslipActionButtons
                                 disabled={selectedReport.isMock}
@@ -1031,12 +1031,12 @@ const Reports = () => {
                   <tfoot className="sticky bottom-0 z-10 bg-gray-200">
                     <tr>
                       <td
-                        className={`sticky ${STICKY_ROW_NUM_LEFT} z-30 px-2 py-2 text-xs font-bold text-gray-700 border border-gray-300 text-center bg-gray-200`}
+                        className={`sm:sticky ${STICKY_ROW_NUM_LEFT} z-30 px-2 py-2 text-xs font-bold text-gray-700 border border-gray-300 text-center bg-gray-200`}
                       >
                         Σ
                       </td>
                       <td
-                        className={`sticky ${STICKY_NAME_LEFT} z-20 px-3 py-2 text-xs font-bold text-gray-800 border border-gray-300 bg-gray-200`}
+                        className={`sm:sticky ${STICKY_NAME_LEFT} z-20 px-3 py-2 text-xs font-bold text-gray-800 border border-gray-300 bg-gray-200`}
                       >
                         Totals
                       </td>
@@ -1054,7 +1054,7 @@ const Reports = () => {
                         {formatCurrency(employeeTotals.net)}
                       </td>
                       {!isViewingPeriodReport && (
-                        <td className="sticky right-0 z-20 border border-gray-300 bg-gray-200" />
+                        <td className="sm:sticky right-0 z-20 border border-gray-300 bg-gray-200" />
                       )}
                     </tr>
                   </tfoot>
@@ -1078,15 +1078,15 @@ const Reports = () => {
       <Toaster position="top-center" richColors />
       <div>
         <div className="bg-gray-50 border-b">
-          <div className="px-6 pt-4">
-            <nav className="flex space-x-2">
+          <div className="px-4 sm:px-6 pt-4 overflow-x-auto">
+            <nav className="flex space-x-2 w-max min-w-full">
               {reportTabs.map((tab) => (
                 <button
                   key={tab.id}
                   type="button"
                   onClick={() => tab.enabled && setActiveReportTab(tab.id)}
                   disabled={!tab.enabled}
-                  className={`px-6 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+                  className={`px-4 sm:px-6 py-2 text-sm font-medium rounded-t-lg transition-colors whitespace-nowrap ${
                     activeReportTab === tab.id
                       ? 'bg-orange-500 text-white'
                       : tab.enabled

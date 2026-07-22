@@ -75,10 +75,10 @@ const ViewPaychecksModal = ({ isOpen, onClose, paychecks }) => {
             </div>
 
             {/* Action Buttons */}
-            <div className="mt-6 flex justify-end gap-4">
+            <div className="mt-6 flex flex-col-reverse sm:flex-row sm:justify-end gap-2 sm:gap-4">
               <button
                 onClick={onClose}
-                className="px-6 py-2 bg-gray-600 text-white font-medium rounded-md hover:bg-gray-700 transition-colors duration-200"
+                className="w-full sm:w-auto px-6 py-2 bg-gray-600 text-white font-medium rounded-md hover:bg-gray-700 transition-colors duration-200"
               >
                 Close
               </button>
@@ -86,13 +86,13 @@ const ViewPaychecksModal = ({ isOpen, onClose, paychecks }) => {
                 <>
                   <button
                     onClick={() => alert('Print selected paychecks')}
-                    className="px-6 py-2 bg-orange-600 text-white font-medium rounded-md hover:bg-orange-700 transition-colors duration-200"
+                    className="w-full sm:w-auto px-6 py-2 bg-orange-600 text-white font-medium rounded-md hover:bg-orange-700 transition-colors duration-200"
                   >
                     Print Selected
                   </button>
                   <button
                     onClick={() => alert('Download selected paychecks')}
-                    className="px-6 py-2 bg-orange-600 text-white font-medium rounded-md hover:bg-orange-700 transition-colors duration-200"
+                    className="w-full sm:w-auto px-6 py-2 bg-orange-600 text-white font-medium rounded-md hover:bg-orange-700 transition-colors duration-200"
                   >
                     Download
                   </button>

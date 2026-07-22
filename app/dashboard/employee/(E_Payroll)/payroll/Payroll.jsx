@@ -916,10 +916,10 @@ const Payroll = () => {
         ></div>
         
           <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col my-auto">
-            <div className="sticky top-0 bg-gradient-to-r from-blue-600 to-blue-700 text-white px-6 py-4 rounded-t-xl flex-shrink-0">
-              <div className="flex items-center justify-between">
+            <div className="sticky top-0 bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 sm:px-6 py-4 rounded-t-xl flex-shrink-0">
+              <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
+                  <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center shrink-0">
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
@@ -942,7 +942,7 @@ const Payroll = () => {
               </div>
             </div>
 
-            <div className="bg-gray-50 px-6 py-4 border-b grid grid-cols-5 gap-4 flex-shrink-0">
+            <div className="bg-gray-50 px-4 sm:px-6 py-4 border-b grid grid-cols-2 sm:grid-cols-5 gap-4 flex-shrink-0">
               <div className="text-center">
                 <p className="text-xs text-gray-500 uppercase">Regular Hours</p>
                 <p className="text-lg font-bold text-green-600">{(empHours.regularHours || 0).toFixed(2)}</p>
@@ -969,7 +969,7 @@ const Payroll = () => {
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6">
               {hoursBreakdownLoading ? (
                 <div className="flex items-center justify-center py-12">
                   <div className="flex items-center gap-3">
@@ -1044,7 +1044,7 @@ const Payroll = () => {
                   </div>
 
                   {hoursBreakdownData.summary && (
-                    <div className="mt-6 grid grid-cols-3 gap-4">
+                    <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <div className="bg-green-50 rounded-lg p-4 border border-green-200">
                         <h4 className="text-xs font-semibold text-green-800 uppercase mb-2">Hours Summary</h4>
                         <div className="space-y-1 text-sm">
@@ -1112,10 +1112,10 @@ const Payroll = () => {
               )}
             </div>
 
-            <div className="bg-gray-100 px-6 py-3 rounded-b-xl flex justify-end flex-shrink-0">
+            <div className="bg-gray-100 px-4 sm:px-6 py-3 rounded-b-xl flex justify-stretch sm:justify-end flex-shrink-0">
               <button
                 onClick={closeHoursBreakdown}
-                className="px-6 py-2 bg-gray-600 text-white font-medium rounded-lg hover:bg-gray-700 transition-colors"
+                className="w-full sm:w-auto px-6 py-2 bg-gray-600 text-white font-medium rounded-lg hover:bg-gray-700 transition-colors"
               >
                 Close
               </button>
@@ -1150,17 +1150,17 @@ const Payroll = () => {
           ></div>
         
           <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto my-auto">
-            <div className="sticky top-0 bg-gradient-to-r from-orange-500 to-orange-600 text-white px-6 py-4 rounded-t-xl">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
+            <div className="sticky top-0 bg-gradient-to-r from-orange-500 to-orange-600 text-white px-4 sm:px-6 py-4 rounded-t-xl">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-4 min-w-0">
+                  <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center shrink-0">
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                     </svg>
                   </div>
-                  <div>
-                    <h3 className="text-xl font-bold">{employee.name}</h3>
-                    <div className="flex items-center gap-2 mt-1">
+                  <div className="min-w-0">
+                    <h3 className="text-xl font-bold truncate">{employee.name}</h3>
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
                       <span className="text-sm text-orange-100">{employee.position || 'No position'}</span>
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                         isSalary ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'
@@ -1172,7 +1172,7 @@ const Payroll = () => {
                 </div>
                 <button
                   onClick={closeEmployeeDetail}
-                  className="p-2 hover:bg-white/20 rounded-full transition-colors"
+                  className="p-2 hover:bg-white/20 rounded-full transition-colors shrink-0"
                 >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1181,7 +1181,7 @@ const Payroll = () => {
               </div>
             </div>
 
-            <div className="bg-gray-50 px-6 py-3 border-b grid grid-cols-4 gap-4">
+            <div className="bg-gray-50 px-4 sm:px-6 py-3 border-b grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div>
                 <label className="text-xs text-gray-500 uppercase tracking-wide">Pay Date</label>
                 <p className="text-sm font-semibold text-gray-900">{payDate}</p>
@@ -1200,7 +1200,7 @@ const Payroll = () => {
               </div>
             </div>
 
-            <div className="p-6 grid grid-cols-3 gap-6">
+            <div className="p-4 sm:p-6 grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
               {/* EARNINGS */}
               <div className="bg-green-50 rounded-lg p-4 border border-green-200">
                 <h4 className="text-sm font-bold text-green-800 uppercase tracking-wide mb-4 flex items-center gap-2">
@@ -1374,8 +1374,8 @@ const Payroll = () => {
             </div>
 
             {/* Footer: Net Pay Summary */}
-            <div className="bg-gray-900 text-white px-6 py-4 rounded-b-xl">
-              <div className="grid grid-cols-3 gap-4 items-center">
+            <div className="bg-gray-900 text-white px-4 sm:px-6 py-4 rounded-b-xl">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
                 <div className="text-center">
                   <p className="text-xs text-gray-400 uppercase">Gross Earnings</p>
                   <p className="text-lg font-bold text-green-400">{formatCurrency(calculated.grossEarnings)}</p>
@@ -1951,17 +1951,17 @@ const Payroll = () => {
               }`}
             >
               {/* Employee Header */}
-              <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 rounded-t-xl">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center">
+              <div className="px-3 sm:px-6 py-3 sm:py-4 border-b border-gray-200 bg-gray-50 rounded-t-xl">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
+                  <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                    <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center shrink-0">
                       <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                       </svg>
                     </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-lg font-bold text-gray-900">{employee.name}</h3>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="text-base sm:text-lg font-bold text-gray-900 truncate">{employee.name}</h3>
                         {/* Info icon - opens employee detail modal */}
                         <button
                           onClick={() => openEmployeeDetail(employee)}
@@ -1973,15 +1973,15 @@ const Payroll = () => {
                           </svg>
                         </button>
                       </div>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="text-sm text-gray-600">{employee.position || 'No position'}</span>
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                      <div className="flex flex-wrap items-center gap-2 mt-1 min-w-0">
+                        <span className="text-sm text-gray-600 min-w-0 truncate">{employee.position || 'No position'}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${
                           isSalary ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'
                         }`}>
                           {isSalary ? 'SALARY' : 'HOURLY'}
                         </span>
                         {hasNoPayRate && (
-                          <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-red-100 text-red-700 flex items-center gap-1">
+                          <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-red-100 text-red-700 flex items-center gap-1 shrink-0">
                             <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                               <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                             </svg>
@@ -1989,14 +1989,14 @@ const Payroll = () => {
                           </span>
                         )}
                         {empHours.hasActiveClockIn && (
-                          <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-yellow-100 text-yellow-700">
+                          <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-yellow-100 text-yellow-700 shrink-0">
                             ACTIVE
                           </span>
                         )}
                       </div>
                     </div>
                   </div>
-                  <div className="text-right">
+                  <div className="text-left sm:text-right shrink-0">
                     <p className="text-xs text-gray-500 uppercase">Check #</p>
                     <p className="text-sm font-bold text-gray-900">#{employeeCheckNumber}</p>
                   </div>
@@ -2004,9 +2004,9 @@ const Payroll = () => {
               </div>
 
               {/* Three Column Layout */}
-              <div className="p-6 grid grid-cols-3 gap-4">
+              <div className="p-3 sm:p-6 grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
                 {/* EARNINGS */}
-                <div className="bg-green-50 rounded-lg p-4 border border-green-200">
+                <div className="bg-green-50 rounded-lg p-3 sm:p-4 border border-green-200">
                   <div className="flex items-center gap-2 mb-3">
                     <svg className="w-4 h-4 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -2168,9 +2168,9 @@ const Payroll = () => {
               </div>
 
               {/* Footer: Net Pay */}
-              <div className="px-6 py-3 bg-gray-900 rounded-b-xl">
-                <div className="flex items-center justify-between text-white">
-                  <div className="flex items-center gap-6">
+              <div className="px-3 sm:px-6 py-3 bg-gray-900 rounded-b-xl">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-white">
+                  <div className="flex items-center gap-4 sm:gap-6 flex-wrap">
                     <div>
                       <p className="text-xs text-gray-400">Gross</p>
                       <p className="text-sm font-bold text-green-400">{formatCurrency(calculated.grossEarnings)}</p>
@@ -2182,7 +2182,7 @@ const Payroll = () => {
                       </p>
                     </div>
                   </div>
-                  <div className="text-right">
+                  <div className="text-left sm:text-right">
                     <p className="text-xs text-gray-400 uppercase">Net Pay</p>
                     <p className={`text-2xl font-bold ${netAfterTax < 0 ? 'text-red-400' : 'text-white'}`}>
                       {formatCurrency(netAfterTax)}
@@ -2197,8 +2197,8 @@ const Payroll = () => {
 
         {/* Grand Totals Summary */}
         {hoursDataLoaded && (
-          <div className="bg-gradient-to-r from-gray-800 to-gray-900 rounded-xl shadow-lg p-6 text-white mt-6">
-            <div className="flex items-center gap-3 mb-4">
+          <div className="bg-gradient-to-r from-gray-800 to-gray-900 rounded-xl shadow-lg p-4 sm:p-6 text-white mt-6">
+            <div className="flex items-center gap-3 mb-4 flex-wrap">
               <svg className="w-6 h-6 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
               </svg>
@@ -2206,7 +2206,7 @@ const Payroll = () => {
               <span className="text-sm text-gray-400">({employees.length} employees)</span>
             </div>
             
-            <div className="grid grid-cols-4 gap-6">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-6">
               <div className="text-center">
                 <p className="text-xs text-gray-400 uppercase mb-1">Gross Earnings</p>
                 <p className="text-2xl font-bold text-green-400">{formatCurrency(grandTotalGross)}</p>
@@ -2271,7 +2271,7 @@ const Payroll = () => {
         <HoursBreakdownModal />
 
         {/* Data Status Notice */}
-        <div className="px-6 pt-4">
+        <div className="px-4 sm:px-6 pt-4">
           <div className={`border rounded-lg p-3 flex items-start gap-2 ${
             hoursDataLoaded 
               ? 'bg-green-50 border-green-200' 
@@ -2313,7 +2313,7 @@ const Payroll = () => {
           if (employeesWithoutPayRate.length === 0) return null;
           
           return (
-            <div className="px-6 pt-2">
+            <div className="px-4 sm:px-6 pt-2">
               <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-start gap-2">
                 <svg className="h-5 w-5 mt-0.5 flex-shrink-0 text-red-500" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
@@ -2336,12 +2336,12 @@ const Payroll = () => {
         })()}
 
         {/* Controls Section */}
-        <div className="p-6 bg-gradient-to-br from-gray-50 to-white border-b">
-          <div className="max-w-7xl mx-auto">
+        <div className="p-3 sm:p-6 bg-gradient-to-br from-gray-50 to-white border-b min-w-0">
+          <div className="max-w-7xl mx-auto min-w-0">
             {/* Top Row: Period Controls */}
-            <div className="grid grid-cols-12 gap-4 mb-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-12 sm:gap-4 mb-4">
               {/* Date Inputs - Compact 3-column */}
-              <div className="col-span-9 grid grid-cols-3 gap-3">
+              <div className="sm:col-span-9 grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">
                     Pay Date
@@ -2380,7 +2380,7 @@ const Payroll = () => {
               </div>
 
               {/* Check Number Input */}
-              <div className="col-span-3">
+              <div className="sm:col-span-3">
                 <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">
                   Check # Start
                 </label>
@@ -2402,9 +2402,9 @@ const Payroll = () => {
             </div>
 
             {/* Bottom Row: Actions */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               {/* Left: Status & Info */}
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 min-w-0">
                 {hoursDataLoaded ? (
                   <div className="flex items-center gap-2 text-sm">
                     <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
@@ -2421,7 +2421,7 @@ const Payroll = () => {
               </div>
 
               {/* Right: Action Buttons */}
-              <div className="flex items-center gap-2">
+              <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 w-full sm:w-auto min-w-0">
                 {/* Auto-Detect */}
                 <button
                   onClick={() => {
@@ -2452,9 +2452,9 @@ const Payroll = () => {
                     
                     toast.success(`Period set: ${payFrom.toLocaleDateString()} - ${payTo.toLocaleDateString()}`);
                   }}
-                  className="px-4 py-2 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors flex items-center gap-2"
+                  className="min-w-0 justify-center px-2 sm:px-4 py-2 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors flex items-center gap-1.5 sm:gap-2"
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
                   Auto-Detect
@@ -2464,7 +2464,7 @@ const Payroll = () => {
                 <button
                   onClick={handleTransfer}
                   disabled={transferLoading || !dateRange.payFrom || !dateRange.payTo}
-                  className={`px-5 py-2 text-sm font-semibold rounded-lg transition-all flex items-center gap-2 ${
+                  className={`min-w-0 justify-center px-2 sm:px-5 py-2 text-sm font-semibold rounded-lg transition-all flex items-center gap-1.5 sm:gap-2 ${
                     transferLoading || !dateRange.payFrom || !dateRange.payTo
                       ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
                       : 'bg-orange-600 text-white hover:bg-orange-700 shadow-sm hover:shadow-md'
@@ -2472,12 +2472,12 @@ const Payroll = () => {
                 >
                   {transferLoading ? (
                     <>
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      <div className="w-4 h-4 shrink-0 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                       Importing...
                     </>
                   ) : (
                     <>
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                       </svg>
                       Transfer
@@ -2486,10 +2486,10 @@ const Payroll = () => {
                 </button>
 
                 {/* Divider */}
-                <div className="w-px h-8 bg-gray-300"></div>
+                <div className="hidden sm:block w-px h-8 bg-gray-300"></div>
 
                 {/* View Toggle */}
-                <div className="flex items-center bg-gray-100 rounded-lg p-1">
+                <div className="col-span-2 sm:col-span-1 flex items-center justify-center sm:justify-start bg-gray-100 rounded-lg p-1">
                   <button
                     onClick={() => setViewMode('card')}
                     className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
@@ -2521,24 +2521,23 @@ const Payroll = () => {
         </div>
 
         {/* Payroll View - Card or List */}
-        <div className="p-6">
+        <div className="p-3 sm:p-6 min-w-0">
           {viewMode === 'card' ? renderModernPayrollCards() : renderListView()}
         </div>
 
         {/* Action Buttons */}
-        <div className="p-6 bg-gray-50 border-t flex justify-between items-center">
-
-          <div className="flex gap-4">
+        <div className="p-3 sm:p-6 bg-gray-50 border-t min-w-0">
+          <div className="flex flex-col sm:flex-row sm:justify-end w-full gap-3 sm:gap-4">
             <button
               onClick={handleReset}
-              className="px-8 py-3 bg-gray-600 text-white font-medium rounded-md hover:bg-gray-700 transition-colors duration-200"
+              className="w-full sm:w-auto px-8 py-3 bg-gray-600 text-white font-medium rounded-md hover:bg-gray-700 transition-colors duration-200"
             >
               RESET
             </button>
             <button
               onClick={handleSavePayroll}
               disabled={saving || !hoursDataLoaded}
-              className={`px-8 py-3 font-medium rounded-md transition-colors duration-200 ${
+              className={`w-full sm:w-auto px-8 py-3 font-medium rounded-md transition-colors duration-200 ${
                 saving || !hoursDataLoaded
                   ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                   : 'bg-orange-600 text-white hover:bg-orange-700'
@@ -2580,17 +2579,17 @@ const Payroll = () => {
   };
 
   return (
-    <div className="p-6 bg-gray-50 min-h-screen">
-      <div className="bg-white rounded-lg shadow-md">
+    <div className="p-0 sm:p-4 lg:p-6 min-w-0">
+      <div className="bg-white rounded-lg shadow-md min-w-0">
         {/* Header with Tabs */}
-        <div className="border-b">
-          <div className="px-6 pt-6">
-            <h1 className="text-2xl font-bold text-gray-800 mb-6">Payroll Management</h1>
+        <div className="border-b min-w-0">
+          <div className="px-3 sm:px-6 pt-4 sm:pt-6">
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-800 mb-4 sm:mb-6">Payroll Management</h1>
           </div>
 
           {/* Tab Navigation */}
-          <div className="bg-white rounded-t-lg border-b">
-          <nav className="flex space-x-1 px-6">
+          <div className="bg-white border-b overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
+          <nav className="flex gap-0 px-2 sm:px-6 w-max min-w-full">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
@@ -2601,7 +2600,7 @@ const Payroll = () => {
                   }
                 }}
                 className={`
-                  relative px-6 py-3 text-sm font-medium border-b-2 transition-colors
+                  relative px-3 sm:px-6 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0
                   ${activeTab === tab.id
                     ? 'text-orange-600 border-orange-600'
                     : 'text-gray-600 border-transparent hover:text-gray-800'

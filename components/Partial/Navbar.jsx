@@ -5,6 +5,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
+import { MenuIcon, DoorClosedIcon as CloseIcon } from "lucide-react";
 import { ThemeToggle } from "../Theme/ThemeToggle";
 import useAuthStore from "@/store/useAuthStore";
 import UserMenu from "./Navbar/UserMenu";
@@ -52,10 +53,10 @@ function SignInButton() {
     <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
       <Link
         href="/sign-in"
-        className="inline-flex items-center justify-center px-6 py-2.5 font-semibold text-white 
+        className="inline-flex items-center justify-center px-3 sm:px-6 py-2 sm:py-2.5 font-semibold text-white 
                    rounded-xl text-sm bg-gradient-to-r from-orange-500 to-orange-600 
                    hover:from-orange-600 hover:to-orange-700 transition-all duration-200 
-                   shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+                   shadow-lg hover:shadow-xl sm:transform sm:hover:-translate-y-0.5"
       >
         Sign in
       </Link>
@@ -64,7 +65,7 @@ function SignInButton() {
 }
 
 export default function NavBar() {
-  const { token, sidebarOpen } = useAuthStore();
+  const { token, sidebarOpen, toggleSidebar } = useAuthStore();
   const pathname = usePathname();
   const isDashboard = pathname?.startsWith("/dashboard");
   const hideLogo = isDashboard && sidebarOpen;
@@ -114,14 +115,31 @@ export default function NavBar() {
 
         {/* Mobile Navigation */}
         <div className="md:hidden">
-          <div className="flex items-center justify-between h-14">
-            <motion.div whileHover={{ scale: 1.05 }}>
-              <Link href="/" className="flex items-center">
-                <img src="/logo.png" alt="Bizbuddy title and logo" width={100} height={35} className="h-8 w-auto" />
-              </Link>
-            </motion.div>
+          <div className="flex items-center justify-between h-14 gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              {isDashboard && token && (
+                <motion.button
+                  type="button"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={toggleSidebar}
+                  aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
+                  className="shrink-0 p-2 rounded-xl bg-gradient-to-r from-orange-500 to-orange-600
+                             text-white shadow-md"
+                >
+                  <motion.div animate={{ rotate: sidebarOpen ? 90 : 0 }} transition={{ duration: 0.2 }}>
+                    {sidebarOpen ? <CloseIcon className="w-5 h-5" /> : <MenuIcon className="w-5 h-5" />}
+                  </motion.div>
+                </motion.button>
+              )}
+              <motion.div whileHover={{ scale: 1.05 }} className="min-w-0">
+                <Link href="/" className="flex items-center">
+                  <img src="/logo.png" alt="Bizbuddy title and logo" width={100} height={35} className="h-8 w-auto" />
+                </Link>
+              </motion.div>
+            </div>
 
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-2 shrink-0">
               <ThemeToggle />
               {!token ? (
                 <>

@@ -1442,10 +1442,10 @@ const EmployeeSheet = () => {
   return (
     <>
       <Toaster position="top-center" richColors />
-      <div className="p-6">
+      <div className="p-2 sm:p-4 lg:p-6 min-w-0">
         {/* Payroll workflow — steps 1–3 */}
-        <div className="mb-4 rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
+        <div className="mb-4 rounded-lg border border-gray-200 bg-white shadow-sm min-w-0">
+          <div className="px-3 sm:px-4 py-3 border-b border-gray-100 bg-gray-50">
             <p className="text-sm font-semibold text-gray-800">Payroll workflow</p>
             <p className="text-xs text-gray-500 mt-0.5">
               Load hours for the period, compute salaries, then send payslips
@@ -1453,7 +1453,7 @@ const EmployeeSheet = () => {
           </div>
 
           {/* Step 1 — period & hours */}
-          <div className="p-4 bg-blue-50/60 border-b border-blue-100">
+          <div className="p-3 sm:p-4 bg-blue-50/60 border-b border-blue-100">
             <div className="flex flex-wrap items-center gap-2 mb-3">
               <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-600 text-[10px] font-bold text-white">
                 1
@@ -1462,13 +1462,13 @@ const EmployeeSheet = () => {
                 Load hours
               </span>
             </div>
-            <div className="flex flex-wrap items-end gap-3">
-              <div>
+            <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-end gap-3">
+              <div className="w-full sm:w-auto min-w-0">
                 <label className="block text-xs font-medium text-blue-700 mb-1">Processed cutoff</label>
                 <select
                   value={selectedCutoffId}
                   onChange={(e) => handleSelectCutoff(e.target.value)}
-                  className="px-3 py-2 text-sm border border-blue-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 min-w-[240px]"
+                  className="w-full sm:min-w-[240px] px-3 py-2 text-sm border border-blue-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="" disabled>
                     {processedCutoffPeriods.length > 0
@@ -1482,42 +1482,46 @@ const EmployeeSheet = () => {
                   ))}
                 </select>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-blue-700 mb-1">From</label>
-                <input
-                  type="date"
-                  value={dateRange.from}
-                  readOnly
-                  disabled
-                  className="px-3 py-2 text-sm border border-blue-200 rounded-lg bg-blue-50 text-blue-900 cursor-not-allowed"
-                />
+              <div className="grid grid-cols-2 gap-3 w-full sm:w-auto">
+                <div>
+                  <label className="block text-xs font-medium text-blue-700 mb-1">From</label>
+                  <input
+                    type="date"
+                    value={dateRange.from}
+                    readOnly
+                    disabled
+                    className="w-full px-3 py-2 text-sm border border-blue-200 rounded-lg bg-blue-50 text-blue-900 cursor-not-allowed"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-blue-700 mb-1">To</label>
+                  <input
+                    type="date"
+                    value={dateRange.to}
+                    readOnly
+                    disabled
+                    className="w-full px-3 py-2 text-sm border border-blue-200 rounded-lg bg-blue-50 text-blue-900 cursor-not-allowed"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-blue-700 mb-1">To</label>
-                <input
-                  type="date"
-                  value={dateRange.to}
-                  readOnly
-                  disabled
-                  className="px-3 py-2 text-sm border border-blue-200 rounded-lg bg-blue-50 text-blue-900 cursor-not-allowed"
-                />
+              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateCutoffModal(true)}
+                  className="inline-flex items-center justify-center gap-2 w-full sm:w-auto px-4 py-2 text-sm font-semibold text-blue-700 bg-white border border-blue-300 rounded-lg hover:bg-blue-50"
+                >
+                  <Plus className="w-4 h-4" />
+                  Create Cutoff
+                </button>
+                <button
+                  onClick={handleLoadHours}
+                  disabled={hoursLoading || !selectedCutoffId || !dateRange.from || !dateRange.to}
+                  className="inline-flex items-center justify-center gap-2 w-full sm:w-auto px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Clock className="w-4 h-4" />
+                  {hoursLoading ? 'Loading...' : hoursLoaded ? 'Reload Hours' : 'Load Hours'}
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowCreateCutoffModal(true)}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-blue-700 bg-white border border-blue-300 rounded-lg hover:bg-blue-50"
-              >
-                <Plus className="w-4 h-4" />
-                Create Cutoff
-              </button>
-              <button
-                onClick={handleLoadHours}
-                disabled={hoursLoading || !selectedCutoffId || !dateRange.from || !dateRange.to}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Clock className="w-4 h-4" />
-                {hoursLoading ? 'Loading...' : hoursLoaded ? 'Reload Hours' : 'Load Hours'}
-              </button>
             </div>
             {pendingCutoffPeriods.length > 0 && (
               <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/80 p-3">
@@ -1562,40 +1566,44 @@ const EmployeeSheet = () => {
           </div>
 
           {/* Steps 2–3 — compute & send */}
-          <div className="p-4 flex flex-wrap items-center justify-between gap-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-orange-600 text-[10px] font-bold text-white">
-                2
-              </span>
-              <button
-                onClick={handleComputeSalary}
-                disabled={salaryComputing || loading || !dateRange.from || !dateRange.to}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-orange-600 rounded-lg hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Calculator className="w-4 h-4" />
-                {salaryComputing ? 'Computing...' : salaryComputed ? 'Recompute Salary' : 'Compute Salary'}
-              </button>
+          <div className="p-3 sm:p-4 flex flex-col md:flex-row md:flex-wrap md:items-center md:justify-between gap-3 md:gap-4">
+            <div className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-2 w-full md:w-auto min-w-0">
+              <div className="flex items-center gap-2 w-full md:w-auto min-w-0">
+                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-orange-600 text-[10px] font-bold text-white shrink-0">
+                  2
+                </span>
+                <button
+                  onClick={handleComputeSalary}
+                  disabled={salaryComputing || loading || !dateRange.from || !dateRange.to}
+                  className="inline-flex flex-1 min-w-0 md:flex-initial items-center justify-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-orange-600 rounded-lg hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Calculator className="w-4 h-4 shrink-0" />
+                  {salaryComputing ? 'Computing...' : salaryComputed ? 'Recompute Salary' : 'Compute Salary'}
+                </button>
+              </div>
 
-              <ChevronRight className="w-4 h-4 text-gray-300 hidden sm:block" aria-hidden />
+              <ChevronRight className="w-4 h-4 text-gray-300 hidden md:block self-center" aria-hidden />
 
-              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-green-600 text-[10px] font-bold text-white">
-                3
-              </span>
-              <button
-                onClick={handleSendAllPayslips}
-                disabled={!salaryComputed || savingPayroll || sendingAllPayslips}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Mail className="w-4 h-4" />
-                {sendingAllPayslips ? 'Sending...' : 'Send All Payslips'}
-              </button>
+              <div className="flex items-center gap-2 w-full md:w-auto min-w-0">
+                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-green-600 text-[10px] font-bold text-white shrink-0">
+                  3
+                </span>
+                <button
+                  onClick={handleSendAllPayslips}
+                  disabled={!salaryComputed || savingPayroll || sendingAllPayslips}
+                  className="inline-flex flex-1 min-w-0 md:flex-initial items-center justify-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Mail className="w-4 h-4 shrink-0" />
+                  {sendingAllPayslips ? 'Sending...' : 'Send All Payslips'}
+                </button>
+              </div>
             </div>
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+                  className="inline-flex items-center justify-center gap-1.5 w-full md:w-auto px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
                   aria-label="More payroll actions"
                 >
                   <MoreHorizontal className="w-4 h-4" />
@@ -1636,13 +1644,13 @@ const EmployeeSheet = () => {
         </div>
 
         {salaryComputed && companyConfig && (
-          <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
+          <div className="mb-4 p-3 sm:p-4 bg-green-50 border border-green-200 rounded-lg">
+            <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:justify-between gap-3">
+              <div className="min-w-0">
                 <p className="text-sm font-semibold text-green-800">
                   Payroll computed — {companyConfig.companyName}
                 </p>
-                <p className="text-xs text-green-700 mt-0.5">
+                <p className="text-xs text-green-700 mt-0.5 break-words">
                   Pay frequency: <span className="font-medium capitalize">{companyConfig.payFrequency}</span>
                   {' · '}
                   Salary employees: annual pay ÷ periods per year
@@ -1662,55 +1670,60 @@ const EmployeeSheet = () => {
                   )}
                 </p>
               </div>
-              <div className="text-right">
+              <div className="text-left sm:text-right shrink-0">
                 <p className="text-xs text-green-700 uppercase tracking-wide">Total Net Payroll</p>
-                <p className="text-2xl font-bold text-green-800">{formatCurrency(salaryTotals.net)}</p>
+                <p className="text-xl sm:text-2xl font-bold text-green-800">{formatCurrency(salaryTotals.net)}</p>
               </div>
             </div>
           </div>
         )}
 
         {/* Table filters */}
-        <div className="flex flex-wrap items-center gap-3 mb-4">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3 mb-4">
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search employees..."
-            className="w-64 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+            className="w-full sm:w-64 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
           />
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+            className="w-full sm:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
           >
             <option value="all">All ({statusCounts.all})</option>
             <option value="active">Active ({statusCounts.active})</option>
             <option value="inactive">Inactive ({statusCounts.inactive})</option>
             <option value="deleted">Deleted ({statusCounts.deleted})</option>
           </select>
-          <span className="text-sm text-gray-500">
-            {filteredRows.length} of {rows.length} rows
-          </span>
-          {hoursLoaded && !hoursLoading && (
-            <span className="text-sm font-medium text-green-700">
-              Σ {hoursTotals.totalPunch.toFixed(2)} total punch hrs
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-500">
+            <span>
+              {filteredRows.length} of {rows.length} rows
             </span>
-          )}
-          {salaryComputed && !salaryComputing && (
-            <span className="text-sm font-medium text-orange-700">
-              Σ {formatCurrency(salaryTotals.gross)} gross
-            </span>
-          )}
+            {hoursLoaded && !hoursLoading && (
+              <span className="font-medium text-green-700">
+                Σ {hoursTotals.totalPunch.toFixed(2)} total punch hrs
+              </span>
+            )}
+            {salaryComputed && !salaryComputing && (
+              <span className="font-medium text-orange-700">
+                Σ {formatCurrency(salaryTotals.gross)} gross
+              </span>
+            )}
+          </div>
         </div>
 
-        {/* Spreadsheet */}
+        {/* Spreadsheet — horizontal scroll on mobile; sticky name col kept for desktop usability */}
+        <p className="sm:hidden text-xs text-gray-500 mb-2">
+          Swipe sideways to see all columns
+        </p>
         <div className="border border-gray-400 rounded-lg overflow-hidden shadow-sm bg-white">
-          <div className="overflow-auto max-h-[calc(100vh-340px)]">
+          <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-280px)] sm:max-h-[calc(100vh-340px)] overscroll-x-contain">
             <table className="w-full border-collapse text-sm min-w-[1600px]">
               <thead className="sticky top-0 z-20">
                 <tr className="bg-[#f3f3f3]">
-                  <th className={`sticky ${STICKY_ROW_NUM_LEFT} z-40 min-w-[48px] px-2 py-2 text-center text-xs font-semibold text-gray-600 border border-gray-300 bg-[#e8e8e8] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]`}>
+                  <th className={`sm:sticky ${STICKY_ROW_NUM_LEFT} z-40 min-w-[48px] px-2 py-2 text-center text-xs font-semibold text-gray-600 border border-gray-300 bg-[#e8e8e8] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]`}>
                     #
                   </th>
                   {sheetColumns.map((col) => (
@@ -1726,10 +1739,10 @@ const EmployeeSheet = () => {
                         col.isFuta ? 'bg-red-50 text-red-800' : ''
                       } ${
                         col.key === 'name'
-                          ? `sticky ${STICKY_NAME_LEFT} z-30 min-w-[150px] bg-[#f3f3f3] shadow-[4px_0_6px_-2px_rgba(0,0,0,0.08)]`
+                          ? `sm:sticky ${STICKY_NAME_LEFT} z-30 min-w-[150px] bg-[#f3f3f3] shadow-[4px_0_6px_-2px_rgba(0,0,0,0.08)]`
                           : ''
                       } ${col.isDeductionInput ? 'bg-red-50 text-red-800 min-w-[110px]' : ''} ${
-                        col.isActions ? 'sticky right-0 z-30 bg-violet-50 text-violet-800 min-w-[120px]' : ''
+                        col.isActions ? 'sm:sticky right-0 z-30 bg-violet-50 text-violet-800 min-w-[120px]' : ''
                       }`}
                       style={{ textAlign: col.align }}
                     >
@@ -1838,7 +1851,7 @@ const EmployeeSheet = () => {
                       className={index % 2 === 0 ? 'bg-white' : 'bg-[#fafafa]'}
                     >
                       <td
-                        className={`sticky ${STICKY_ROW_NUM_LEFT} z-20 px-2 py-1.5 text-center text-xs font-mono text-gray-500 border border-gray-300 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)] ${
+                        className={`sm:sticky ${STICKY_ROW_NUM_LEFT} z-20 px-2 py-1.5 text-center text-xs font-mono text-gray-500 border border-gray-300 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)] ${
                           index % 2 === 0 ? 'bg-white' : 'bg-[#fafafa]'
                         }`}
                       >
@@ -1853,7 +1866,7 @@ const EmployeeSheet = () => {
                               : 'text-sm'
                           } ${col.key === 'name' ? 'font-medium text-gray-900' : 'text-gray-700'} ${
                             col.key === 'name'
-                              ? `sticky ${STICKY_NAME_LEFT} z-10 min-w-[150px] shadow-[4px_0_6px_-2px_rgba(0,0,0,0.06)] ${
+                              ? `sm:sticky ${STICKY_NAME_LEFT} z-10 min-w-[150px] shadow-[4px_0_6px_-2px_rgba(0,0,0,0.06)] ${
                                   index % 2 === 0 ? 'bg-white' : 'bg-[#fafafa]'
                                 }`
                               : ''
@@ -1862,7 +1875,7 @@ const EmployeeSheet = () => {
                           } ${col.key === 'netPay' && row.netPay != null ? 'font-semibold text-orange-700 bg-orange-50/50' : ''} ${
                             col.key === 'futaDeduction' && row.futaDeduction != null ? 'font-semibold text-red-700 bg-red-50/50' : ''
                           } ${
-                            col.isActions ? 'sticky right-0 z-10 bg-inherit' : ''
+                            col.isActions ? 'sm:sticky right-0 z-10 bg-inherit' : ''
                           }`}
                           style={{ textAlign: col.align }}
                         >
@@ -1939,7 +1952,7 @@ const EmployeeSheet = () => {
               {(hoursLoaded || salaryComputed) && filteredRows.length > 0 && !hoursLoading && !salaryComputing && (
                 <tfoot className="sticky bottom-0 z-10 bg-gray-200">
                   <tr>
-                    <td className={`sticky ${STICKY_ROW_NUM_LEFT} z-30 px-2 py-2 text-xs font-bold text-gray-700 border border-gray-300 bg-gray-200 text-center shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]`}>
+                    <td className={`sm:sticky ${STICKY_ROW_NUM_LEFT} z-30 px-2 py-2 text-xs font-bold text-gray-700 border border-gray-300 bg-gray-200 text-center shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]`}>
                       Σ
                     </td>
                     {sheetColumns.map((col) => (
@@ -1947,7 +1960,7 @@ const EmployeeSheet = () => {
                         key={col.key}
                         className={`px-3 py-2 text-xs font-bold text-gray-800 border border-gray-300 font-mono ${
                           col.key === 'name'
-                            ? `sticky ${STICKY_NAME_LEFT} z-20 min-w-[150px] bg-gray-200 shadow-[4px_0_6px_-2px_rgba(0,0,0,0.08)]`
+                            ? `sm:sticky ${STICKY_NAME_LEFT} z-20 min-w-[150px] bg-gray-200 shadow-[4px_0_6px_-2px_rgba(0,0,0,0.08)]`
                             : ''
                         }`}
                         style={{ textAlign: col.align }}
