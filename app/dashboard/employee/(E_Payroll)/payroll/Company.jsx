@@ -431,10 +431,10 @@ const Company = () => {
     <>
       <Toaster position="top-center" richColors />
 
-      <div className="p-6 space-y-6 bg-gray-50 min-h-screen">
+      <div className="p-3 sm:p-6 space-y-4 sm:space-y-6 min-w-0">
         {/* Company Information Card */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-          <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-orange-50 to-orange-100">
+          <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200 bg-gradient-to-r from-orange-50 to-orange-100">
             <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
               <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
@@ -449,8 +449,8 @@ const Company = () => {
             <p className="text-xs text-gray-500 mt-1">Read-only information from company profile</p>
           </div>
 
-          <div className="p-6">
-            <div className="grid grid-cols-2 gap-4">
+          <div className="p-4 sm:p-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Company Name</label>
                 <input
@@ -493,7 +493,7 @@ const Company = () => {
 
         {/* Payroll Settings Card */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-          <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-blue-100">
+          <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-blue-100">
             <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
               <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
@@ -507,8 +507,8 @@ const Company = () => {
             </h2>
           </div>
 
-          <div className="p-6 space-y-4">
-            <div className="grid grid-cols-3 gap-4">
+          <div className="p-4 sm:p-6 space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Pay Frequency</label>
                 <select
@@ -542,7 +542,7 @@ const Company = () => {
               </div>
             </div>
 
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div className="flex items-center gap-4">
                 <label className="text-sm font-medium text-gray-700">PTO Enabled:</label>
                 <button
@@ -557,7 +557,7 @@ const Company = () => {
 
               <button
                 onClick={handleAutoCalculatePayPeriod}
-                className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 flex items-center gap-2"
+                className="w-full sm:w-auto justify-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 flex items-center gap-2"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
@@ -571,11 +571,11 @@ const Company = () => {
               </button>
             </div>
 
-            <div className="flex justify-end pt-4 border-t">
+            <div className="flex justify-stretch sm:justify-end pt-4 border-t">
               <button
                 onClick={handleUpdatePayrollConfig}
                 disabled={saving}
-                className="px-8 py-3 bg-orange-600 text-white font-medium rounded-md hover:bg-orange-700 transition-colors disabled:opacity-50"
+                className="w-full sm:w-auto px-4 sm:px-8 py-3 bg-orange-600 text-white font-medium rounded-md hover:bg-orange-700 transition-colors disabled:opacity-50"
               >
                 {saving ? "UPDATING..." : "UPDATE SETTINGS"}
               </button>
@@ -585,7 +585,7 @@ const Company = () => {
 
         {/* Tax Configuration Card - Read Only (California Compliant) */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-          <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-purple-50 to-purple-100">
+          <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200 bg-gradient-to-r from-purple-50 to-purple-100">
             <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
               <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
@@ -600,8 +600,8 @@ const Company = () => {
             <p className="text-xs text-gray-500 mt-1">California state-compliant tax rates (Read-only)</p>
           </div>
 
-          <div className="p-6">
-            <div className="grid grid-cols-2 gap-6">
+          <div className="p-4 sm:p-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
               {/* Federal Income Tax */}
               <div className="bg-blue-50 rounded-lg p-5 border border-blue-200">
                 <div className="flex items-start justify-between mb-3">
@@ -723,7 +723,7 @@ const Company = () => {
               </div>
 
               {/* CA ETT (Employer Only) - Info Card */}
-              <div className="bg-yellow-50 rounded-lg p-5 border border-yellow-200 col-span-2">
+              <div className="bg-yellow-50 rounded-lg p-5 border border-yellow-200 sm:col-span-2">
                 <div className="flex items-start gap-3">
                   <div className="bg-yellow-200 rounded-full p-2 flex-shrink-0">
                     <svg className="w-5 h-5 text-yellow-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -775,7 +775,7 @@ const Company = () => {
 
         {/* FUTA Configuration Card */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-          <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-teal-50 to-teal-100">
+          <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200 bg-gradient-to-r from-teal-50 to-teal-100">
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-bold text-gray-800">FUTA Configuration</h2>
               <FutaInfoTooltip />
@@ -785,7 +785,7 @@ const Company = () => {
             </p>
           </div>
 
-          <div className="p-6 space-y-5">
+          <div className="p-4 sm:p-6 space-y-5">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
                 <p className="text-sm font-medium text-gray-800">Enable FUTA tracking</p>
@@ -862,18 +862,18 @@ const Company = () => {
 
         {/* Earnings Card */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-          <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-green-50 to-green-100 flex justify-between items-center">
+          <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200 bg-gradient-to-r from-green-50 to-green-100 flex flex-col sm:flex-row gap-2 sm:justify-between sm:items-center">
             <h2 className="text-lg font-bold text-gray-800">Earnings</h2>
             <button
               onClick={() => setShowAddEarning(true)}
-              className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-md hover:bg-green-700"
+              className="w-full sm:w-auto px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-md hover:bg-green-700"
             >
               + Add Earning Type
             </button>
           </div>
 
-          <div className="p-6">
-            <table className="min-w-full">
+          <div className="p-4 sm:p-6 overflow-x-auto">
+            <table className="min-w-full sm:min-w-[500px]">
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Enabled</th>
@@ -923,18 +923,18 @@ const Company = () => {
 
         {/* Deductions Card */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-          <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-red-50 to-red-100 flex justify-between items-center">
+          <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200 bg-gradient-to-r from-red-50 to-red-100 flex flex-col sm:flex-row gap-2 sm:justify-between sm:items-center">
             <h2 className="text-lg font-bold text-gray-800">Deductions</h2>
             <button
               onClick={() => setShowAddDeduction(true)}
-              className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700"
+              className="w-full sm:w-auto px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700"
             >
               + Add Deduction Type
             </button>
           </div>
 
-          <div className="p-6">
-            <table className="min-w-full">
+          <div className="p-4 sm:p-6 overflow-x-auto">
+            <table className="min-w-full sm:min-w-[600px]">
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Enabled</th>

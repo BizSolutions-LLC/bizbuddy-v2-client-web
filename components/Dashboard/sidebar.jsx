@@ -669,7 +669,7 @@ export default function Sidebar({ isSidebarOpen, closeSidebar, onNavigateStart, 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 md:hidden"
+            className="fixed inset-0 top-14 bg-black/50 backdrop-blur-sm z-40 md:hidden md:top-0"
             onClick={closeSidebar}
           />
         )}
@@ -680,7 +680,7 @@ export default function Sidebar({ isSidebarOpen, closeSidebar, onNavigateStart, 
         initial={{ x: "-100%" }}
         animate={{ x: isSidebarOpen ? 0 : "-100%" }}
         transition={{ type: "spring", damping: 25, stiffness: 200 }}
-        className="fixed top-0 left-0 z-50 h-screen w-[300px] sm:w-[320px] md:w-[340px] lg:w-[320px] xl:w-[340px] max-w-[85vw] bg-gradient-to-b from-white via-neutral-50 to-white dark:from-neutral-900 dark:via-neutral-800 dark:to-neutral-900 border-r border-neutral-200 dark:border-neutral-700 shadow-2xl"
+        className="fixed top-14 md:top-0 left-0 z-50 h-[calc(100dvh-3.5rem)] md:h-screen w-[300px] sm:w-[320px] md:w-[340px] lg:w-[320px] xl:w-[340px] max-w-[85vw] bg-gradient-to-b from-white via-neutral-50 to-white dark:from-neutral-900 dark:via-neutral-800 dark:to-neutral-900 border-r border-neutral-200 dark:border-neutral-700 shadow-2xl"
       >
         <div className="flex flex-col h-full overflow-hidden">
           {loading || !profileData ? (

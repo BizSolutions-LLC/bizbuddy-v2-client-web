@@ -18,6 +18,7 @@ const useAuthStore = create(
       },
       setHydrated: (hydrated) => set({ isHydrated: hydrated }),
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
+      toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
       get user() {
         const { token } = get();
         if (!token) {
