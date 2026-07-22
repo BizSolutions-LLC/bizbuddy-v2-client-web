@@ -207,8 +207,12 @@ export default function EmployeeLeaveRequests() {
     }) ?? null;
   }, [startDate, endDate, leaves]);
 
+  // Fallback (no-shift) days come back from /affected-schedules with
+  // userShiftId: null — only real plotted shifts belong in this list, or
+  // POST /leaves/submit's `id: { in: affectedShiftIds } }` query chokes on
+  // the null entry.
   const affectedShiftIds = useMemo(
-    () => affectedSchedules.map(s => s.userShiftId),
+    () => affectedSchedules.filter(s => s.userShiftId).map(s => s.userShiftId),
     [affectedSchedules]
   );
 
@@ -537,7 +541,7 @@ export default function EmployeeLeaveRequests() {
           fromDate,
           toDate,
           isPaid: resolvedIsPaid,
-          affectedShiftIds,
+          ...(affectedShiftIds.length > 0 ? { affectedShiftIds } : {}),
           fromTime: startTime,
           toTime: endTime,
         }),
