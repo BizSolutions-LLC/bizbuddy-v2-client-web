@@ -184,8 +184,13 @@ const PunchTypeBadge = ({ punchType, size = "sm" }) => {
 };
 
 // ── CutoffApprovalBadge ────────────────────────────────────────────────────────
-const CutoffApprovalBadge = ({ cutoffApproval, onClick }) => {
-  if (!cutoffApproval) {
+const CutoffApprovalBadge = ({ cutoffApproval, dayCutoffStatus, onClick }) => {
+  // dayCutoffStatus is the server-computed day-level aggregate (accounts for
+  // mixed approved/excluded segments); cutoffApproval.status is the older
+  // single-record field, kept only as a fallback and for the period tooltip.
+  const status = dayCutoffStatus ?? cutoffApproval?.status ?? null;
+
+  if (!status) {
     return (
       <TooltipProvider delayDuration={200}>
         <Tooltip>
@@ -203,7 +208,7 @@ const CutoffApprovalBadge = ({ cutoffApproval, onClick }) => {
     );
   }
 
-  const { status, cutoffPeriod } = cutoffApproval;
+  const { cutoffPeriod } = cutoffApproval || {};
 
   const config = {
     approved: {
@@ -853,6 +858,7 @@ function enrichTimelogs(rawData, { companyTimezone, isDayCare, otBasis, locMap, 
       isMissingClockOut,
       isAutoClockOut: t.autoClockOut === true,
       cutoffApproval: t.cutoffApproval ?? null,
+      dayCutoffStatus: t.dayCutoffStatus ?? null,
     };
   });
 }
@@ -2452,7 +2458,7 @@ export default function EmployeesPunchLogs() {
                                     </TooltipProvider>
                                   )}
                                   {/* G-6: Auto clock-out icon */}
-                                  {t.isAutoClockOut && t.cutoffApproval?.status !== "approved" && (
+                                  {t.isAutoClockOut && t.dayCutoffStatus !== "approved" && (
                                     <TooltipProvider delayDuration={200}>
                                       <Tooltip>
                                         <TooltipTrigger asChild>
@@ -2484,7 +2490,7 @@ export default function EmployeesPunchLogs() {
                             return (
                               <TableCell key="dateTimeIn" className="text-center">
                                 <div className="flex flex-col items-center gap-1">
-                                  <DualTimeDisplay datetime={t.timeIn} userTz={userTimezone} companyTz={companyTimezone} />
+                                  <DualTimeDisplay datetime={t.dayApprovedClockIn ?? t.timeIn} userTz={userTimezone} companyTz={companyTimezone} />
                                   {t.isTooEarlyPunch && (
                                     <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
                                       Too Early
@@ -2494,7 +2500,7 @@ export default function EmployeesPunchLogs() {
                               </TableCell>
                             );
                           case "dateTimeOut":
-                            return <TableCell key="dateTimeOut" className="text-center"><DualTimeDisplay datetime={t.timeOut} userTz={userTimezone} companyTz={companyTimezone} /></TableCell>;
+                            return <TableCell key="dateTimeOut" className="text-center"><DualTimeDisplay datetime={t.dayApprovedClockOut ?? t.timeOut} userTz={userTimezone} companyTz={companyTimezone} /></TableCell>;
                           case "duration":
                             return <TableCell key="duration" className="text-center text-sm font-medium"><TimeDisplayWithTooltip time={t.duration} type="duration" /></TableCell>;
                           case "gross":
@@ -2585,9 +2591,9 @@ export default function EmployeesPunchLogs() {
                               </TableCell>
                             );
                           case "late":
-                            return <TableCell key="late" className="text-center text-sm">{t.cutoffApproval?.status !== "approved" && parseFloat(t.lateHours) > 0 ? <TimeDisplayWithTooltip time={t.lateHours} type="late" className="text-red-600 font-medium" /> : <span className="text-muted-foreground">—</span>}</TableCell>;
+                            return <TableCell key="late" className="text-center text-sm">{t.dayCutoffStatus !== "approved" && parseFloat(t.lateHours) > 0 ? <TimeDisplayWithTooltip time={t.lateHours} type="late" className="text-red-600 font-medium" /> : <span className="text-muted-foreground">—</span>}</TableCell>;
                           case "undertime":
-                            return <TableCell key="undertime" className="text-center text-sm">{t.cutoffApproval?.status !== "approved" && parseFloat(t.undertimeHours) > 0 ? <TimeDisplayWithTooltip time={t.undertimeHours} type="late" className="text-amber-600 font-medium" /> : <span className="text-muted-foreground">—</span>}</TableCell>;
+                            return <TableCell key="undertime" className="text-center text-sm">{t.dayCutoffStatus !== "approved" && parseFloat(t.undertimeHours) > 0 ? <TimeDisplayWithTooltip time={t.undertimeHours} type="late" className="text-amber-600 font-medium" /> : <span className="text-muted-foreground">—</span>}</TableCell>;
                           case "deviceIn":
                             return <TableCell key="deviceIn" className="text-center"><DeviceDisplay device={t.fullDevIn} /></TableCell>;
                           case "deviceOut":
@@ -2635,14 +2641,14 @@ export default function EmployeesPunchLogs() {
                           case "cutoffApproval":
                             return (
                               <TableCell key="cutoffApproval" className="text-center">
-                                <CutoffApprovalBadge cutoffApproval={t.cutoffApproval} />
+                                <CutoffApprovalBadge cutoffApproval={t.cutoffApproval} dayCutoffStatus={t.dayCutoffStatus} />
                               </TableCell>
                             );
                           case "actions":
                             return (
                               <TableCell key="actions" className="text-center">
                                 <div className="flex items-center justify-center gap-1">
-                                  {canEdit && t.status !== "active" && t.cutoffApproval?.status !== "approved" ? (
+                                  {canEdit && t.status !== "active" && t.dayCutoffStatus !== "approved" ? (
                                     <>
                                       {/* Edit Time In/Out */}
                                       <TooltipProvider delayDuration={200}><Tooltip>
@@ -2695,7 +2701,7 @@ export default function EmployeesPunchLogs() {
                             className={`border-b transition-all cursor-pointer ${
                               isExpanded
                                 ? "bg-muted/30 hover:bg-muted/40"
-                                : t.isAutoClockOut && t.cutoffApproval?.status !== "approved"
+                                : t.isAutoClockOut && t.dayCutoffStatus !== "approved"
                                 ? "bg-purple-50/40 dark:bg-purple-950/10 hover:bg-purple-50/60 border-l-2 border-l-purple-400"
                                 : t.isD4Flag
                                 ? "bg-red-50/50 dark:bg-red-950/10 hover:bg-red-50/70 dark:hover:bg-red-950/20 border-l-2 border-l-red-400"
@@ -2779,7 +2785,7 @@ export default function EmployeesPunchLogs() {
                                           </div>
                                           <div className="flex justify-between">
                                             <span className="text-muted-foreground">Late Hours:</span>
-                                            <span className="font-medium">{t.cutoffApproval?.status !== "approved" && parseFloat(t.lateHours) > 0 ? `${t.lateHours}h` : "—"}</span>
+                                            <span className="font-medium">{t.dayCutoffStatus !== "approved" && parseFloat(t.lateHours) > 0 ? `${t.lateHours}h` : "—"}</span>
                                           </div>
                                           <div className="flex justify-between">
                                             <span className="text-muted-foreground">Period Hours:</span>
@@ -2868,7 +2874,7 @@ export default function EmployeesPunchLogs() {
                                         </div>
                                         <div className="flex justify-between">
                                           <span className="text-muted-foreground">Cutoff:</span>
-                                          <CutoffApprovalBadge cutoffApproval={t.cutoffApproval} />
+                                          <CutoffApprovalBadge cutoffApproval={t.cutoffApproval} dayCutoffStatus={t.dayCutoffStatus} />
                                         </div>
                                       </div>
 
@@ -2895,7 +2901,7 @@ export default function EmployeesPunchLogs() {
                                       )}
 
                                       {/* G-6 auto clock-out warning */}
-                                      {t.isAutoClockOut && t.cutoffApproval?.status !== "approved" && (
+                                      {t.isAutoClockOut && t.dayCutoffStatus !== "approved" && (
                                         <div className="mt-2 p-2 bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800 rounded-lg flex items-start gap-2">
                                           <Timer className="h-3.5 w-3.5 text-purple-500 mt-0.5 flex-shrink-0" />
                                           <p className="text-xs text-purple-700 dark:text-purple-400">

@@ -1319,13 +1319,13 @@ export default function PunchLogs() {
 
                             {/* Clock In */}
                             <TableCell className="py-4">
-                              <DualTime value={log.timeIn} companyTz={companyTimezone} userTz={userTimezone} />
+                              <DualTime value={log.dayApprovedClockIn ?? log.timeIn} companyTz={companyTimezone} userTz={userTimezone} />
                             </TableCell>
 
                             {/* Clock Out */}
                             <TableCell className="py-4">
-                              {log.timeOut
-                                ? <DualTime value={log.timeOut} companyTz={companyTimezone} userTz={userTimezone} />
+                              {(log.dayApprovedClockOut ?? log.timeOut)
+                                ? <DualTime value={log.dayApprovedClockOut ?? log.timeOut} companyTz={companyTimezone} userTz={userTimezone} />
                                 : <span className="text-xs text-muted-foreground italic">—</span>
                               }
                             </TableCell>
@@ -1426,8 +1426,8 @@ export default function PunchLogs() {
                           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Time Details</p>
                           <div className="space-y-1.5">
                             {[
-                              { label: "Clock In",   value: <span className="font-mono text-xs">{safeTime(selectedLogV3.timeIn, companyTimezone)}</span> },
-                              { label: "Clock Out",  value: <span className="font-mono text-xs">{selectedLogV3.timeOut ? safeTime(selectedLogV3.timeOut, companyTimezone) : <span className="text-muted-foreground italic">—</span>}</span> },
+                              { label: "Clock In",   value: <span className="font-mono text-xs">{safeTime(selectedLogV3.dayApprovedClockIn ?? selectedLogV3.timeIn, companyTimezone)}</span> },
+                              { label: "Clock Out",  value: <span className="font-mono text-xs">{(selectedLogV3.dayApprovedClockOut ?? selectedLogV3.timeOut) ? safeTime(selectedLogV3.dayApprovedClockOut ?? selectedLogV3.timeOut, companyTimezone) : <span className="text-muted-foreground italic">—</span>}</span> },
                               { label: "Duration",   value: <span className="font-semibold text-orange-600">{selectedLogV3.duration}h</span> },
                               { label: "Period Hrs", value: `${selectedLogV3.periodHours}h` },
                               ...(parseFloat(selectedLogV3.lateHours) > 0 ? [{ label: "Late", value: <span className="text-red-600 font-medium">{selectedLogV3.lateHours}h</span> }] : []),
