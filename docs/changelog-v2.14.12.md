@@ -62,6 +62,8 @@ BB-058 fix: the Punch Logs Time In/Time Out summary (company + employee views, p
 - `lib/exports/punchLogs.js` — Time In/Time Out columns in both the CSV and PDF export paths.
 - `lib/exports/employeePunchLogs.js` — `dateTimeIn`/`dateTimeOut` cases in both `buildCsvCell` and `buildPdfCell`.
 
+**Merge note:** `release/v2.14.12` was cut before `origin/master` commit `1b2d721` ("Fix mobile responsiveness across timekeeping and payroll pages", merged via PR #57) landed. That commit refactored the employee `PunchLogs.jsx` desktop side panel into a shared `LogDetailBody()` component (also used by a new mobile bottom sheet), which didn't exist yet when the fix above was first applied — and which predates the `dayApprovedClockIn`/`dayApprovedClockOut` fields entirely, so it never had this fix. Merged `origin/master` into `release/v2.14.12` to pick up that work; the merge conflict this caused in `PunchLogs.jsx` was resolved by keeping master's `LogDetailBody` structure and re-applying the `dayApprovedClockIn/Out` fallback inside it — so both the desktop panel and the new mobile sheet now show the approved time correctly.
+
 **Deliberately left on raw values (out of scope, by design):** Edit Time In/Time Out dialogs (must prefill the actual raw punch being edited), delete-confirmation dialog, OT Details dialog, all date-bucketing/sort keys (`dateKey`, `daysWorked`, grid-CSV date grouping — swapping these could shift which day a record buckets into), `CutoffReview.jsx`, and `buildRowsFromApprovals()` (different mechanism — per-segment `approvedClockIn`/`approvedClockOut`, not the new day-level fields).
 
 **Server-repo impact:** None remaining — server work already shipped and confirmed by backend before this client fix was made.
