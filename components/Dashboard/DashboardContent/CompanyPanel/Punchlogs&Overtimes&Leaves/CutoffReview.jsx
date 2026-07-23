@@ -88,11 +88,14 @@ const EXCLUDE_REASONS = [
 ];
 
 const TAG_TOOLTIPS = {
-  snap: "Clock-in will snap to scheduled start — within the grace period.",
-  late: "Clocked in after the grace period ended. Late minutes flagged for review.",
-  flag: "This record has been flagged and needs attention.",
-  ot:   "Approved overtime included. Extra hours added to total payable.",
-  auto: "System auto clock-out triggered — no manual clock-out recorded.",
+  snap:         "Clock-in will snap to scheduled start — within the grace period.",
+  late:         "Clocked in after the grace period ended. Late minutes flagged for review.",
+  flag:         "This record has been flagged and needs attention.",
+  ot:           "Approved overtime included. Extra hours added to total payable.",
+  auto:         "System auto clock-out triggered — no manual clock-out recorded.",
+  paidLeave:    "This leave day is fully paid — its hours are included in payable totals.",
+  partialLeave: "Leave balance ran out mid-day — only part of this day's hours are paid and count toward payable totals.",
+  unpaidLeave:  "This leave day is unpaid — no hours from it are included in payable totals.",
 };
 
 const SEGMENT_LABELS = { driver_am: "Driver AM", regular: "Regular", driver_pm: "Driver PM" };
@@ -198,6 +201,13 @@ const enumeratePeriodDays = (periodStart, periodEnd, tz = "UTC") => {
 const dateOnlyToLabel = (dateStr, tz = "UTC") => {
   const [y, m, d] = dateStr.slice(0, 10).split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: tz });
+};
+
+/** Classifies a leave day's pay status from its scheduled vs. actually-payable hours. */
+const resolveLeavePayStatus = (payableHours, scheduledHours) => {
+  if (payableHours <= 0) return "unpaid";
+  if (payableHours >= scheduledHours) return "paid";
+  return "partial";
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -383,12 +393,15 @@ const FilterBar = ({ tabs, activeTab, onTab, search, onSearch, chips, onChip }) 
 /** Tag pill with tooltip */
 const TagPill = ({ cls, label, tooltip }) => {
   const styles = {
-    snap:     "bg-emerald-50 text-emerald-700 border border-emerald-200",
-    late:     "bg-red-50    text-red-600    border border-red-200",
-    flag:     "bg-amber-50  text-amber-700  border border-amber-200",
-    ot:       "bg-violet-50 text-violet-700 border border-violet-200",
-    auto:     "bg-sky-50    text-sky-700    border border-sky-200",
-    tooEarly: "bg-orange-50 text-orange-700 border border-orange-200",
+    snap:         "bg-emerald-50 text-emerald-700 border border-emerald-200",
+    late:         "bg-red-50    text-red-600    border border-red-200",
+    flag:         "bg-amber-50  text-amber-700  border border-amber-200",
+    ot:           "bg-violet-50 text-violet-700 border border-violet-200",
+    auto:         "bg-sky-50    text-sky-700    border border-sky-200",
+    tooEarly:     "bg-orange-50 text-orange-700 border border-orange-200",
+    paidLeave:    "bg-emerald-50  text-emerald-700  border border-emerald-200",
+    partialLeave: "bg-amber-50    text-amber-700    border border-amber-200",
+    unpaidLeave:  "bg-neutral-100 text-neutral-500  border border-neutral-200",
   };
   return (
     <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full
@@ -480,6 +493,10 @@ const TimelineRow = ({ rec, onApprove, onApproveOT, onApproveSchedule, onApprove
   const TypeIcon = cfg.icon;
   const isLocked         = ["approved", "excluded", "resolved"].includes(rec.localStatus);
   const isRestOrPreApproved = rec.type === "rest" || rec.actions?.includes("pre-approved");
+  const isLeaveRow    = rec.type === "leave";
+  // Unpaid leave shows no hour value at all; paid/partial leave shows the payable
+  // portion (not the full scheduled hours) — only paid time should read as a number here.
+  const displayHours  = isLeaveRow ? (rec.payStatus === "unpaid" ? 0 : (rec.payableHours ?? rec.hours)) : rec.hours;
 
   return (
     <tr className={`border-b border-neutral-100 dark:border-neutral-800 last:border-b-0 transition-colors ${cfg.rowBg}`}>
@@ -584,17 +601,20 @@ const TimelineRow = ({ rec, onApprove, onApproveOT, onApproveSchedule, onApprove
       <td className="px-3 py-3 w-24 text-right align-top">
         {rec.isApproving ? (
           <Skeleton className="h-5 w-12 ml-auto rounded" />
-        ) : rec.hours > 0 ? (
+        ) : displayHours > 0 ? (
           <div>
             <div className="inline-flex items-center gap-0.5 justify-end">
               <span className={`font-mono text-sm font-extrabold
-                ${rec.type === "leave"    ? "text-emerald-600" :
+                ${isLeaveRow && rec.payStatus === "partial" ? "text-amber-600" :
+                  rec.type === "leave"    ? "text-emerald-600" :
                   rec.type === "conflict" ? "text-red-500"     :
                   rec.type === "rest"     ? "text-neutral-300" :
                   "text-neutral-800 dark:text-neutral-100"}`}>
-                {parseFloat(rec.hours).toFixed(2).replace(/\.?0+$/, "")}h
+                {parseFloat(displayHours).toFixed(2).replace(/\.?0+$/, "")}h
               </span>
-              <InfoTooltip text="Payable hours after snap rules and break deductions. This goes to payroll on approval." />
+              <InfoTooltip text={isLeaveRow
+                ? "Payable portion of this leave day. Unpaid leave hours are excluded from payroll."
+                : "Payable hours after snap rules and break deductions. This goes to payroll on approval."} />
             </div>
             {rec.scheduledHours > 0 && (
               <div className="text-[10px] text-neutral-400 mt-0.5 tabular-nums">
@@ -1514,6 +1534,14 @@ export default function CutoffReview({ cutoffId }) {
           };
         }
 
+        const leaveScheduledHours = leaveRow.hours ?? 8;
+        const leavePayableHours   = leaveRow.payableHours ?? leaveScheduledHours;
+        const leavePayStatus      = resolveLeavePayStatus(leavePayableHours, leaveScheduledHours);
+        const leavePayTag =
+          leavePayStatus === "unpaid"  ? { cls: "unpaidLeave",  label: "Unpaid" } :
+          leavePayStatus === "partial" ? { cls: "partialLeave", label: "Partially Paid" } :
+                                          { cls: "paidLeave",    label: "Paid" };
+
         empMap[userId].records.push({
           id:           leaveRow.id,
           timeLogId:    null,
@@ -1521,9 +1549,11 @@ export default function CutoffReview({ cutoffId }) {
           date:         dateOnlyToLabel(leaveRow.leaveDate, tz),
           type:         "leave",
           detail:       `${leaveRow.leave.leaveType} — <strong>Approved</strong>`,
-          tags:         [],
+          tags:         [leavePayTag],
           actions:      ["pre-approved"],
-          hours:        leaveRow.hours ?? 8,
+          hours:        leaveScheduledHours,
+          payableHours: leavePayableHours,
+          payStatus:    leavePayStatus,
           scheduledHours: 0,
           scheduleInfo: null,
           hasOT:        false,
@@ -1682,6 +1712,14 @@ export default function CutoffReview({ cutoffId }) {
             hasBulk:  false,
           };
         }
+        const leaveScheduledHours = leaveRow.hours ?? 8;
+        const leavePayableHours   = leaveRow.payableHours ?? leaveScheduledHours;
+        const leavePayStatus      = resolveLeavePayStatus(leavePayableHours, leaveScheduledHours);
+        const leavePayTag =
+          leavePayStatus === "unpaid"  ? { cls: "unpaidLeave",  label: "Unpaid" } :
+          leavePayStatus === "partial" ? { cls: "partialLeave", label: "Partially Paid" } :
+                                          { cls: "paidLeave",    label: "Paid" };
+
         empMap[userId].records.push({
           id:             leaveRow.id,
           timeLogId:      null,
@@ -1689,9 +1727,11 @@ export default function CutoffReview({ cutoffId }) {
           date:           dateOnlyToLabel(leaveRow.leaveDate, companyTimezone),
           type:           "leave",
           detail:         `${leaveRow.leave.leaveType} — <strong>Approved</strong>`,
-          tags:           [],
+          tags:           [leavePayTag],
           actions:        ["pre-approved"],
-          hours:          leaveRow.hours ?? 8,
+          hours:          leaveScheduledHours,
+          payableHours:   leavePayableHours,
+          payStatus:      leavePayStatus,
           scheduledHours: 0,
           scheduleInfo:   null,
           hasOT:          false,
@@ -2061,7 +2101,7 @@ export default function CutoffReview({ cutoffId }) {
         if (r.type === "punch_group" || r.type === "driver_group") return s + (r.hours || 0);
         return r.localStatus === "approved" ? s + (r.hours || 0) : s;
       }, 0);
-      const leaveHours = records.filter((r) => r.type === "leave").reduce((s, r) => s + (r.hours || 0), 0);
+      const leaveHours = records.filter((r) => r.type === "leave").reduce((s, r) => s + (r.payableHours ?? r.hours ?? 0), 0);
       return { ...emp, records, approved, pending, unsyncedCount, totalHours: punchHours + leaveHours, punchHours, leaveHours, otBlocks: empOTBlocks };
     });
   }, [employees, localStatus, localApprovedTimes, approvingIds, resetIds, otBlocks, localOTBlockStatus, localPunchType]);
