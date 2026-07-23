@@ -374,9 +374,9 @@ const Employee = () => {
     <>
       <Toaster position="top-center" richColors />
       
-      <div className="grid grid-cols-12 gap-6 p-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 p-3 sm:p-6 min-w-0">
         {/* Left Sidebar - Employee List */}
-        <div className="col-span-3">
+        <div className="col-span-1 lg:col-span-3">
           <div className="bg-white border border-gray-300 rounded-lg overflow-hidden">
             <div className="bg-gray-100 px-4 py-3 border-b border-gray-300">
               <h3 className="text-sm font-semibold text-gray-700">
@@ -401,7 +401,7 @@ const Employee = () => {
                 <p className="text-sm text-gray-500">No employees found</p>
               </div>
             ) : (
-              <div className="overflow-y-auto max-h-[calc(100vh-250px)]">
+              <div className="overflow-y-auto max-h-[280px] lg:max-h-[calc(100vh-250px)]">
                 <ul className="divide-y divide-gray-200">
                   {employees.map((employee) => (
                     <li
@@ -445,9 +445,9 @@ const Employee = () => {
         </div>
 
         {/* Right Section - Employee Form */}
-        <div className="col-span-9">
+        <div className="col-span-1 lg:col-span-9">
           <div className="bg-white border border-gray-300 rounded-lg">
-            <div className="bg-gray-100 px-6 py-4 border-b border-gray-300">
+            <div className="bg-gray-100 px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-300">
               <h2 className="text-lg font-semibold text-gray-800">
                 {selectedEmployee ? 'Edit Employee Payroll Details' : 'Select an Employee'}
               </h2>
@@ -470,13 +470,13 @@ const Employee = () => {
                 <p className="text-gray-500">Select an employee from the list to view and edit their payroll details</p>
               </div>
             ) : (
-              <div className="p-6">
+              <div className="p-4 sm:p-6">
                 {/* Employee Info Section (Read-Only) */}
                 <div className="mb-6 pb-6 border-b border-gray-200">
                   <h3 className="text-sm font-semibold text-gray-700 mb-4">Employee Information</h3>
                   
                   {/* Name Row */}
-                  <div className="grid grid-cols-3 gap-4 mb-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         First Name
@@ -513,8 +513,8 @@ const Employee = () => {
                   </div>
 
                   {/* Address Row */}
-                  <div className="grid grid-cols-4 gap-4 mb-4">
-                    <div className="col-span-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-4">
+                    <div className="sm:col-span-2">
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Address
                       </label>
@@ -550,7 +550,7 @@ const Employee = () => {
                   </div>
 
                   {/* Zip and Status Row */}
-                  <div className="grid grid-cols-4 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Zip
@@ -597,7 +597,7 @@ const Employee = () => {
                   <h3 className="text-sm font-semibold text-gray-700 mb-4">Payroll Settings</h3>
                   
                   {/* Pay Type and Rate */}
-                  <div className="grid grid-cols-4 gap-4 mb-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Marital Status
@@ -655,7 +655,7 @@ const Employee = () => {
                   </div>
 
                   {/* Tax Settings */}
-                  <div className="grid grid-cols-4 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         PTO Hours Balance
@@ -726,7 +726,7 @@ const Employee = () => {
                         (Rates specific to this employee)
                       </span>
                     </h3>
-                    <div className="grid grid-cols-4 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                       {customRateEarningTypes.map((earningType) => (
                         <div key={earningType.earningTypeId}>
                           <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -746,18 +746,18 @@ const Employee = () => {
                 )}
 
                 {/* Action Buttons */}
-                <div className="flex justify-end gap-4 pt-4">
+                <div className="flex flex-col sm:flex-row sm:justify-end gap-3 sm:gap-4 pt-4">
                   <button
                     onClick={handleReset}
                     disabled={saving}
-                    className="px-8 py-3 bg-gray-600 text-white font-medium rounded-md hover:bg-gray-700 transition-colors duration-200 disabled:opacity-50"
+                    className="w-full sm:w-auto px-8 py-3 bg-gray-600 text-white font-medium rounded-md hover:bg-gray-700 transition-colors duration-200 disabled:opacity-50"
                   >
                     {saving ? 'RESETTING...' : 'RESET'}
                   </button>
                   <button
                     onClick={handleSave}
                     disabled={saving}
-                    className="px-8 py-3 bg-orange-600 text-white font-medium rounded-md hover:bg-orange-700 transition-colors duration-200 disabled:opacity-50"
+                    className="w-full sm:w-auto px-8 py-3 bg-orange-600 text-white font-medium rounded-md hover:bg-orange-700 transition-colors duration-200 disabled:opacity-50"
                   >
                     {saving ? 'SAVING...' : 'SAVE'}
                   </button>

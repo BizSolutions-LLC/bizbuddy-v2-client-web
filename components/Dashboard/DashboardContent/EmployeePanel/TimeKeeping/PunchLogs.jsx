@@ -46,6 +46,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import useAuthStore from "@/store/useAuthStore";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -1277,7 +1278,7 @@ export default function PunchLogs() {
           <CardContent className="p-0">
             <div className="flex">
               {/* ── Left: table ── */}
-              <div className={`${selectedLogV3 ? "flex-1 min-w-0" : "w-full"} overflow-x-auto transition-all duration-200`}>
+              <div className={`w-full ${selectedLogV3 ? "sm:flex-1 sm:min-w-0" : ""} overflow-x-auto transition-all duration-200`}>
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/50">
@@ -1382,7 +1383,7 @@ export default function PunchLogs() {
                 </Table>
               </div>
 
-              {/* ── Right: detail side panel ── */}
+              {/* ── Right: detail side panel (desktop) ── */}
               <AnimatePresence>
                 {selectedLogV3 && (
                   <motion.div
@@ -1390,7 +1391,7 @@ export default function PunchLogs() {
                     animate={{ width: 288, opacity: 1 }}
                     exit={{ width: 0, opacity: 0 }}
                     transition={{ duration: 0.2, ease: "easeInOut" }}
-                    className="border-l bg-card flex-shrink-0 overflow-hidden"
+                    className="hidden sm:block border-l bg-card flex-shrink-0 overflow-hidden"
                   >
                     <div className="w-72 h-full overflow-y-auto">
                       {/* Panel header */}
@@ -1401,253 +1402,55 @@ export default function PunchLogs() {
                         </Button>
                       </div>
 
-                      <div className="p-4 space-y-4">
-                        {/* Date + punch type */}
-                        <div>
-                          <p className="font-semibold text-sm">
-                            {selectedLogV3.timeIn
-                              ? new Date(selectedLogV3.timeIn).toLocaleDateString("en-US", {
-                                  weekday: "long", month: "long", day: "numeric", year: "numeric",
-                                  ...(companyTimezone ? { timeZone: companyTimezone } : {}),
-                                })
-                              : "—"}
-                          </p>
-                          {isDayCare && (
-                            <div className="mt-1.5">
-                              <PunchTypeBadge punchType={selectedLogV3.punchType} />
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="border-t" />
-
-                        {/* Time details */}
-                        <div>
-                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Time Details</p>
-                          <div className="space-y-1.5">
-                            {[
-                              { label: "Clock In",   value: <span className="font-mono text-xs">{safeTime(selectedLogV3.dayApprovedClockIn ?? selectedLogV3.timeIn, companyTimezone)}</span> },
-                              { label: "Clock Out",  value: <span className="font-mono text-xs">{(selectedLogV3.dayApprovedClockOut ?? selectedLogV3.timeOut) ? safeTime(selectedLogV3.dayApprovedClockOut ?? selectedLogV3.timeOut, companyTimezone) : <span className="text-muted-foreground italic">—</span>}</span> },
-                              { label: "Duration",   value: <span className="font-semibold text-orange-600">{selectedLogV3.duration}h</span> },
-                              { label: "Period Hrs", value: `${selectedLogV3.periodHours}h` },
-                              ...(parseFloat(selectedLogV3.lateHours) > 0 ? [{ label: "Late", value: <span className="text-red-600 font-medium">{selectedLogV3.lateHours}h</span> }] : []),
-                            ].map(({ label, value }) => (
-                              <div key={label} className="flex items-center justify-between text-sm">
-                                <span className="text-muted-foreground">{label}</span>
-                                <span>{value}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-
-                        <div className="border-t" />
-
-                        {/* Breaks */}
-                        <div>
-                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Breaks</p>
-                          <div className="space-y-1.5">
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-muted-foreground flex items-center gap-1.5">
-                                <Coffee className="h-3 w-3" />Coffee
-                              </span>
-                              <span className="flex items-center gap-1">
-                                {selectedLogV3.coffeeMins}h
-                                {(selectedLogV3.autoCoffeeApplied || selectedLogV3.coffeeBreaks?.some(b => b.auto)) && (
-                                  <AutoBreakBadge deductible={selectedLogV3.coffeeBreaks?.find(b => b.auto)?.deductible ?? true} />
-                                )}
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-muted-foreground">Lunch</span>
-                              <span className="flex items-center gap-1">
-                                {selectedLogV3.lunchMins}h
-                                {(selectedLogV3.autoLunchApplied || selectedLogV3.lunchBreak?.auto) && (
-                                  <AutoBreakBadge deductible={selectedLogV3.lunchBreak?.deductible ?? true} />
-                                )}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="border-t" />
-
-                        {/* Overtime */}
-                        <div>
-                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Overtime</p>
-                          <div className="space-y-1.5">
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-muted-foreground">OT Hours</span>
-                              <span className={parseFloat(selectedLogV3.otHours) > 0 ? "font-semibold text-orange-600" : ""}>{selectedLogV3.otHours}h</span>
-                            </div>
-                            {isDayCare && selectedLogV3.otStatus != null && (
-                              <div className="flex items-center justify-between text-sm">
-                                <span className="text-muted-foreground">OT Status</span>
-                                {selectedLogV3.otStatus === "Approved" ? (
-                                  <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
-                                    <CheckCircle className="h-3 w-3" />Approved
-                                  </span>
-                                ) : selectedLogV3.otStatus === "Included" ? (
-                                  <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-                                    <Clock className="h-3 w-3" />Included
-                                  </span>
-                                ) : (
-                                  <span className="text-muted-foreground">—</span>
-                                )}
-                              </div>
-                            )}
-                            {selectedLogV3.otStatus === "No Approval" && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="w-full h-7 text-xs border-orange-300 text-orange-600 hover:bg-orange-50 mt-1"
-                                onClick={() => { setOtForLog(selectedLogV3); setOtSelectedLogId(selectedLogV3.id); setOtApprover(""); setOtHoursEdit(""); setOtReason(""); setOtDialogOpen(true); }}
-                              >
-                                <AlarmClockPlus className="h-3 w-3 mr-1" />Request OT Approval
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="border-t" />
-
-                        {/* Payroll Cutoff */}
-                        <div>
-                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Payroll Cutoff</p>
-                          <V3CutoffBox cutoffApproval={selectedLogV3.cutoffApproval} />
-                        </div>
-
-                        {/* DA Breakdown — DayCare only */}
-                        {selectedLogV3.isAnyDA && (
-                          <>
-                            <div className="border-t" />
-                            <div>
-                              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Hours Breakdown</p>
-                              <div className="space-y-1.5 text-sm">
-                                {(selectedLogV3.isDA || selectedLogV3.isDA_AM) && (
-                                  <div className="flex justify-between">
-                                    <span className="text-muted-foreground">Driver AM</span>
-                                    <span className="font-medium text-blue-600">{selectedLogV3.driverAideAMHours != null ? `${parseFloat(selectedLogV3.driverAideAMHours).toFixed(2)}h` : "—"}</span>
-                                  </div>
-                                )}
-                                <div className="flex justify-between">
-                                  <span className="text-muted-foreground">Regular</span>
-                                  <span className="font-medium text-purple-600">{selectedLogV3.regularHoursForLog != null ? `${parseFloat(selectedLogV3.regularHoursForLog).toFixed(2)}h` : "—"}</span>
-                                </div>
-                                {(selectedLogV3.isDA || selectedLogV3.isDA_PM) && (
-                                  <div className="flex justify-between">
-                                    <span className="text-muted-foreground">Driver PM</span>
-                                    <span className="font-medium text-blue-600">{selectedLogV3.driverAidePMHours != null ? `${parseFloat(selectedLogV3.driverAidePMHours).toFixed(2)}h` : "—"}</span>
-                                  </div>
-                                )}
-                                <div className="flex justify-between border-t pt-1.5 font-semibold">
-                                  <span>Total</span>
-                                  <span className="text-orange-600">{selectedLogV3.duration}h</span>
-                                </div>
-                              </div>
-                            </div>
-                          </>
-                        )}
-
-                        {/* Schedule */}
-                        <div className="border-t" />
-                        <div>
-                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Schedule</p>
-                          {selectedLogV3.scheduleList?.length > 0 ? (
-                            <div className="space-y-1.5">
-                              {selectedLogV3.scheduleList.map((s) => (
-                                <div key={s.id} className="flex items-center justify-between text-xs">
-                                  <span className="text-muted-foreground truncate mr-2">{s.shift?.shiftName || "Shift"}</span>
-                                  <span className="font-mono text-right shrink-0">
-                                    {s.shift?.startTime ? fmtUTCTime(s.shift.startTime) : "—"}
-                                    {" – "}
-                                    {s.shift?.endTime ? fmtUTCTime(s.shift.endTime) : "—"}
-                                  </span>
-                                </div>
-                              ))}
-                              <Button
-                                size="sm" variant="outline"
-                                className="w-full h-7 text-xs mt-1"
-                                onClick={() => { setSchedForDialog(selectedLogV3.scheduleList); setSchedDialogOpen(true); }}
-                              >
-                                <Calendar className="h-3 w-3 mr-1" />View full schedule
-                              </Button>
-                            </div>
-                          ) : (
-                            <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
-                              <AlertCircle className="h-3.5 w-3.5" />Unscheduled punch
-                            </p>
-                          )}
-                        </div>
-
-                        {/* Device */}
-                        {(selectedLogV3.fullDevIn !== "—" || selectedLogV3.fullDevOut !== "—") && (
-                          <>
-                            <div className="border-t" />
-                            <div>
-                              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Device</p>
-                              <div className="space-y-1 text-xs text-muted-foreground">
-                                {selectedLogV3.fullDevIn !== "—" && (
-                                  <div className="truncate" title={selectedLogV3.fullDevIn}>In: {selectedLogV3.fullDevIn}</div>
-                                )}
-                                {selectedLogV3.fullDevOut !== "—" && (
-                                  <div className="truncate" title={selectedLogV3.fullDevOut}>Out: {selectedLogV3.fullDevOut}</div>
-                                )}
-                              </div>
-                            </div>
-                          </>
-                        )}
-
-                        {/* Location */}
-                        {(selectedLogV3._locIn?.lat || selectedLogV3._locOut?.lat) && (
-                          <>
-                            <div className="border-t" />
-                            <div>
-                              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Location</p>
-                              <div className="space-y-1.5 text-xs">
-                                {selectedLogV3._locIn?.lat && (
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-muted-foreground">In</span>
-                                    <a
-                                      href={`https://www.google.com/maps?q=${selectedLogV3._locIn.lat},${selectedLogV3._locIn.lng}`}
-                                      target="_blank" rel="noopener noreferrer"
-                                      className="text-orange-500 hover:underline flex items-center gap-1"
-                                    >
-                                      <MapPinIcon className="h-3 w-3" />View map
-                                    </a>
-                                  </div>
-                                )}
-                                {selectedLogV3._locOut?.lat && (
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-muted-foreground">Out</span>
-                                    <a
-                                      href={`https://www.google.com/maps?q=${selectedLogV3._locOut.lat},${selectedLogV3._locOut.lng}`}
-                                      target="_blank" rel="noopener noreferrer"
-                                      className="text-orange-500 hover:underline flex items-center gap-1"
-                                    >
-                                      <MapPinIcon className="h-3 w-3" />View map
-                                    </a>
-                                  </div>
-                                )}
-                              </div>
-                              {selectedLogV3.locList?.length > 0 && (
-                                <Button
-                                  size="sm" variant="outline"
-                                  className="w-full h-7 text-xs mt-2"
-                                  onClick={() => { setLocDialogList(selectedLogV3.locList); setLocDialogOpen(true); }}
-                                >
-                                  <MapPin className="h-3 w-3 mr-1" />View location restrictions
-                                </Button>
-                              )}
-                            </div>
-                          </>
-                        )}
-                      </div>
+                      <LogDetailBody
+                        log={selectedLogV3}
+                        isDayCare={isDayCare}
+                        companyTimezone={companyTimezone}
+                        setOtForLog={setOtForLog}
+                        setOtSelectedLogId={setOtSelectedLogId}
+                        setOtApprover={setOtApprover}
+                        setOtHoursEdit={setOtHoursEdit}
+                        setOtReason={setOtReason}
+                        setOtDialogOpen={setOtDialogOpen}
+                        setSchedForDialog={setSchedForDialog}
+                        setSchedDialogOpen={setSchedDialogOpen}
+                        setLocDialogList={setLocDialogList}
+                        setLocDialogOpen={setLocDialogOpen}
+                      />
                     </div>
                   </motion.div>
                 )}
               </AnimatePresence>
             </div>
           </CardContent>
+
+          {/* ── Detail panel (mobile bottom sheet) ── */}
+          <Sheet open={!!selectedLogV3} onOpenChange={(open) => !open && setSelectedLogV3(null)}>
+            <SheetContent side="bottom" className="sm:hidden p-0 gap-0 rounded-t-2xl max-h-[85vh] flex flex-col">
+              <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/30 shrink-0">
+                <span className="text-sm font-semibold">Log Details</span>
+              </div>
+              <div className="overflow-y-auto flex-1">
+                {selectedLogV3 && (
+                  <LogDetailBody
+                    log={selectedLogV3}
+                    isDayCare={isDayCare}
+                    companyTimezone={companyTimezone}
+                    setOtForLog={setOtForLog}
+                    setOtSelectedLogId={setOtSelectedLogId}
+                    setOtApprover={setOtApprover}
+                    setOtHoursEdit={setOtHoursEdit}
+                    setOtReason={setOtReason}
+                    setOtDialogOpen={setOtDialogOpen}
+                    setSchedForDialog={setSchedForDialog}
+                    setSchedDialogOpen={setSchedDialogOpen}
+                    setLocDialogList={setLocDialogList}
+                    setLocDialogOpen={setLocDialogOpen}
+                  />
+                )}
+              </div>
+            </SheetContent>
+          </Sheet>
 
           {/* Pagination — shared with main table via queryParams */}
           {totalPages > 1 && (
@@ -2165,6 +1968,267 @@ export default function PunchLogs() {
         <LocationDialog open={locDialogOpen}  onOpenChange={setLocDialogOpen}  list={locDialogList} />
       </div>
     </TooltipProvider>
+  );
+}
+
+// ── LogDetailBody — shared between the desktop side panel and the mobile sheet ──
+function LogDetailBody({
+  log,
+  isDayCare,
+  companyTimezone,
+  setOtForLog,
+  setOtSelectedLogId,
+  setOtApprover,
+  setOtHoursEdit,
+  setOtReason,
+  setOtDialogOpen,
+  setSchedForDialog,
+  setSchedDialogOpen,
+  setLocDialogList,
+  setLocDialogOpen,
+}) {
+  return (
+    <div className="p-4 space-y-4">
+      {/* Date + punch type */}
+      <div>
+        <p className="font-semibold text-sm">
+          {log.timeIn
+            ? new Date(log.timeIn).toLocaleDateString("en-US", {
+                weekday: "long", month: "long", day: "numeric", year: "numeric",
+                ...(companyTimezone ? { timeZone: companyTimezone } : {}),
+              })
+            : "—"}
+        </p>
+        {isDayCare && (
+          <div className="mt-1.5">
+            <PunchTypeBadge punchType={log.punchType} />
+          </div>
+        )}
+      </div>
+
+      <div className="border-t" />
+
+      {/* Time details */}
+      <div>
+        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Time Details</p>
+        <div className="space-y-1.5">
+          {[
+            { label: "Clock In",   value: <span className="font-mono text-xs">{safeTime(log.dayApprovedClockIn ?? log.timeIn, companyTimezone)}</span> },
+            { label: "Clock Out",  value: <span className="font-mono text-xs">{(log.dayApprovedClockOut ?? log.timeOut) ? safeTime(log.dayApprovedClockOut ?? log.timeOut, companyTimezone) : <span className="text-muted-foreground italic">—</span>}</span> },
+            { label: "Duration",   value: <span className="font-semibold text-orange-600">{log.duration}h</span> },
+            { label: "Period Hrs", value: `${log.periodHours}h` },
+            ...(parseFloat(log.lateHours) > 0 ? [{ label: "Late", value: <span className="text-red-600 font-medium">{log.lateHours}h</span> }] : []),
+          ].map(({ label, value }) => (
+            <div key={label} className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">{label}</span>
+              <span>{value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="border-t" />
+
+      {/* Breaks */}
+      <div>
+        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Breaks</p>
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground flex items-center gap-1.5">
+              <Coffee className="h-3 w-3" />Coffee
+            </span>
+            <span className="flex items-center gap-1">
+              {log.coffeeMins}h
+              {(log.autoCoffeeApplied || log.coffeeBreaks?.some(b => b.auto)) && (
+                <AutoBreakBadge deductible={log.coffeeBreaks?.find(b => b.auto)?.deductible ?? true} />
+              )}
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Lunch</span>
+            <span className="flex items-center gap-1">
+              {log.lunchMins}h
+              {(log.autoLunchApplied || log.lunchBreak?.auto) && (
+                <AutoBreakBadge deductible={log.lunchBreak?.deductible ?? true} />
+              )}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="border-t" />
+
+      {/* Overtime */}
+      <div>
+        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Overtime</p>
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">OT Hours</span>
+            <span className={parseFloat(log.otHours) > 0 ? "font-semibold text-orange-600" : ""}>{log.otHours}h</span>
+          </div>
+          {isDayCare && log.otStatus != null && (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">OT Status</span>
+              {log.otStatus === "Approved" ? (
+                <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                  <CheckCircle className="h-3 w-3" />Approved
+                </span>
+              ) : log.otStatus === "Included" ? (
+                <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                  <Clock className="h-3 w-3" />Included
+                </span>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </div>
+          )}
+          {log.otStatus === "No Approval" && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full h-7 text-xs border-orange-300 text-orange-600 hover:bg-orange-50 mt-1"
+              onClick={() => { setOtForLog(log); setOtSelectedLogId(log.id); setOtApprover(""); setOtHoursEdit(""); setOtReason(""); setOtDialogOpen(true); }}
+            >
+              <AlarmClockPlus className="h-3 w-3 mr-1" />Request OT Approval
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <div className="border-t" />
+
+      {/* Payroll Cutoff */}
+      <div>
+        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Payroll Cutoff</p>
+        <V3CutoffBox cutoffApproval={log.cutoffApproval} />
+      </div>
+
+      {/* DA Breakdown — DayCare only */}
+      {log.isAnyDA && (
+        <>
+          <div className="border-t" />
+          <div>
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Hours Breakdown</p>
+            <div className="space-y-1.5 text-sm">
+              {(log.isDA || log.isDA_AM) && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Driver AM</span>
+                  <span className="font-medium text-blue-600">{log.driverAideAMHours != null ? `${parseFloat(log.driverAideAMHours).toFixed(2)}h` : "—"}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Regular</span>
+                <span className="font-medium text-purple-600">{log.regularHoursForLog != null ? `${parseFloat(log.regularHoursForLog).toFixed(2)}h` : "—"}</span>
+              </div>
+              {(log.isDA || log.isDA_PM) && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Driver PM</span>
+                  <span className="font-medium text-blue-600">{log.driverAidePMHours != null ? `${parseFloat(log.driverAidePMHours).toFixed(2)}h` : "—"}</span>
+                </div>
+              )}
+              <div className="flex justify-between border-t pt-1.5 font-semibold">
+                <span>Total</span>
+                <span className="text-orange-600">{log.duration}h</span>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Schedule */}
+      <div className="border-t" />
+      <div>
+        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Schedule</p>
+        {log.scheduleList?.length > 0 ? (
+          <div className="space-y-1.5">
+            {log.scheduleList.map((s) => (
+              <div key={s.id} className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground truncate mr-2">{s.shift?.shiftName || "Shift"}</span>
+                <span className="font-mono text-right shrink-0">
+                  {s.shift?.startTime ? fmtUTCTime(s.shift.startTime) : "—"}
+                  {" – "}
+                  {s.shift?.endTime ? fmtUTCTime(s.shift.endTime) : "—"}
+                </span>
+              </div>
+            ))}
+            <Button
+              size="sm" variant="outline"
+              className="w-full h-7 text-xs mt-1"
+              onClick={() => { setSchedForDialog(log.scheduleList); setSchedDialogOpen(true); }}
+            >
+              <Calendar className="h-3 w-3 mr-1" />View full schedule
+            </Button>
+          </div>
+        ) : (
+          <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+            <AlertCircle className="h-3.5 w-3.5" />Unscheduled punch
+          </p>
+        )}
+      </div>
+
+      {/* Device */}
+      {(log.fullDevIn !== "—" || log.fullDevOut !== "—") && (
+        <>
+          <div className="border-t" />
+          <div>
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Device</p>
+            <div className="space-y-1 text-xs text-muted-foreground">
+              {log.fullDevIn !== "—" && (
+                <div className="truncate" title={log.fullDevIn}>In: {log.fullDevIn}</div>
+              )}
+              {log.fullDevOut !== "—" && (
+                <div className="truncate" title={log.fullDevOut}>Out: {log.fullDevOut}</div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Location */}
+      {(log._locIn?.lat || log._locOut?.lat) && (
+        <>
+          <div className="border-t" />
+          <div>
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Location</p>
+            <div className="space-y-1.5 text-xs">
+              {log._locIn?.lat && (
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">In</span>
+                  <a
+                    href={`https://www.google.com/maps?q=${log._locIn.lat},${log._locIn.lng}`}
+                    target="_blank" rel="noopener noreferrer"
+                    className="text-orange-500 hover:underline flex items-center gap-1"
+                  >
+                    <MapPinIcon className="h-3 w-3" />View map
+                  </a>
+                </div>
+              )}
+              {log._locOut?.lat && (
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Out</span>
+                  <a
+                    href={`https://www.google.com/maps?q=${log._locOut.lat},${log._locOut.lng}`}
+                    target="_blank" rel="noopener noreferrer"
+                    className="text-orange-500 hover:underline flex items-center gap-1"
+                  >
+                    <MapPinIcon className="h-3 w-3" />View map
+                  </a>
+                </div>
+              )}
+            </div>
+            {log.locList?.length > 0 && (
+              <Button
+                size="sm" variant="outline"
+                className="w-full h-7 text-xs mt-2"
+                onClick={() => { setLocDialogList(log.locList); setLocDialogOpen(true); }}
+              >
+                <MapPin className="h-3 w-3 mr-1" />View location restrictions
+              </Button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 

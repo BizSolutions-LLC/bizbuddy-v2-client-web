@@ -124,7 +124,7 @@ export default function FeedbackWidget({ isSidebarOpen = false }) {
       {/* ── Bottom-left tab ────────────────────────────────────────────── */}
       <div
         className={[
-          "fixed bottom-6 left-0 z-40 transition-all duration-300 ease-in-out",
+          "fixed bottom-24 sm:bottom-6 left-0 z-40 transition-all duration-300 ease-in-out",
           isSidebarOpen ? "md:left-80" : "",
         ].join(" ")}
       >
@@ -132,13 +132,13 @@ export default function FeedbackWidget({ isSidebarOpen = false }) {
           whileHover={{ x: 4 }}
           whileTap={{ scale: 0.96 }}
           onClick={handleOpen}
-          className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600
-                     text-white pl-2 pr-3 py-3 rounded-r-xl shadow-lg transition-colors duration-150"
+          className="flex items-center gap-1.5 sm:gap-2 bg-orange-500 hover:bg-orange-600
+                     text-white pl-1.5 sm:pl-2 pr-2 sm:pr-3 py-2 sm:py-3 rounded-r-xl shadow-lg transition-colors duration-150"
           aria-label="Open feedback"
         >
-          <MessageSquarePlus className="h-4 w-4 rotate-90 mb-1" />
+          <MessageSquarePlus className="h-3.5 w-3.5 sm:h-4 sm:w-4 rotate-90 mb-1" />
           <span
-            className="text-xs font-semibold tracking-widest uppercase"
+            className="text-[10px] sm:text-xs font-semibold tracking-widest uppercase"
             style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}
           >
             Feedback

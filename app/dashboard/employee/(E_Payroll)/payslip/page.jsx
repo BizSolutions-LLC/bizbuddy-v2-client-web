@@ -129,21 +129,21 @@ export default function PayslipPage() {
   return (
     <>
       <Toaster position="top-center" richColors />
-      <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-orange-50 p-6">
-        <div className="max-w-6xl mx-auto">
+      <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-orange-50 p-0 sm:p-4 lg:p-6 min-w-0">
+        <div className="max-w-6xl mx-auto px-3 sm:px-0">
           {/* Header */}
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mb-8"
+            className="mb-6 sm:mb-8"
           >
             <div className="flex items-center gap-3 mb-2">
-              <div className="p-3 rounded-xl bg-orange-500/10">
-                <FileText className="h-8 w-8 text-orange-600" />
+              <div className="p-2 sm:p-3 rounded-xl bg-orange-500/10 shrink-0">
+                <FileText className="h-6 w-6 sm:h-8 sm:w-8 text-orange-600" />
               </div>
               <div>
-                <h1 className="text-3xl font-bold text-gray-800">My Payslips</h1>
-                <p className="text-gray-600">View and download your payslip history</p>
+                <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">My Payslips</h1>
+                <p className="text-sm sm:text-base text-gray-600">View and download your payslip history</p>
               </div>
             </div>
           </motion.div>
@@ -161,9 +161,9 @@ export default function PayslipPage() {
           ) : payslips.length === 0 ? (
             /* Empty State */
             <Card className="border-2 border-orange-200">
-              <CardContent className="p-12 text-center">
-                <div className="w-24 h-24 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <FileText className="h-12 w-12 text-orange-600" />
+              <CardContent className="p-8 sm:p-12 text-center">
+                <div className="w-20 h-20 sm:w-24 sm:h-24 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <FileText className="h-10 w-10 sm:h-12 sm:w-12 text-orange-600" />
                 </div>
                 <h3 className="text-xl font-bold text-gray-800 mb-2">No Payslips Yet</h3>
                 <p className="text-gray-600">Your payslips will appear here once payroll is processed.</p>
@@ -180,16 +180,16 @@ export default function PayslipPage() {
                   transition={{ delay: index * 0.05 }}
                 >
                   <Card className="border border-gray-200 hover:shadow-lg transition-shadow">
-                    <CardContent className="p-6">
-                      <div className="flex items-center justify-between">
+                    <CardContent className="p-4 sm:p-6">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                         {/* Left: Period & Check Info */}
                         <div className="flex items-center gap-4">
                           <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center flex-shrink-0">
                             <FileText className="h-6 w-6 text-orange-600" />
                           </div>
                           
-                          <div>
-                            <div className="flex items-center gap-3 mb-1">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-3 mb-1 flex-wrap">
                               <h3 className="font-bold text-lg text-gray-900">
                                 {new Date(payslip.periodStart).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
                               </h3>
@@ -204,9 +204,9 @@ export default function PayslipPage() {
                               )}
                             </div>
                             
-                            <div className="flex items-center gap-4 text-sm text-gray-600">
+                            <div className="flex items-center gap-2 sm:gap-4 text-sm text-gray-600 flex-wrap">
                               <div className="flex items-center gap-1">
-                                <Calendar className="h-3 w-3" />
+                                <Calendar className="h-3 w-3 shrink-0" />
                                 <span>
                                   {new Date(payslip.periodStart).toLocaleDateString()} - {new Date(payslip.periodEnd).toLocaleDateString()}
                                 </span>
@@ -245,11 +245,11 @@ export default function PayslipPage() {
                         </div>
 
                         {/* Right: Action Buttons */}
-                        <div className="flex items-center gap-2 flex-shrink-0">
+                        <div className="flex items-center gap-2 sm:flex-shrink-0">
                           <button
                             onClick={() => handleViewPayslip(payslip.payrollRunId)}
                             disabled={payslip.isMock}
-                            className="px-5 py-2.5 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="flex-1 sm:flex-initial justify-center px-4 sm:px-5 py-2.5 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <FileText className="h-4 w-4" />
                             View
@@ -258,7 +258,7 @@ export default function PayslipPage() {
                           <button
                             onClick={() => handleDownloadPayslip(payslip.payrollRunId)}
                             disabled={payslip.isMock}
-                            className="px-5 py-2.5 bg-orange-600 text-white font-semibold rounded-lg hover:bg-orange-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="flex-1 sm:flex-initial justify-center px-4 sm:px-5 py-2.5 bg-orange-600 text-white font-semibold rounded-lg hover:bg-orange-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <Download className="h-4 w-4" />
                             Download
