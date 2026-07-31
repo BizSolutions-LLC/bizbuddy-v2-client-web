@@ -6,7 +6,7 @@
 import { useEffect, useState, useMemo } from "react";
 import {
   AlertCircle, Archive, ArchiveRestore, Award, Calendar, Check, ChevronDown, CreditCard, Edit3, Info, Loader2,
-  Plus, RefreshCw, Save, Settings, Timer, Trash2, TrendingUp, User, Users,
+  Plus, RefreshCw, Save, Settings, ShieldAlert, Timer, Trash2, TrendingUp, User, Users,
 } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
@@ -229,6 +229,71 @@ function LeaveApprovalCard({ loading, draft, setDraft }) {
                   <li>• The chosen escalation target gives the last sign-off → status moves to <strong>Approved</strong></li>
                   <li>• Either approver can reject at any stage — request is immediately rejected</li>
                   <li>• When disabled, the supervisor's approval is final</li>
+                </ul>
+              </div>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Leave Conflict Card (BB-051) ─────────────────────────────────────────────
+// Toggle only — deliberately does not touch today's revert mechanics (whole-leave
+// cancellation, flat default-shift-length refund, no ledger entry). Those stay
+// as-is; this setting only changes who/what triggers the resolution. See
+// docs/UPDATED_LEAVE_MODULE.md §15.2 — this is Phase 6 ("Cancel Leave"), narrowly
+// scoped per that discussion rather than reopened in full.
+function LeaveConflictCard({ loading, draft, setDraft }) {
+  const enabled = draft?.leaveConflictAutoRevert ?? false;
+
+  return (
+    <Card className="border-[1.5px] shadow-md overflow-hidden">
+      <CardStripe />
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2.5 text-[15px] font-extrabold">
+          <SectionIcon icon={ShieldAlert} color="amber" />
+          Punch-vs-Leave Conflicts
+        </CardTitle>
+        <p className="text-xs text-neutral-500 mt-0.5">
+          Choose whether a punch on an approved leave day resolves automatically or waits for an admin to decide.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        {loading ? (
+          <Skeleton className="h-24 w-full" />
+        ) : (
+          <>
+            <div className="flex items-center justify-between p-4 rounded-xl border-2 border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900">
+              <div>
+                <p className="text-sm font-semibold">Automatically Resolve Punch-vs-Leave Conflicts</p>
+                <p className="text-xs text-neutral-500 mt-0.5">
+                  When on, a punch on a day with an approved leave automatically honors the punch and refunds the leave. When off (default), an admin reviews and chooses in Cutoff Review.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDraft((o) => ({ ...o, leaveConflictAutoRevert: !enabled }))}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 ml-4 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-2 ${
+                  enabled ? "bg-green-500" : "bg-neutral-300 dark:bg-neutral-600"
+                }`}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                  enabled ? "translate-x-6" : "translate-x-1"
+                }`} />
+              </button>
+            </div>
+
+            {/* Info callout */}
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3 items-start">
+              <Info className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-[12px] font-bold text-amber-900 mb-1.5">What This Does — and Doesn&apos;t — Change</p>
+                <ul className="text-[11px] text-amber-700 space-y-0.5">
+                  <li>• Only changes who/what triggers the resolution — an admin clicking Honor Punch/Honor Leave, or the system doing it automatically</li>
+                  <li>• The refund itself is unchanged: the whole leave request is cancelled and a flat default-shift-length credit is returned</li>
+                  <li>• A punch on a shift the employee explicitly excluded from their leave never counts as a conflict, regardless of this setting</li>
                 </ul>
               </div>
             </div>
@@ -1387,6 +1452,7 @@ export default function LeaveSettings() {
       {/* Sections */}
       <LeaveAccrualCard loading={loadingSettings} draft={draft} setDraft={setDraft} />
       <LeaveApprovalCard loading={loadingSettings} draft={draft} setDraft={setDraft} />
+      <LeaveConflictCard loading={loadingSettings} draft={draft} setDraft={setDraft} />
       <LeaveTypesCard API={API} token={token} policies={policies} reload={loadData} />
       <LeaveCreditsAccordionCard
         token={token} API={API} matrix={matrix} leaveTypes={leaveTypes} policies={policies}

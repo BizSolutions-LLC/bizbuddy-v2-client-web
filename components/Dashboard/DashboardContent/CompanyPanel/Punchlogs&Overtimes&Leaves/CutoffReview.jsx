@@ -33,6 +33,7 @@ import {
   RefreshCw,
   RotateCcw,
   GraduationCap,
+  ShieldAlert,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -215,7 +216,7 @@ const resolveLeavePayStatus = (payableHours, scheduledHours) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Sticky page header */
-const PageHeader = ({ cutoff, status, onFinalize, finalizeReady, getDepartmentName, onSync, syncing, otBasis, dailyOtThresholdHours, cutoffOtThresholdHours, refreshingOT, cutoffId }) => {
+const PageHeader = ({ cutoff, status, onFinalize, finalizeReady, getDepartmentName, onSync, syncing, otBasis, dailyOtThresholdHours, cutoffOtThresholdHours, refreshingOT, cutoffId, leaveConflictAutoRevert }) => {
   const StatusIcon = STATUS_CONFIG[status]?.icon || CircleDot;
   return (
     <div className="sticky top-0 z-30 bg-white dark:bg-neutral-900 border-b border-neutral-200 dark:border-neutral-800 shadow-sm">
@@ -247,6 +248,15 @@ const PageHeader = ({ cutoff, status, onFinalize, finalizeReady, getDepartmentNa
             <StatusIcon className="w-3 h-3" />
             {STATUS_CONFIG[status]?.label || status}
           </Badge>
+          {/* BB-051 — read-only: informs the reviewer, doesn't gate Honor Punch/Honor
+              Leave below. An auto-resolved conflict never reaches this screen as a
+              pending row, so nothing here needs to change based on this setting. */}
+          {leaveConflictAutoRevert && (
+            <Badge className="gap-1.5 border bg-amber-50 text-amber-700 border-amber-200">
+              <ShieldAlert className="w-3 h-3" />
+              Auto-revert: ON
+            </Badge>
+          )}
           <span className="text-xs text-neutral-400">
             Payment: <strong className="text-neutral-700 dark:text-neutral-300">{formatDate(cutoff?.paymentDate)}</strong>
           </span>
@@ -1385,6 +1395,10 @@ export default function CutoffReview({ cutoffId }) {
   const [otBlocks,               setOTBlocks]               = useState([]);
   const [dailyOtThresholdHours,  setDailyOtThresholdHours]  = useState(8);
   const [cutoffOtThresholdHours, setCutoffOtThresholdHours] = useState(null);
+  // BB-051: read-only — once on, an auto-resolved conflict never surfaces here as a
+  // pending hasLeaveConflict row (it comes back already approved/cancelled), so this
+  // is purely informational, not a gate on the Honor Punch/Honor Leave buttons below.
+  const [leaveConflictAutoRevert, setLeaveConflictAutoRevert] = useState(false);
 
   // ── Local action state (optimistic UI) ──
   const [localStatus,         setLocalStatus]         = useState({}); // { [recId]: 'approved'|'excluded'|'resolved' }
@@ -1455,6 +1469,7 @@ export default function CutoffReview({ cutoffId }) {
       const isBNCLocal = settingsData.data?.isBNC === true || approvalsData.isBNC === true;
       setCompanyTimezone(tz);
       setIsBNC(isBNCLocal);
+      setLeaveConflictAutoRevert(settingsData.data?.leaveConflictAutoRevert === true);
       setOtBasis(approvalsData.otBasis || null);
       setOTBlocks(approvalsData.otBlocks || []);
       setDailyOtThresholdHours(approvalsData.dailyOtThresholdHours ?? 8);
@@ -2662,6 +2677,7 @@ export default function CutoffReview({ cutoffId }) {
         cutoffOtThresholdHours={cutoffOtThresholdHours}
         refreshingOT={refreshingOT}
         cutoffId={cutoffId}
+        leaveConflictAutoRevert={leaveConflictAutoRevert}
       />
 
       {/* Filter Bar */}
