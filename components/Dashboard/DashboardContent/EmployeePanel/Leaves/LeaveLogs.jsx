@@ -34,6 +34,7 @@ import { toast } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
 import socketService from "@/lib/socketService";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { Textarea } from "@/components/ui/textarea";
@@ -166,6 +167,12 @@ export default function EmployeeLeaveRequests() {
   const [loadingApprovers, setLoadingApprovers] = useState(false);
   const [affectedSchedules,   setAffectedSchedules]   = useState([]);
   const [loadingSchedules,    setLoadingSchedules]     = useState(false);
+  // BB-054: which real (non-fallback) shifts on a multi-shift day stay part of
+  // this leave — { [userShiftId]: boolean }, defaults to true (selected) below.
+  const [shiftSelection,   setShiftSelection]   = useState({});
+  // BB-054: whether an unplotted weekend day counts as deductible — a real
+  // scheduled shift on a weekend is always deductible regardless of this.
+  const [includeWeekends,  setIncludeWeekends]  = useState(true);
   const [errors,           setErrors]           = useState({});
   const [submitting,       setSubmitting]       = useState(false);
   const scheduleTimerRef = useRef(null);
@@ -216,9 +223,35 @@ export default function EmployeeLeaveRequests() {
     [affectedSchedules]
   );
 
+  // BB-054: real shift ids the employee explicitly deselected on a multi-shift
+  // day — kept separate from affectedShiftIds (rather than removed from it) so
+  // deselecting every shift on a day still sends a non-empty signal instead of
+  // silently vanishing under the "omit if empty" convention above.
+  const excludedShiftIds = useMemo(
+    () => affectedSchedules
+      .filter(s => s.userShiftId && shiftSelection[s.userShiftId] === false)
+      .map(s => s.userShiftId),
+    [affectedSchedules, shiftSelection]
+  );
+
+  // How many real shifts land on each date — only dates with 2+ get a
+  // per-shift checkbox; a single shift or a fallback day is unambiguous.
+  const realShiftCountByDate = useMemo(() => {
+    const counts = {};
+    affectedSchedules.forEach(s => {
+      if (s.isFallback) return;
+      const d = s.assignedDate.slice(0, 10);
+      counts[d] = (counts[d] || 0) + 1;
+    });
+    return counts;
+  }, [affectedSchedules]);
+
   const totalAffectedHours = useMemo(
-    () => affectedSchedules.reduce((sum, s) => sum + (Number(s.scheduledHours) || 0), 0),
-    [affectedSchedules]
+    () => affectedSchedules.reduce((sum, s) => {
+      if (s.userShiftId && shiftSelection[s.userShiftId] === false) return sum;
+      return sum + (Number(s.scheduledHours) || 0);
+    }, 0),
+    [affectedSchedules, shiftSelection]
   );
 
   // BB-048: the entered daily time window only ever prices a day with no real
@@ -452,7 +485,7 @@ export default function EmployeeLeaveRequests() {
     scheduleTimerRef.current = setTimeout(async () => {
       try {
         const res  = await fetch(
-          `${API_URL}/api/leaves/affected-schedules?startDate=${startDate}&endDate=${endDate}&fromTime=${startTime}&toTime=${endTime}`,
+          `${API_URL}/api/leaves/affected-schedules?startDate=${startDate}&endDate=${endDate}&fromTime=${startTime}&toTime=${endTime}&includeWeekends=${includeWeekends}`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
         const data = await res.json();
@@ -465,7 +498,20 @@ export default function EmployeeLeaveRequests() {
     }, 500);
 
     return () => { if (scheduleTimerRef.current) clearTimeout(scheduleTimerRef.current); };
-  }, [token, startDate, endDate, startTime, endTime]);
+  }, [token, startDate, endDate, startTime, endTime, includeWeekends]);
+
+  // BB-054: reconcile shift-selection state against whatever the latest
+  // affected-schedules fetch returned — new real shifts default to selected
+  // (preserves today's "everything counts" behavior), stale ids drop out.
+  useEffect(() => {
+    setShiftSelection(prev => {
+      const next = {};
+      affectedSchedules.filter(s => s.userShiftId).forEach(s => {
+        next[s.userShiftId] = prev[s.userShiftId] ?? true;
+      });
+      return next;
+    });
+  }, [affectedSchedules]);
 
   useEffect(() => { fetchLeaves(); fetchPolicies(); fetchCutoffPeriods(); }, [fetchLeaves, fetchPolicies, fetchCutoffPeriods]);
 
@@ -494,6 +540,7 @@ export default function EmployeeLeaveRequests() {
     setStartDate(""); setStartTime("08:00");
     setEndDate("");   setEndTime("17:00");
     setAffectedSchedules([]); setLoadingSchedules(false);
+    setShiftSelection({}); setIncludeWeekends(true);
     setErrors({});
     if (scheduleTimerRef.current) clearTimeout(scheduleTimerRef.current);
   }
@@ -542,6 +589,8 @@ export default function EmployeeLeaveRequests() {
           toDate,
           isPaid: resolvedIsPaid,
           ...(affectedShiftIds.length > 0 ? { affectedShiftIds } : {}),
+          ...(excludedShiftIds.length > 0 ? { excludedShiftIds } : {}),
+          includeWeekends,
           fromTime: startTime,
           toTime: endTime,
         }),
@@ -1245,9 +1294,21 @@ export default function EmployeeLeaveRequests() {
             {/* Affected schedules — shown when both dates are valid */}
             {startDate && endDate && duration && (
               <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                <div style={FIELD_LABEL}>
-                  <CalendarDays size={12} /> Affected schedules
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={FIELD_LABEL}>
+                    <CalendarDays size={12} /> Affected schedules
+                  </div>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#888", cursor: "pointer" }}>
+                    <Checkbox
+                      checked={includeWeekends}
+                      onCheckedChange={v => setIncludeWeekends(!!v)}
+                    />
+                    Include weekends
+                  </label>
                 </div>
+                <p style={{ fontSize: 11, color: "#bbb", marginTop: -3 }}>
+                  When off, Saturdays/Sundays with no scheduled shift won&apos;t count toward this leave. A weekend day with a real scheduled shift is always included.
+                </p>
                 {loadingSchedules ? (
                   <div style={{ height: 44, background: "#f5f5f3", borderRadius: 8, animation: "pulse 1.5s ease-in-out infinite" }} className="animate-pulse" />
                 ) : affectedSchedules.length === 0 ? (
@@ -1269,27 +1330,51 @@ export default function EmployeeLeaveRequests() {
                       </div>
                     </div>
                     {/* Rows */}
-                    {affectedSchedules.map((s, i) => (
-                      <div key={s.userShiftId ?? i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderBottom: i < affectedSchedules.length - 1 ? "0.5px solid #e5e5e5" : "none", gap: 10 }}>
-                        <div>
-                          <div style={{ fontSize: 12, fontWeight: 500 }}>{fmtDate(s.assignedDate.slice(0, 10))}</div>
-                          {s.isFallback ? (
-                            <div style={{ fontSize: 11, color: "#bbb", marginTop: 1 }}>No shift scheduled</div>
-                          ) : (
-                            <>
-                              <div style={{ fontSize: 11, color: "#888", marginTop: 1 }}>{s.shiftName}</div>
-                              <div style={{ fontSize: 11, color: "#bbb", marginTop: 1, display: "flex", alignItems: "center", gap: 4 }}>
-                                <Clock size={11} />
-                                {fmtShiftTime(s.startTime)} → {fmtShiftTime(s.endTime)}
-                              </div>
-                            </>
-                          )}
+                    {affectedSchedules.map((s, i) => {
+                      // BB-054: only a date with 2+ real shifts gets a per-shift
+                      // checkbox — a single shift or a fallback day is unambiguous.
+                      const isMultiShiftDay = !s.isFallback && (realShiftCountByDate[s.assignedDate.slice(0, 10)] || 0) >= 2;
+                      const isDeselectedShift = !!s.userShiftId && shiftSelection[s.userShiftId] === false;
+                      const isExcluded = s.excludedByWeekend || isDeselectedShift;
+                      return (
+                        <div
+                          key={s.userShiftId ?? i}
+                          style={{
+                            display: "flex", alignItems: "center", justifyContent: "space-between",
+                            padding: "8px 12px", borderBottom: i < affectedSchedules.length - 1 ? "0.5px solid #e5e5e5" : "none",
+                            gap: 10, opacity: isExcluded ? 0.5 : 1,
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            {isMultiShiftDay && (
+                              <Checkbox
+                                checked={shiftSelection[s.userShiftId] !== false}
+                                onCheckedChange={v => setShiftSelection(prev => ({ ...prev, [s.userShiftId]: !!v }))}
+                              />
+                            )}
+                            <div>
+                              <div style={{ fontSize: 12, fontWeight: 500 }}>{fmtDate(s.assignedDate.slice(0, 10))}</div>
+                              {s.isFallback ? (
+                                <div style={{ fontSize: 11, color: "#bbb", marginTop: 1 }}>
+                                  No shift scheduled{s.excludedByWeekend ? " — excluded (weekend)" : ""}
+                                </div>
+                              ) : (
+                                <>
+                                  <div style={{ fontSize: 11, color: "#888", marginTop: 1 }}>{s.shiftName}</div>
+                                  <div style={{ fontSize: 11, color: "#bbb", marginTop: 1, display: "flex", alignItems: "center", gap: 4 }}>
+                                    <Clock size={11} />
+                                    {fmtShiftTime(s.startTime)} → {fmtShiftTime(s.endTime)}
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          <div style={{ fontSize: 12, fontWeight: 500, color: "#f97316", whiteSpace: "nowrap", textDecoration: isExcluded ? "line-through" : "none" }}>
+                            {Number(s.scheduledHours).toFixed(2)}h
+                          </div>
                         </div>
-                        <div style={{ fontSize: 12, fontWeight: 500, color: "#f97316", whiteSpace: "nowrap" }}>
-                          {Number(s.scheduledHours).toFixed(2)}h
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                     {/* Footer totals */}
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 12px", background: "#fafaf9", borderTop: "0.5px solid #e5e5e5" }}>
                       <span style={{ fontSize: 11, color: "#888" }}>Total hours affected</span>
@@ -1304,14 +1389,14 @@ export default function EmployeeLeaveRequests() {
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
               <div style={FIELD_LABEL}>
                 <FileText size={12} /> Reason <span style={{ color: "#f97316" }}>*</span>
-                <span style={{ fontSize: 11, color: reason.trim().length >= 30 ? "#3b6d11" : "#bbb", fontWeight: 400, marginLeft: "auto" }}>
-                  {reason.trim().length}/30 min
+                <span style={{ fontSize: 11, color: reason.trim().length >= 15 ? "#3b6d11" : "#bbb", fontWeight: 400, marginLeft: "auto" }}>
+                  {reason.trim().length}/15 min
                 </span>
               </div>
               <Textarea
                 value={reason}
                 onChange={e => { setReason(e.target.value); setErrors(er => ({ ...er, reason: undefined })); }}
-                placeholder="Provide a reason for your leave request (at least 30 characters)…"
+                placeholder="Provide a reason for your leave request (at least 15 characters)…"
                 className={`resize-none text-xs border-[0.5px] rounded-lg min-h-[72px] ${errors.reason ? "border-red-500" : "border-[#d0d0d0]"}`}
               />
               {errors.reason && (
