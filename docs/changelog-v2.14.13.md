@@ -4,6 +4,8 @@ BB-053 fix: notifications are now clickable — clicking one marks it as seen an
 
 BB-054 / BB-051: employees can now deselect individual shifts on a multi-shift day so a leave request doesn't pull in a shift they'll actually work, and can exclude unplotted weekend days from the deduction via a new "Include weekends" checkbox. Separately, admins get a new company setting for whether a punch-vs-leave conflict resolves automatically or still requires manual review in Cutoff Review — the underlying revert mechanics (whole-leave cancellation, flat refund) are unchanged. All three depend on companion `bizbuddy-v2-server` work that has been written but not yet migrated onto the live database.
 
+BB-065: Request Punch's hours estimate is now server-authoritative end to end (the client's own list/detail views were already reading it correctly from the API; only a stale pre-submit preview and an unused submit-payload estimate needed cleanup, and the preview's lunch-deduction convention was dropped entirely per a follow-up correction — it's now a plain clock-out-minus-clock-in span, matching mobile). Also fixed the approver dropdown showing only 1 of 3 eligible approvers (a client-side merge bug, not a data gap), and added a DayCare-only "Shift type" picker so employees can request Driver/Aide Full-Day/AM/PM corrections, gated by an API-driven `isBNC`/`companyType` signal rather than a hardcoded company-id list.
+
 ---
 
 ## BB-053 — Make notifications clickable (+ root-caused a recurring re-login complaint)
@@ -121,3 +123,43 @@ If someone can point to the mobile repo (or paste the relevant screens/session c
 | `components/Dashboard/DashboardContent/EmployeePanel/Leaves/LeaveLogs.jsx` | Added `shiftSelection`/`includeWeekends` state, per-shift checkboxes and a weekend checkbox in the "Affected schedules" panel, `excludedShiftIds` derivation, updated `totalAffectedHours`, submit payload gains `excludedShiftIds`/`includeWeekends`. |
 | `components/Dashboard/DashboardContent/CompanyPanel/Settings/LeaveSettings.jsx` | New `LeaveConflictCard` wiring `leaveConflictAutoRevert` into the existing company-settings draft round trip. |
 | `components/Dashboard/DashboardContent/CompanyPanel/Punchlogs&Overtimes&Leaves/CutoffReview.jsx` | Reads `leaveConflictAutoRevert` from the existing settings fetch; adds a read-only "Auto-revert: ON" badge to the page header. |
+
+---
+
+## BB-065 — Request Punch: server-authoritative hours, approver-list fix, Driver/Aide shift type
+
+**Status:** Fix applied (client only) — pending manual verification, not yet confirmed closed.
+
+**Pages:** Employee Request Punch dialog (`/dashboard/employee/(C_TimeKeeping)/punch-logs`), Company pending-request approval panel (`/dashboard/company/(PunchLogs&Overtimes&Leaves)/punch-logs`).
+
+**Files:**
+- `components/Dashboard/DashboardContent/EmployeePanel/TimeKeeping/PunchLogs.jsx`
+- `components/Dashboard/DashboardContent/CompanyPanel/Punchlogs&Overtimes&Leaves/EmployeesPunchLogs.jsx`
+
+**Ask:** This ticket arrived in four parts. (1) `POST /request-punch-log/submit` no longer trusts client-sent `estimatedDuration`/`estimatedNetHours` — the server now computes both itself from `requestedClockIn`/`requestedClockOut` minus the company's `minimumLunchMinutes`; client teams were asked to read the authoritative value from API responses instead of computing their own, sending the old fields being optional either way. (2) A follow-up correction: drop the lunch-deduction convention entirely from the pre-submit "Estimated net hours" preview — it should be the raw clock-out-minus-clock-in span (09:00–17:00 = 8.00h, not 7.00h), matching mobile's local preview math. (3) Separately reported: the web approver dropdown showed only 1 approver (a supervisor) where mobile showed 3 (two admins + the supervisor) — asked to mimic mobile's behavior. (4) A further follow-up: the server now accepts an optional `punchType` on submit (`REGULAR`/`TRAINING`/`DRIVER_AIDE`/`DRIVER_AIDE_AM`/`DRIVER_AIDE_PM`), valid only for DayCare companies (rejected with a 400 for BNC), gated by `isBNC`/`companyType` from `GET /company-settings` rather than a hardcoded company-id list; `requestedPunchType` is now returned on every request object and needed a shift-type picker plus display wherever requests are shown.
+
+**Investigation findings:**
+- For (1): all three places the app displays a request's hours (employee's own request list, `bootstrap`'s `pendingRequests`, and the admin pending-request list) already rendered `req.estimatedNetHours` straight from the API response — there was no display-side divergence bug. The only stale code was the submit payload still computing and sending the now-ignored fields, plus the pre-submit preview computing its own local estimate (explicitly sanctioned by the ticket to remain local).
+- For (2): after dropping the lunch subtraction, the `minLunchMins` state (fetched from `bootstrap`'s `companySettings.minimumLunchMinutes`) had no remaining reader anywhere in the file — removed rather than left as dead state.
+- For (3): both the OT approver picker and the Request Punch approver picker used an identical exclusive ternary — `supervisors.length > 0 ? supervisors : approvers` — so any company with even one supervisor silently dropped every admin from the list. Not a data-availability problem; a plain client bug, duplicated in two places.
+- For (4): `PunchLogs.jsx` had no existing API-driven daycare signal — it (and `Punch.jsx`) still gate all other daycare-only UI (punch-type filter, table column, badge) via a `NEXT_PUBLIC_DAYCARE_COMPANY_IDS` env-var allowlist. `CutoffReview.jsx` already proved `GET /api/company-settings/` returns `data.isBNC`, so a dedicated fetch was added for this one gate rather than assuming the value was already present in `bootstrap`'s `companySettings` sub-object (unverified from code alone, and guessing wrong would have silently hidden the picker for real DayCare companies).
+
+**Fix:**
+- **Submit payload** — `estimatedDuration`/`estimatedNetHours` removed entirely; the server now owns that computation.
+- **Pre-submit preview** — now `toHour(diffMins(requestClockIn, requestClockOut))`, no lunch deduction; `minLunchMins` state and its two setters removed as dead code.
+- **Approver lists** — new `approverOptions` memo merges `supervisors` and `approvers`, dropping any admin whose `id` already appears in `supervisors` (dedupe, since a person can be both). Both the OT approver picker and the Request Punch Step-2 approver dropdown now render the merged list instead of the old either/or.
+- **Shift-type picker** — new `isDayCareCompany` state, populated by a new `GET /api/company-settings/` fetch reading `data.isBNC === false || data.companyType === "DAYCARE"` (kept separate from the existing env-var-based `isDayCare` used elsewhere in this file, to keep this change scoped to just the new gate). New `requestPunchType` state (default `REGULAR`) drives a "Shift type" `Select` (Full Day / AM only / PM only / Regular) in Request Punch Step 1, shown only when `isDayCareCompany`. Submit payload spreads in `punchType: requestPunchType` only for DayCare companies — omitted entirely for BNC, so their request flow is byte-for-byte unchanged.
+- **Displaying `requestedPunchType`** — reused the existing `PunchTypeBadge` component (already defined in both files for the punch-logs table) rather than building new label/icon logic: shown in the employee's own request list, the admin pending-request card header, and the admin reject-confirmation dialog.
+
+**Server-repo impact:** None — every change here consumes server behavior that was already shipped (the estimation-source change and the additive `punchType` field). No new server work triggered by this pass.
+
+**Explicitly out of scope (deferred):**
+- The broader `isDayCare` → API-driven `companyType` migration across the rest of `PunchLogs.jsx`/`EmployeesPunchLogs.jsx` (existing punch-type filter, table column, OT dialog) — only the new shift-type picker uses the new signal; everything else in these files still uses the env-var list, unchanged.
+- Segment-based approval-hours computation for `DRIVER_AIDE_AM`/`DRIVER_AIDE_PM` is entirely server-side; the client only submits the chosen `punchType` and displays whatever `estimatedNetHours` comes back. Per the ticket's testing note, worth a manual check submitting one of each of the 3 daycare punch types, approving each, and confirming the approved hours reflect the right segment(s) rather than a flat regular-shift number.
+
+### Files Changed
+
+| File | Changes |
+|---|---|
+| `components/Dashboard/DashboardContent/EmployeePanel/TimeKeeping/PunchLogs.jsx` | Submit payload no longer sends `estimatedDuration`/`estimatedNetHours`. Pre-submit preview now shows raw clock-out-minus-clock-in hours (no lunch deduction); removed now-dead `minLunchMins` state. New `approverOptions` memo merges+dedupes `supervisors`/`approvers`; OT approver picker and Request Punch approver dropdown both use it. New `isDayCareCompany` state (from `GET /api/company-settings/`) gates a new "Shift type" picker in Request Punch Step 1; selected value sent as `punchType` for DayCare companies only; `requestedPunchType` now shown via `PunchTypeBadge` in the employee's own request list. |
+| `components/Dashboard/DashboardContent/CompanyPanel/Punchlogs&Overtimes&Leaves/EmployeesPunchLogs.jsx` | `requestedPunchType` now shown via `PunchTypeBadge` in the pending-request card header and the reject-confirmation dialog. |

@@ -2253,6 +2253,7 @@ export default function EmployeesPunchLogs() {
                                       </div>
                                     </div>
                                     <div className="flex items-center gap-2">
+                                      <PunchTypeBadge punchType={req.requestedPunchType} />
                                       {isUrgent && <Badge variant="destructive" className="animate-pulse">{daysAgo}d overdue</Badge>}
                                       <Badge className={
                                         req.status === "PENDING"  ? "bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-400" :
@@ -2983,6 +2984,9 @@ export default function EmployeesPunchLogs() {
                 <div><span className="font-medium">Employee:</span> {rejectingRequest.userDisplayName}</div>
                 <div><span className="font-medium">Date:</span> {safeCalendarDate(rejectingRequest.requestedDate)}</div>
                 <div><span className="font-medium">Time:</span> {safeTime(rejectingRequest.requestedClockIn)} - {safeTime(rejectingRequest.requestedClockOut)}</div>
+                {rejectingRequest.requestedPunchType && (
+                  <div className="flex items-center gap-1.5"><span className="font-medium">Shift type:</span> <PunchTypeBadge punchType={rejectingRequest.requestedPunchType} /></div>
+                )}
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Reason for Rejection *</label>

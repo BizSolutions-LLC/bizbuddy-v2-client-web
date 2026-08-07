@@ -5,7 +5,7 @@ import { useState, useEffect, Suspense } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { MenuIcon } from "lucide-react";
-import useAuthStore from "@/store/useAuthStore";
+import useAuthStore, { isTokenExpired } from "@/store/useAuthStore";
 import Sidebar from "@/components/Dashboard/sidebar";
 import PageLoader from "@/components/Dashboard/PageLoader";
 import DashboardSkeleton from "./DashboardSkeleton";
@@ -13,7 +13,7 @@ import ErrorBoundary from "@/components/common/ErrorBoundary";
 import FeedbackWidget from "@/components/common/FeedbackWidget";
 
 export default function DashboardLayoutClient({ children }) {
-  const { token, login, sidebarOpen, setSidebarOpen } = useAuthStore();
+  const { token, login, logout, sidebarOpen, setSidebarOpen } = useAuthStore();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -48,18 +48,23 @@ export default function DashboardLayoutClient({ children }) {
       if (stored) {
         try {
           const parsed = JSON.parse(stored);
-          if (parsed.state?.token) {
-            login(parsed.state.token);
+          const storedToken = parsed.state?.token;
+          if (storedToken && !isTokenExpired(storedToken)) {
+            login(storedToken);
             return;
           }
         } catch (_) {}
       }
       router.push("/sign-in");
       setIsLoadingAuth(false);
+    } else if (isTokenExpired(token)) {
+      logout();
+      router.push("/sign-in");
+      setIsLoadingAuth(false);
     } else {
       setIsLoadingAuth(false);
     }
-  }, [token, login, router]);
+  }, [token, login, logout, router]);
 
   useEffect(() => {
     if (!isLoadingAuth) {

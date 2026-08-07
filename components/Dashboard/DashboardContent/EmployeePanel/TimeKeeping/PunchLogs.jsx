@@ -280,12 +280,14 @@ export default function PunchLogs() {
 
   const [companyId, setCompanyId] = useState(user?.companyId ?? null);
   const isDayCare = DAYCARE_COMPANY_IDS.includes(companyId);
+  // Request Punch shift-type picker uses the API-driven signal (not the env-var list above)
+  // per BB-065 follow-up: don't hardcode a company-id list for Driver/Aide gating.
+  const [isDayCareCompany, setIsDayCareCompany] = useState(false);
 
   const [logs,       setLogs]       = useState([]);
   const [smartLogs,  setSmartLogs]  = useState([]);
   const [viewMode,   setViewMode]   = useState("all");
   const [defaultHours,  setDefaultHours]  = useState(8);
-  const [minLunchMins,  setMinLunchMins]  = useState(60);
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [exporting,  setExporting]  = useState(false);
@@ -331,6 +333,10 @@ export default function PunchLogs() {
   const [thresholdStatus, setThresholdStatus] = useState(null);
   const [otSelectedLogId, setOtSelectedLogId] = useState(null);
   const [supervisors,     setSupervisors]     = useState([]);
+  const approverOptions = useMemo(() => {
+    const supervisorIds = new Set(supervisors.map((s) => s.id));
+    return { supervisors, approvers: approvers.filter((a) => !supervisorIds.has(a.id)) };
+  }, [supervisors, approvers]);
   const [myRequests,      setMyRequests]      = useState([]);
   const [requestsV2Expanded,  setRequestsV2Expanded]  = useState(true);
   const [loadingRequests, setLoadingRequests] = useState(false);
@@ -352,6 +358,7 @@ export default function PunchLogs() {
   const [requestPunchDate,       setRequestPunchDate]       = useState("");
   const [requestClockIn,         setRequestClockIn]         = useState("");
   const [requestClockOut,        setRequestClockOut]        = useState("");
+  const [requestPunchType,       setRequestPunchType]       = useState("REGULAR");
   const [requestApproverId,      setRequestApproverId]      = useState("");
   const [requestReason,          setRequestReason]          = useState("");
   const [requestDescription,     setRequestDescription]     = useState("");
@@ -395,7 +402,6 @@ export default function PunchLogs() {
 
       const cs = d.companySettings || {};
       setDefaultHours(cs.defaultShiftHours ?? 8);
-      setMinLunchMins(cs.minimumLunchMinutes === null ? 0 : cs.minimumLunchMinutes ?? 60);
       if (cs.id) setCompanyId(cs.id);
       setOtBasis(cs.otBasis ?? "daily");
       setDailyOtThreshold(parseFloat(cs.dailyOtThresholdHours   ?? 8));
@@ -432,7 +438,6 @@ export default function PunchLogs() {
       setRequestsExpanded(requests.some((r) => r.status === "PENDING"));
     } catch {
       setDefaultHours(8);
-      setMinLunchMins(60);
     } finally {
       setLoadingRequests(false);
     }
@@ -564,6 +569,17 @@ export default function PunchLogs() {
     fetchUserShifts();
     fetchThresholdStatus();
   }, [token, fetchBootstrap, fetchUserShifts, fetchThresholdStatus]);
+
+  useEffect(() => {
+    if (!token) return;
+    fetch(`${API_URL}/api/company-settings/`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.json())
+      .then((j) => {
+        const data = j?.data || {};
+        setIsDayCareCompany(data.isBNC === false || data.companyType === "DAYCARE");
+      })
+      .catch(() => {});
+  }, [token, API_URL]);
 
   // Re-fetch logs whenever queryParams changes (filter change, page change, etc.)
   useEffect(() => {
@@ -1054,6 +1070,7 @@ export default function PunchLogs() {
                                 <span className="font-semibold text-sm leading-tight">{dateLabel}</span>
                               </div>
                               <div className="flex items-center gap-1.5 shrink-0">
+                                <PunchTypeBadge punchType={req.requestedPunchType} />
                                 <span className="text-xs border rounded-full px-2.5 py-0.5 tabular-nums">
                                   {req.estimatedNetHours?.toFixed(2) || "0.00"}h
                                 </span>
@@ -1597,10 +1614,11 @@ export default function PunchLogs() {
               <Select value={otApprover} onValueChange={setOtApprover} disabled={!otForLog}>
                 <SelectTrigger><SelectValue placeholder="Choose approver" /></SelectTrigger>
                 <SelectContent>
-                  {supervisors.length > 0 ? (
-                    <>{<div className="px-2 py-1 text-xs font-medium text-muted-foreground">Team Supervisors</div>}{supervisors.map((s) => <SelectItem key={s.id} value={s.id}>{s.name} - {s.department}</SelectItem>)}</>
-                  ) : (
-                    <>{<div className="px-2 py-1 text-xs font-medium text-muted-foreground">Approvers</div>}{approvers.map((a) => <SelectItem key={a.id} value={a.id}>{a.name || a.email}</SelectItem>)}</>
+                  {approverOptions.supervisors.length > 0 && (
+                    <>{<div className="px-2 py-1 text-xs font-medium text-muted-foreground">Team Supervisors</div>}{approverOptions.supervisors.map((s) => <SelectItem key={s.id} value={s.id}>{s.name} - {s.department}</SelectItem>)}</>
+                  )}
+                  {approverOptions.approvers.length > 0 && (
+                    <>{<div className="px-2 py-1 text-xs font-medium text-muted-foreground">Approvers</div>}{approverOptions.approvers.map((a) => <SelectItem key={a.id} value={a.id}>{a.name || a.email}</SelectItem>)}</>
                   )}
                 </SelectContent>
               </Select>
@@ -1620,6 +1638,7 @@ export default function PunchLogs() {
               setRequestPunchLogsDialog(false);
               setRequestStep(1);
               setRequestPunchDate(""); setRequestClockIn(""); setRequestClockOut("");
+              setRequestPunchType("REGULAR");
               setRequestApproverId(""); setRequestReason(""); setRequestDescription("");
               setRequestErrors({});
             }
@@ -1713,6 +1732,25 @@ export default function PunchLogs() {
                     {requestErrors.date && <p className="text-red-500 text-xs flex items-center gap-1"><AlertCircle className="h-3 w-3" />{requestErrors.date}</p>}
                   </div>
 
+                  {isDayCareCompany && (
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                        <Car className="h-3 w-3" />Shift type <span className="text-orange-500">*</span>
+                      </label>
+                      <Select value={requestPunchType} onValueChange={setRequestPunchType}>
+                        <SelectTrigger className="h-9 text-sm">
+                          <SelectValue placeholder="Select shift type…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="REGULAR">Regular</SelectItem>
+                          <SelectItem value="DRIVER_AIDE">Full Day (AM + Regular + PM)</SelectItem>
+                          <SelectItem value="DRIVER_AIDE_AM">AM only</SelectItem>
+                          <SelectItem value="DRIVER_AIDE_PM">PM only</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                       <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
@@ -1769,7 +1807,7 @@ export default function PunchLogs() {
                     <div className="flex items-center justify-between px-3 py-2.5 rounded-lg border" style={{ background: "#faeeda", borderColor: "#ef9f27" }}>
                       <span className="text-xs font-medium" style={{ color: "#633806" }}>Estimated net hours</span>
                       <span className="text-sm font-bold" style={{ color: "#633806" }}>
-                        {toHour(Math.max(0, diffMins(requestClockIn, requestClockOut) - minLunchMins))}h
+                        {toHour(diffMins(requestClockIn, requestClockOut))}h
                       </span>
                     </div>
                   )}
@@ -1789,11 +1827,8 @@ export default function PunchLogs() {
                         <SelectValue placeholder="Choose an approver…" />
                       </SelectTrigger>
                       <SelectContent className="max-h-60">
-                        {supervisors.length > 0 ? (
-                          supervisors.map((s) => <SelectItem key={s.id} value={s.id}>{s.name} — {s.department}</SelectItem>)
-                        ) : (
-                          approvers.map((a) => <SelectItem key={a.id} value={a.id}>{a.name || a.email}</SelectItem>)
-                        )}
+                        {approverOptions.supervisors.map((s) => <SelectItem key={s.id} value={s.id}>{s.name} — {s.department}</SelectItem>)}
+                        {approverOptions.approvers.map((a) => <SelectItem key={a.id} value={a.id}>{a.name || a.email}</SelectItem>)}
                       </SelectContent>
                     </Select>
                     {requestErrors.approverId && <p className="text-red-500 text-xs flex items-center gap-1"><AlertCircle className="h-3 w-3" />{requestErrors.approverId}</p>}
@@ -1916,14 +1951,14 @@ export default function PunchLogs() {
                       const res = await fetch(`${API_URL}/api/request-punch-log/submit`, {
                         method: "POST",
                         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                        body: JSON.stringify({ requestedDate: requestPunchDate, requestedClockIn: requestClockIn, requestedClockOut: requestClockOut, approverId: requestApproverId, reason: requestReason, description: requestDescription, estimatedDuration: diffMins(requestClockIn, requestClockOut), estimatedNetHours: parseFloat(toHour(Math.max(0, diffMins(requestClockIn, requestClockOut) - minLunchMins))) }),
+                        body: JSON.stringify({ requestedDate: requestPunchDate, requestedClockIn: requestClockIn, requestedClockOut: requestClockOut, approverId: requestApproverId, reason: requestReason, description: requestDescription, ...(isDayCareCompany ? { punchType: requestPunchType } : {}) }),
                       });
                       const result = await res.json();
                       if (res.ok) {
                         toast.success("Punch log request submitted!");
                         setRequestPunchLogsDialog(false);
                         setRequestStep(1);
-                        setRequestPunchDate(""); setRequestClockIn(""); setRequestClockOut(""); setRequestApproverId(""); setRequestReason(""); setRequestDescription(""); setRequestErrors({});
+                        setRequestPunchDate(""); setRequestClockIn(""); setRequestClockOut(""); setRequestPunchType("REGULAR"); setRequestApproverId(""); setRequestReason(""); setRequestDescription(""); setRequestErrors({});
                         fetchMyRequests();
                       } else if (res.status === 409) {
                         setRequestStep(1);
