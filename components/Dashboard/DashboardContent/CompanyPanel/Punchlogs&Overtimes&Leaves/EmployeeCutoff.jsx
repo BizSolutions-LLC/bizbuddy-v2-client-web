@@ -345,6 +345,8 @@ export default function EmployeeCutoff() {
   const [isConfigModalOpen,   setIsConfigModalOpen]   = useState(false);
   const [isManualModalOpen,   setIsManualModalOpen]   = useState(false);
   const [isSaving,            setIsSaving]            = useState(false);
+  const [statusConfirm,       setStatusConfirm]       = useState(null); // { periodId, departmentId, newStatus }
+  const [isUpdatingStatus,    setIsUpdatingStatus]    = useState(false);
 
   // ── Form state ──
   const [configForm, setConfigForm] = useState(initConfigForm());
@@ -534,7 +536,7 @@ export default function EmployeeCutoff() {
       );
       const data = await res.json();
       if (res.ok) {
-        toast.success(`Cutoff period ${newStatus}`);
+        toast.success(data.message || `Cutoff period ${newStatus}`);
         fetchCutoffPeriods();
       } else {
         toast.error(data.message || "Failed to update status");
@@ -542,6 +544,14 @@ export default function EmployeeCutoff() {
     } catch (err) {
       toast.error("Failed to update status");
     }
+  };
+
+  const confirmStatusChange = async () => {
+    if (!statusConfirm) return;
+    setIsUpdatingStatus(true);
+    await handleUpdateStatus(statusConfirm.periodId, statusConfirm.newStatus);
+    setIsUpdatingStatus(false);
+    setStatusConfirm(null);
   };
 
   const handleDelete = async (cutoffId) => {
@@ -972,13 +982,13 @@ export default function EmployeeCutoff() {
 
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button size="sm" variant="ghost" className="w-8 h-8 p-0">
+                              <Button size="sm" variant="ghost" className="w-8 h-8 p-0" disabled={period.status === "processed"}>
                                 <MoreVertical className="w-4 h-4" />
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-44">
                               {period.status === "open" && (
-                                <DropdownMenuItem onClick={() => handleUpdateStatus(period.id, "locked")}>
+                                <DropdownMenuItem onClick={() => setStatusConfirm({ periodId: period.id, departmentId: period.departmentId, newStatus: "locked" })}>
                                   <Lock className="w-3.5 h-3.5 mr-2" /> Lock Period
                                 </DropdownMenuItem>
                               )}
@@ -987,12 +997,12 @@ export default function EmployeeCutoff() {
                                   <DropdownMenuItem onClick={() => handleUpdateStatus(period.id, "open")}>
                                     <Unlock className="w-3.5 h-3.5 mr-2" /> Unlock Period
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => handleUpdateStatus(period.id, "processed")}>
+                                  <DropdownMenuItem onClick={() => setStatusConfirm({ periodId: period.id, departmentId: period.departmentId, newStatus: "processed" })}>
                                     <CheckCircle2 className="w-3.5 h-3.5 mr-2" /> Mark Processed
                                   </DropdownMenuItem>
                                 </>
                               )}
-                              {period.status !== "processed" && (
+                              {period.status === "open" && (
                                 <>
                                   <DropdownMenuSeparator />
                                   <DropdownMenuItem
@@ -1171,6 +1181,47 @@ export default function EmployeeCutoff() {
                 Create Cutoff
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Status Change Confirm Modal ── */}
+      <Dialog open={!!statusConfirm} onOpenChange={(open) => !open && setStatusConfirm(null)}>
+        <DialogContent className="w-[90vw] sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {statusConfirm?.newStatus === "locked" ? (
+                <Lock className="w-4 h-4 text-orange-500" />
+              ) : (
+                <CheckCircle2 className="w-4 h-4 text-orange-500" />
+              )}
+              {statusConfirm?.newStatus === "locked" ? "Lock Cutoff Period" : "Mark Cutoff Period Processed"}
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to {statusConfirm?.newStatus === "locked" ? "lock" : "mark as processed"} this
+              cutoff period for <strong>{statusConfirm && getDepartmentName(statusConfirm.departmentId)}</strong>?
+              {statusConfirm?.newStatus === "processed" && " This status is final and cannot be reverted."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setStatusConfirm(null)} disabled={isUpdatingStatus}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-orange-500 hover:bg-orange-600 gap-2"
+              onClick={confirmStatusChange}
+              disabled={isUpdatingStatus}
+            >
+              {isUpdatingStatus ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : statusConfirm?.newStatus === "locked" ? (
+                <Lock className="w-4 h-4" />
+              ) : (
+                <CheckCircle2 className="w-4 h-4" />
+              )}
+              {statusConfirm?.newStatus === "locked" ? "Lock Period" : "Mark Processed"}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

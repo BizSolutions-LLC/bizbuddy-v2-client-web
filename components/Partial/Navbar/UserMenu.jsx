@@ -22,20 +22,25 @@ export default function UserMenu() {
       fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/account/profile`, {
         headers: { Authorization: `Bearer ${token}` },
       })
-        .then((res) => res.json())
-        .then((data) => {
+        .then(async (res) => {
+          if (res.status === 401) {
+            console.error("Session expired or invalid — logging out.");
+            logout();
+            return;
+          }
+          const data = await res.json();
           if (data.error) {
             console.error("Error fetching profile:", data.error);
-            logout();
           } else if (data.data) {
             setProfile(data.data);
           }
         })
         .catch((err) => {
-          console.error("Failed to fetch user profile:", err);
-          logout();
+          console.error("Failed to fetch user profile (network error):", err);
         })
         .finally(() => setIsLoading(false));
+    } else {
+      setIsLoading(false);
     }
   }, [token, logout]);
 

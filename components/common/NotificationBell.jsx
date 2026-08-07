@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Bell, BellDot, X, Check, Clock, AlertCircle, Info } from 'lucide-react';
 import { notificationApi } from '@/lib/notificationApi';
 import socketService from '@/lib/socketService';
+import { getNotificationRoute } from '@/lib/notificationRoutes';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 
@@ -68,7 +69,7 @@ const formatTimeAgo = (date) => {
   return new Date(date).toLocaleDateString();
 };
 
-function NotificationItem({ notification, onMarkAsRead, onRemove }) {
+function NotificationItem({ notification, onMarkAsRead, onRemove, onNavigate }) {
   const config = NOTIFICATION_CONFIG[notification.notificationCode] || NOTIFICATION_CONFIG.DEFAULT;
 
   return (
@@ -76,8 +77,14 @@ function NotificationItem({ notification, onMarkAsRead, onRemove }) {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, x: -100 }}
-      className={`p-4 border-b border-neutral-200 dark:border-neutral-700 last:border-b-0 
-                  hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors duration-200
+      onClick={() => onNavigate(notification)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') onNavigate(notification);
+      }}
+      className={`p-4 border-b border-neutral-200 dark:border-neutral-700 last:border-b-0
+                  hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors duration-200 cursor-pointer
                   ${!notification.seen ? 'bg-orange-50/50 dark:bg-orange-950/20' : ''}`}
     >
       <div className="flex items-start space-x-3">
@@ -114,8 +121,8 @@ function NotificationItem({ notification, onMarkAsRead, onRemove }) {
             <div className="flex items-center space-x-1">
               {!notification.seen && (
                 <button
-                  onClick={() => onMarkAsRead(notification.id)}
-                  className="p-1.5 rounded-md text-orange-600 hover:text-orange-700 
+                  onClick={(e) => { e.stopPropagation(); onMarkAsRead(notification.id); }}
+                  className="p-1.5 rounded-md text-orange-600 hover:text-orange-700
                            hover:bg-orange-100 dark:hover:bg-orange-900 transition-colors"
                   title="Mark as read"
                 >
@@ -123,8 +130,8 @@ function NotificationItem({ notification, onMarkAsRead, onRemove }) {
                 </button>
               )}
               <button
-                onClick={() => onRemove(notification.id)}
-                className="p-1.5 rounded-md text-neutral-400 hover:text-red-500 
+                onClick={(e) => { e.stopPropagation(); onRemove(notification.id); }}
+                className="p-1.5 rounded-md text-neutral-400 hover:text-red-500
                          hover:bg-red-100 dark:hover:bg-red-900 transition-colors"
                 title="Remove"
               >
@@ -141,6 +148,12 @@ function NotificationItem({ notification, onMarkAsRead, onRemove }) {
 function NotificationPanel({ notifications, onMarkAsRead, onRemove, onMarkAllAsRead, onClose }) {
   const router = useRouter();
   const unreadCount = notifications.filter(n => !n.seen).length;
+
+  const handleNavigate = (notification) => {
+    if (!notification.seen) onMarkAsRead(notification.id);
+    onClose();
+    router.push(getNotificationRoute(notification.notificationCode));
+  };
 
   return (
     <motion.div
@@ -194,6 +207,7 @@ function NotificationPanel({ notifications, onMarkAsRead, onRemove, onMarkAllAsR
                 notification={notification}
                 onMarkAsRead={onMarkAsRead}
                 onRemove={onRemove}
+                onNavigate={handleNavigate}
               />
             ))
           ) : (

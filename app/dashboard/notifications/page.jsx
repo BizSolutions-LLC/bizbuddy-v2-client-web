@@ -3,6 +3,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Bell, 
@@ -20,6 +21,7 @@ import {
   Inbox
 } from 'lucide-react';
 import { notificationApi } from '@/lib/notificationApi';
+import { getNotificationRoute } from '@/lib/notificationRoutes';
 import socketService from '@/lib/socketService';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -78,7 +80,7 @@ const NOTIFICATION_TYPES = {
   }
 };
 
-function NotificationCard({ notification, onMarkAsRead, onDelete, onToggleSeen }) {
+function NotificationCard({ notification, onMarkAsRead, onDelete, onToggleSeen, onNavigate }) {
   const notifType = NOTIFICATION_TYPES[notification.notificationCode] || NOTIFICATION_TYPES.DEFAULT;
   const Icon = notifType.icon;
 
@@ -101,11 +103,17 @@ function NotificationCard({ notification, onMarkAsRead, onDelete, onToggleSeen }
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, height: 0, marginBottom: 0 }}
       layout
+      onClick={() => onNavigate(notification)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') onNavigate(notification);
+      }}
       className={`relative border-l-4 ${notifType.borderColor} ${
-        notification.seen 
-          ? 'bg-white dark:bg-neutral-800' 
+        notification.seen
+          ? 'bg-white dark:bg-neutral-800'
           : notifType.bgColor
-      } rounded-r-lg shadow-sm hover:shadow-md transition-all duration-200`}
+      } rounded-r-lg shadow-sm hover:shadow-md transition-all duration-200 cursor-pointer`}
     >
       <div className="p-4">
         <div className="flex items-start gap-4">
@@ -152,7 +160,7 @@ function NotificationCard({ notification, onMarkAsRead, onDelete, onToggleSeen }
                   <Button
                     size="sm"
                     variant="ghost"
-                    onClick={() => onMarkAsRead(notification.id)}
+                    onClick={(e) => { e.stopPropagation(); onMarkAsRead(notification.id); }}
                     className="h-8 text-orange-600 hover:text-orange-700 hover:bg-orange-100 dark:hover:bg-orange-900"
                   >
                     <Check className="w-4 h-4 mr-1" />
@@ -162,7 +170,7 @@ function NotificationCard({ notification, onMarkAsRead, onDelete, onToggleSeen }
                 <Button
                   size="sm"
                   variant="ghost"
-                  onClick={() => onToggleSeen(notification.id, !notification.seen)}
+                  onClick={(e) => { e.stopPropagation(); onToggleSeen(notification.id, !notification.seen); }}
                   className="h-8"
                   title={notification.seen ? 'Mark as unread' : 'Mark as read'}
                 >
@@ -175,7 +183,7 @@ function NotificationCard({ notification, onMarkAsRead, onDelete, onToggleSeen }
                 <Button
                   size="sm"
                   variant="ghost"
-                  onClick={() => onDelete(notification.id)}
+                  onClick={(e) => { e.stopPropagation(); onDelete(notification.id); }}
                   className="h-8 text-red-600 hover:text-red-700 hover:bg-red-100 dark:hover:bg-red-900"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -190,6 +198,7 @@ function NotificationCard({ notification, onMarkAsRead, onDelete, onToggleSeen }
 }
 
 export default function NotificationsPage() {
+  const router = useRouter();
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -277,6 +286,12 @@ export default function NotificationsPage() {
       console.error('Error marking all as read:', error);
       toast.error('Failed to mark all as read');
     }
+  };
+
+  // Navigate to the page a notification relates to
+  const handleNavigate = (notification) => {
+    if (!notification.seen) handleMarkAsRead(notification.id);
+    router.push(getNotificationRoute(notification.notificationCode));
   };
 
   // Delete notification
@@ -513,6 +528,7 @@ export default function NotificationsPage() {
                       onMarkAsRead={handleMarkAsRead}
                       onDelete={handleDelete}
                       onToggleSeen={handleToggleSeen}
+                      onNavigate={handleNavigate}
                     />
                   ))}
                 </AnimatePresence>

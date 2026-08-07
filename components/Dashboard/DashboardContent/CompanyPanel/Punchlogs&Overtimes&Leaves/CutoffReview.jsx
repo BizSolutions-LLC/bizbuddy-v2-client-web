@@ -2082,11 +2082,11 @@ export default function CutoffReview({ cutoffId }) {
       const records = emp.records.map((r) => {
         if (r.type === "driver_group") {
           const segments = r.segments.map((s) => patchTimes({ ...s, localStatus: effectiveStatus(s.id, s.localStatus) }));
-          return { ...r, segments, hours: segments.reduce((sum, s) => s.localStatus === "approved" ? sum + (s.hours || 0) : sum, 0), isApproving: segments.some((s) => s.isApproving) };
+          return { ...r, segments, hours: segments.reduce((sum, s) => (s.localStatus === "approved" || s.localStatus === "resolved") ? sum + (s.hours || 0) : sum, 0), isApproving: segments.some((s) => s.isApproving) };
         }
         if (r.type === "punch_group") {
           const punches = r.punches.map((p) => patchTimes({ ...p, localStatus: effectiveStatus(p.id, p.localStatus) }));
-          return { ...r, punches, hours: punches.reduce((sum, p) => p.localStatus === "approved" ? sum + (p.hours || 0) : sum, 0) };
+          return { ...r, punches, hours: punches.reduce((sum, p) => (p.localStatus === "approved" || p.localStatus === "resolved") ? sum + (p.hours || 0) : sum, 0) };
         }
         return patchTimes({ ...r, localStatus: effectiveStatus(r.id, r.localStatus) });
       });
