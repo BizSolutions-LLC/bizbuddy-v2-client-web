@@ -958,15 +958,26 @@ function buildRowsFromApprovals(approvalsData, companyTimezone) {
 // Same shape exportEmployeePunchLogsCSV_v2 already expects for a Leave record; omitting
 // requestedHours lets it fall back to defaultShiftHours for this single day, same as the
 // Cutoff Review page's own 8h default for a standalone leave card.
+//
+// isPaid/actualPaidHours are synthesized here (same payableHours ?? scheduledHours default
+// CutoffReview.jsx already uses for its own Paid/Unpaid tag) so the CSV's paid-only SL filter
+// can read this record the same way it reads a raw GET /api/leaves record.
 function buildLeavesFromApprovals(approvalsData) {
   return (approvalsData.leaves || [])
     .filter((leaveRow) => leaveRow.user?.id && leaveRow.leaveDate && leaveRow.leave?.leaveType)
-    .map((leaveRow) => ({
-      leaveType: leaveRow.leave.leaveType,
-      userId:    leaveRow.user.id,
-      startDate: leaveRow.leaveDate,
-      endDate:   leaveRow.leaveDate,
-    }));
+    .map((leaveRow) => {
+      const scheduledHours = leaveRow.hours ?? 8;
+      const payableHours   = leaveRow.payableHours ?? scheduledHours;
+      return {
+        leaveType: leaveRow.leave.leaveType,
+        userId:    leaveRow.user.id,
+        startDate: leaveRow.leaveDate,
+        endDate:   leaveRow.leaveDate,
+        status:          "approved",
+        isPaid:          payableHours > 0,
+        actualPaidHours: payableHours,
+      };
+    });
 }
 
 // ── GenerateReportModal ────────────────────────────────────────────────────────
@@ -1454,6 +1465,18 @@ export default function EmployeesPunchLogs() {
     return map;
   }, [employees]);
 
+  // Job title (position), not the auth account role — needed because the locked-cutoff
+  // report path's `user.role` is "admin"/"employee"/etc, not a job title. Same source
+  // (`GET /api/employee?all=1`) the Employees list page reads `employmentDetail.jobTitle`
+  // from, so this is authoritative for both the live and locked-cutoff report paths.
+  const employeeRoleMap = useMemo(() => {
+    const map = {};
+    employees.forEach((e) => {
+      if (e.id && e.employmentDetail?.jobTitle) map[e.id] = e.employmentDetail.jobTitle;
+    });
+    return map;
+  }, [employees]);
+
   // ── Column config ─────────────────────────────────────────────────────────────
   const columnOptions = useMemo(() => [
     { value: "employee",           label: "Employee",           essential: true,  group: "basic"    },
@@ -1836,10 +1859,14 @@ export default function EmployeesPunchLogs() {
       });
 
       // Prefer the employee-record employeeId (authoritative) over whatever came embedded
-      // on the timelog/approval row, which can be missing for some employees.
+      // on the timelog/approval row, which can be missing for some employees. Same for
+      // employeeRole: the locked-cutoff path's `employeeRole` is the auth account role
+      // (e.g. "employee"), not a job title — employeeRoleMap (job title) is authoritative
+      // for both report paths.
       enriched = enriched.map((t) => ({
         ...t,
-        employeeId: employeeIdMap[t.userId] ?? t.employeeId,
+        employeeId:   employeeIdMap[t.userId]   ?? t.employeeId,
+        employeeRole: employeeRoleMap[t.userId] ?? t.employeeRole,
       }));
 
       if (!filters.employeeIds.includes("all"))
