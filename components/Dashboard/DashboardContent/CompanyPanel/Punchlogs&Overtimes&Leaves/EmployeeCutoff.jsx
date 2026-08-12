@@ -27,6 +27,7 @@ import {
   LayoutList,
   Pencil,
   Trash2,
+  Download,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -347,6 +348,9 @@ export default function EmployeeCutoff() {
   const [isSaving,            setIsSaving]            = useState(false);
   const [statusConfirm,       setStatusConfirm]       = useState(null); // { periodId, departmentId, newStatus }
   const [isUpdatingStatus,    setIsUpdatingStatus]    = useState(false);
+  const [isReportPreviewOpen, setIsReportPreviewOpen] = useState(false);
+  const [loadingAction,       setLoadingAction]       = useState(null); // { periodId, type: "view" | "download" }
+  const [viewingPayload,      setViewingPayload]      = useState(null); // { payload, label }
 
   // ── Form state ──
   const [configForm, setConfigForm] = useState(initConfigForm());
@@ -428,6 +432,54 @@ export default function EmployeeCutoff() {
   // ─────────────────────────────────────────────────────────────────────
   // ACTIONS
   // ─────────────────────────────────────────────────────────────────────
+
+  const fetchPayrollExportPayload = async (period) => {
+    const res = await fetch(
+      `${process.env.NEXT_PUBLIC_API_URL}/api/payroll-export/by-cutoff-period/${period.id}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.message || "No payroll export has been generated for this period yet");
+    }
+    return data.data.payload;
+  };
+
+  const handleDownloadPayrollExport = async (period) => {
+    setLoadingAction({ periodId: period.id, type: "download" });
+    try {
+      const payload = await fetchPayrollExportPayload(period);
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `payroll-export_${period.periodStart.slice(0, 10)}_${period.periodEnd.slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success("Payroll export downloaded");
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
+  const handleViewPayrollExport = async (period) => {
+    setLoadingAction({ periodId: period.id, type: "view" });
+    try {
+      const payload = await fetchPayrollExportPayload(period);
+      setViewingPayload({
+        payload,
+        label: `${formatDate(period.periodStart)} – ${formatDate(period.periodEnd)}`,
+      });
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setLoadingAction(null);
+    }
+  };
 
   const handleSaveConfig = async () => {
     if (!configForm.departmentId || !configForm.startDate) {
@@ -641,6 +693,19 @@ export default function EmployeeCutoff() {
     });
   }, [cutoffPeriods, selectedDepartment, searchPeriod, statusFilter, showCurrentOnly, getDepartmentName]);
 
+  // Report preview: PayrollExportBatch is keyed by companyId + periodStart +
+  // periodEnd only (no departmentId) — one batch already covers every
+  // department for that date range. So this dedupes cutoffPeriods down to
+  // unique period date-ranges instead of one row per department.
+  const reportPreviewPeriods = useMemo(() => {
+    const seen = new Map();
+    cutoffPeriods.forEach((p) => {
+      const key = `${p.periodStart.slice(0, 10)}_${p.periodEnd.slice(0, 10)}`;
+      if (!seen.has(key)) seen.set(key, p);
+    });
+    return Array.from(seen.values());
+  }, [cutoffPeriods]);
+
   // Upcoming periods for the selected dept config panel
   const upcomingForSelectedDept = useMemo(
     () =>
@@ -675,6 +740,14 @@ export default function EmployeeCutoff() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
+          <Button
+            variant="outline"
+            size="icon"
+            title="Preview Payroll Reports"
+            onClick={() => setIsReportPreviewOpen(true)}
+          >
+            <Search className="w-4 h-4" />
+          </Button>
           <Button
             variant="outline"
             className="gap-2"
@@ -1223,6 +1296,97 @@ export default function EmployeeCutoff() {
               {statusConfirm?.newStatus === "locked" ? "Lock Period" : "Mark Processed"}
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Report Preview Modal ── */}
+      <Dialog open={isReportPreviewOpen} onOpenChange={setIsReportPreviewOpen}>
+        <DialogContent className="w-[90vw] sm:max-w-[560px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Search className="w-4 h-4 text-orange-500" /> Payroll Report Preview
+            </DialogTitle>
+            <DialogDescription>
+              Cutoff periods and whether their payroll export has been generated
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2 pt-2 max-h-[60vh] overflow-y-auto">
+            {reportPreviewPeriods.length === 0 ? (
+              <p className="text-sm text-neutral-500 text-center py-6">No cutoff periods found</p>
+            ) : (
+              reportPreviewPeriods.map((period) => {
+                const generated = period.payrollExport?.generated;
+                return (
+                  <div
+                    key={period.id}
+                    className={`flex items-center justify-between gap-3 p-3 rounded-lg border ${generated ? "" : "opacity-50"}`}
+                  >
+                    <div className="min-w-0">
+                      <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">
+                        {formatDate(period.periodStart)} – {formatDate(period.periodEnd)}
+                      </span>
+                      <p className="text-xs text-neutral-500 mt-1 flex items-center gap-1">
+                        {generated ? (
+                          <>
+                            <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />
+                            Generated {formatDate(period.payrollExport.generatedAt)} · {period.payrollExport.employeeCount} employees
+                          </>
+                        ) : (
+                          "Not generated yet"
+                        )}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-8 w-8"
+                        disabled={loadingAction?.periodId === period.id}
+                        onClick={() => handleViewPayrollExport(period)}
+                        title="View"
+                      >
+                        {loadingAction?.periodId === period.id && loadingAction.type === "view" ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Eye className="w-4 h-4" />
+                        )}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-8 w-8"
+                        disabled={loadingAction?.periodId === period.id}
+                        onClick={() => handleDownloadPayrollExport(period)}
+                        title="Download"
+                      >
+                        {loadingAction?.periodId === period.id && loadingAction.type === "download" ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Download className="w-4 h-4" />
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── View Payroll Export Modal ── */}
+      <Dialog open={!!viewingPayload} onOpenChange={(open) => !open && setViewingPayload(null)}>
+        <DialogContent className="w-[90vw] sm:max-w-[640px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="w-4 h-4 text-orange-500" /> Payroll Export — {viewingPayload?.label}
+            </DialogTitle>
+            <DialogDescription>Raw JSON payload for this period</DialogDescription>
+          </DialogHeader>
+          <pre className="text-xs font-mono whitespace-pre overflow-auto max-h-[60vh] bg-neutral-50 dark:bg-neutral-900 p-3 rounded-lg border">
+            {viewingPayload ? JSON.stringify(viewingPayload.payload, null, 2) : ""}
+          </pre>
         </DialogContent>
       </Dialog>
 
