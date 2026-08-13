@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { toast, Toaster } from 'sonner';
+import { jwtDecode } from 'jwt-decode';
 import useAuthStore from '@/store/useAuthStore';
 import {
   computeEmployeePayroll,
@@ -67,9 +68,10 @@ const PAY_TYPE_COLUMN = { key: 'payType', label: 'Pay Type', align: 'center' };
 const HOURS_COLUMNS = [
   { key: 'regularHours', label: 'Regular Hrs', align: 'right' },
   { key: 'overtimeHours', label: 'OT Hrs', align: 'right' },
+  { key: 'driverHours', label: 'Driver Hrs', align: 'right' },
+  { key: 'trainingHours', label: 'Training Hrs', align: 'right' },
+  { key: 'ptoHours', label: 'PTO', align: 'right' },
   { key: 'totalPunchHours', label: 'Total Punch Hrs', align: 'right' },
-  { key: 'rawClockedHours', label: 'Raw Clocked', align: 'right' },
-  { key: 'daysWorked', label: 'Days Worked', align: 'center' },
 ];
 
 const SALARY_COLUMNS = [
@@ -98,20 +100,44 @@ function toLocalDateStr(isoDate, tz = 'UTC') {
   return new Date(isoDate).toLocaleDateString('en-CA', { timeZone: tz });
 }
 
-function mapClockHoursEntry(emp) {
-  const regular = emp.regularHours || 0;
-  const ot = emp.approvedOvertimeHours || 0;
+/** Match server payrollExportService.toDateStr — UTC YYYY-MM-DD for batch keys. */
+function toUtcDateStr(value) {
+  if (!value) return '';
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  const str = String(value);
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0, 10);
+  const parsed = new Date(str);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return parsed.toISOString().slice(0, 10);
+}
+
+function periodRangeKey(periodStart, periodEnd) {
+  return `${toUtcDateStr(periodStart)}|${toUtcDateStr(periodEnd)}`;
+}
+
+/** Last token of "First Last" display names from get-employees-list. */
+function getLastNameSortKey(name) {
+  const parts = String(name || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return '';
+  return parts[parts.length - 1].toLowerCase();
+}
+
+function mapPayrollExportEntry(emp) {
+  const regular = Number(emp.RegularHours) || 0;
+  const ot = Number(emp.OTHours) || 0;
+  const driver = Number(emp.DriverHours) || 0;
+  const training = Number(emp.TrainingHours) || 0;
+  const pto = Number(emp.PTO) || 0;
   return {
     regularHours: regular,
     overtimeHours: ot,
-    totalPunchHours: +(regular + ot).toFixed(2),
-    rawClockedHours: emp.totalRawClockedHours ?? 0,
-    daysWorked: emp.daysWorked ?? 0,
-    hasActiveClockIn: emp.hasActiveClockIn || false,
-    hasPendingOT: emp.hasPendingOT || false,
-    pendingOTCount: emp.pendingOTCount || 0,
-    payType: emp.payType || null,
-    payRate: emp.payRate ?? null,
+    driverHours: driver,
+    trainingHours: training,
+    ptoHours: pto,
+    totalPunchHours: +(regular + ot + driver + training + pto).toFixed(2),
   };
 }
 
@@ -303,6 +329,14 @@ function initCreateCutoffForm() {
 
 const EmployeeSheet = () => {
   const { token } = useAuthStore();
+  const companyId = useMemo(() => {
+    if (!token) return null;
+    try {
+      return jwtDecode(token)?.companyId || null;
+    } catch {
+      return null;
+    }
+  }, [token]);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [hoursLoading, setHoursLoading] = useState(false);
@@ -313,6 +347,7 @@ const EmployeeSheet = () => {
   const [selectedCutoffId, setSelectedCutoffId] = useState('');
   const [companyTimezone, setCompanyTimezone] = useState('UTC');
   const [cutoffPeriods, setCutoffPeriods] = useState([]);
+  const [exportBatchRangeKeys, setExportBatchRangeKeys] = useState(() => new Set());
   const [salaryComputed, setSalaryComputed] = useState(false);
   const [salaryComputing, setSalaryComputing] = useState(false);
   const [companyConfig, setCompanyConfig] = useState(null);
@@ -349,6 +384,27 @@ const EmployeeSheet = () => {
     return periods.sort((a, b) => new Date(b.periodStart) - new Date(a.periodStart));
   }, [token]);
 
+  const fetchExportBatches = useCallback(async () => {
+    if (!token || !companyId) return new Set();
+
+    const res = await fetch(
+      `${API_URL}/api/payroll-export/batches/${encodeURIComponent(companyId)}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.message || 'Failed to fetch payroll export batches');
+    }
+
+    const keys = new Set(
+      (data.data?.batches || []).map((batch) =>
+        periodRangeKey(batch.periodStart, batch.periodEnd)
+      )
+    );
+    return keys;
+  }, [token, companyId]);
+
   const fetchDepartments = useCallback(async () => {
     if (!token) return [];
 
@@ -362,30 +418,59 @@ const EmployeeSheet = () => {
   }, [token]);
 
   const refreshCutoffPeriods = useCallback(async () => {
-    const periods = await fetchCutoffPeriods();
+    const [periods, batchKeys] = await Promise.all([
+      fetchCutoffPeriods(),
+      fetchExportBatches().catch((err) => {
+        console.error('Failed to fetch payroll export batches:', err);
+        return new Set();
+      }),
+    ]);
     setCutoffPeriods(periods);
+    setExportBatchRangeKeys(batchKeys);
     return periods;
-  }, [fetchCutoffPeriods]);
+  }, [fetchCutoffPeriods, fetchExportBatches]);
 
-  const fetchHoursForPeriod = useCallback(async (from, to) => {
-    if (!token || !from || !to) return { hoursByUserId: {}, summary: null };
+  const fetchHoursForCutoff = useCallback(async (cutoffId) => {
+    if (!token || !cutoffId) return { hoursByUserId: {}, summary: null };
 
     const res = await fetch(
-      `${API_URL}/api/payroll-system/import-clock-hours?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+      `${API_URL}/api/payroll-export/by-cutoff-period/${encodeURIComponent(cutoffId)}`,
       { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
     );
     const data = await res.json();
 
-    if (!res.ok || !data.success) {
-      throw new Error(data.message || 'Failed to fetch punch hours');
+    if (!res.ok) {
+      throw new Error(data.message || 'Failed to fetch payroll export hours');
     }
 
+    const employees = data.data?.payload?.employees || [];
     const hoursByUserId = {};
-    (data.data?.employees || []).forEach((emp) => {
-      hoursByUserId[emp.userId] = mapClockHoursEntry(emp);
+    employees.forEach((emp) => {
+      if (!emp.UserID) return;
+      hoursByUserId[emp.UserID] = mapPayrollExportEntry(emp);
     });
 
-    return { hoursByUserId, summary: data.data?.summary ?? null };
+    const summary = {
+      employeeCount: data.data?.employeeCount ?? employees.length,
+      totalRegularHours: round2(
+        employees.reduce((sum, emp) => sum + (Number(emp.RegularHours) || 0), 0)
+      ),
+      totalOvertimeHours: round2(
+        employees.reduce((sum, emp) => sum + (Number(emp.OTHours) || 0), 0)
+      ),
+      totalDriverHours: round2(
+        employees.reduce((sum, emp) => sum + (Number(emp.DriverHours) || 0), 0)
+      ),
+      totalTrainingHours: round2(
+        employees.reduce((sum, emp) => sum + (Number(emp.TrainingHours) || 0), 0)
+      ),
+      totalPtoHours: round2(
+        employees.reduce((sum, emp) => sum + (Number(emp.PTO) || 0), 0)
+      ),
+      generatedAt: data.data?.generatedAt ?? data.data?.payload?.generatedAt ?? null,
+    };
+
+    return { hoursByUserId, summary };
   }, [token]);
 
   const mergeHoursIntoRows = useCallback((employeeRows, hoursByUserId) => {
@@ -396,20 +481,16 @@ const EmployeeSheet = () => {
           ...row,
           regularHours: null,
           overtimeHours: null,
+          driverHours: null,
+          trainingHours: null,
+          ptoHours: null,
           totalPunchHours: null,
-          rawClockedHours: null,
-          daysWorked: null,
-          hasActiveClockIn: false,
-          hasPendingOT: false,
-          pendingOTCount: 0,
         };
       }
 
       return {
         ...row,
         ...hours,
-        payType: hours.payType ?? row.payType,
-        payRate: hours.payRate ?? row.payRate,
       };
     });
   }, []);
@@ -419,12 +500,10 @@ const EmployeeSheet = () => {
       ...row,
       regularHours: null,
       overtimeHours: null,
+      driverHours: null,
+      trainingHours: null,
+      ptoHours: null,
       totalPunchHours: null,
-      rawClockedHours: null,
-      daysWorked: null,
-      hasActiveClockIn: false,
-      hasPendingOT: false,
-      pendingOTCount: 0,
     }));
   }, []);
 
@@ -648,6 +727,9 @@ const EmployeeSheet = () => {
       hoursData[row.id] = {
         regularHours: row.regularHours ?? 0,
         overtimeHours: row.overtimeHours ?? 0,
+        driverHours: row.driverHours ?? 0,
+        trainingHours: row.trainingHours ?? 0,
+        ptoHours: row.ptoHours ?? 0,
         isFinalClock: true,
       };
     });
@@ -792,10 +874,10 @@ const EmployeeSheet = () => {
         hourlyRate: emp.hourlyRate,
         regularHours: null,
         overtimeHours: null,
+        driverHours: null,
+        trainingHours: null,
+        ptoHours: null,
         totalPunchHours: null,
-        rawClockedHours: null,
-        daysWorked: null,
-        hasActiveClockIn: false,
         grossPay: null,
         taxes: null,
         taxBreakdown: null,
@@ -823,37 +905,26 @@ const EmployeeSheet = () => {
       return;
     }
 
-    if (new Date(from) > new Date(to)) {
-      toast.error('From date must be before or equal to To date');
-      return;
-    }
-
     try {
       setHoursLoading(true);
-      const { hoursByUserId, summary } = await fetchHoursForPeriod(from, to);
+      const { hoursByUserId, summary } = await fetchHoursForCutoff(cutoffId);
       setRows(mergeHoursIntoRows(currentRows, hoursByUserId));
       setHoursLoaded(true);
 
       if (summary) {
         toast.success(
-          `Loaded ${summary.totalEmployees} employees: ${summary.totalRegularHours} regular hrs, ${summary.totalOvertimeHours} OT hrs (${from} to ${to})`
+          `Loaded export for ${summary.employeeCount} employee(s): ${summary.totalRegularHours} regular, ${summary.totalOvertimeHours} OT, ${summary.totalDriverHours} driver, ${summary.totalTrainingHours} training, ${summary.totalPtoHours} PTO (${from} to ${to})`
         );
-        if (summary.employeesWithActiveClockIn > 0) {
-          toast.warning(`${summary.employeesWithActiveClockIn} employee(s) still clocked in — hours may change`);
-        }
-        if (summary.employeesWithPendingOT > 0) {
-          toast.info(`${summary.employeesWithPendingOT} employee(s) have pending OT not included in OT hrs`);
-        }
       } else {
         toast.success(`Hours loaded for ${from} to ${to}`);
       }
     } catch (err) {
-      toast.error(err.message || 'Failed to load punch hours');
+      toast.error(err.message || 'Failed to load payroll export hours');
       setHoursLoaded(false);
     } finally {
       setHoursLoading(false);
     }
-  }, [cutoffPeriods, fetchHoursForPeriod, mergeHoursIntoRows]);
+  }, [cutoffPeriods, fetchHoursForCutoff, mergeHoursIntoRows]);
 
   useEffect(() => {
     if (!token) return;
@@ -876,15 +947,20 @@ const EmployeeSheet = () => {
     (async () => {
       try {
         setLoading(true);
-        const [employeeRows, periods, settingsRes] = await Promise.all([
+        const [employeeRows, periods, batchKeys, settingsRes] = await Promise.all([
           fetchEmployees(),
           fetchCutoffPeriods(),
-          fetchDepartments(),
+          fetchExportBatches().catch((err) => {
+            console.error('Failed to fetch payroll export batches:', err);
+            toast.error(err.message || 'Failed to load payroll export batches');
+            return new Set();
+          }),
           fetch(`${API_URL}/api/company-information/company-settings`, {
             headers: { Authorization: `Bearer ${token}` },
           })
             .then((res) => res.json())
             .catch(() => null),
+          fetchDepartments(),
         ]);
 
         const tz =
@@ -895,6 +971,7 @@ const EmployeeSheet = () => {
         setCompanyTimezone(tz);
 
         setCutoffPeriods(periods);
+        setExportBatchRangeKeys(batchKeys);
         setRows(employeeRows);
       } catch (err) {
         toast.error(err.message || 'Failed to initialize sheet');
@@ -902,7 +979,7 @@ const EmployeeSheet = () => {
         setLoading(false);
       }
     })();
-  }, [token]);
+  }, [token, companyId]);
 
   const handleLoadHours = async () => {
     const baseRows = clearSalaryFromRows(clearHoursFromRows(rows));
@@ -1010,6 +1087,9 @@ const EmployeeSheet = () => {
             hours: {
               regularHours: row.regularHours ?? 0,
               overtimeHours: row.overtimeHours ?? 0,
+              driverHours: row.driverHours ?? 0,
+              trainingHours: row.trainingHours ?? 0,
+              ptoHours: row.ptoHours ?? 0,
             },
             payFrequency,
           });
@@ -1160,12 +1240,23 @@ const EmployeeSheet = () => {
   };
 
   const processedCutoffPeriods = useMemo(() => {
-    const unique = dedupeCutoffPeriodsByRange(
-      cutoffPeriods.filter(isProcessedCutoff),
-      companyTimezone,
-    );
+    const withExport = cutoffPeriods.filter((period) => {
+      if (!isProcessedCutoff(period)) return false;
+      return exportBatchRangeKeys.has(periodRangeKey(period.periodStart, period.periodEnd));
+    });
+    const unique = dedupeCutoffPeriodsByRange(withExport, companyTimezone);
     return unique.sort((a, b) => new Date(b.periodStart) - new Date(a.periodStart));
-  }, [cutoffPeriods, companyTimezone]);
+  }, [cutoffPeriods, companyTimezone, exportBatchRangeKeys]);
+
+  useEffect(() => {
+    if (!selectedCutoffId) return;
+    const stillAvailable = processedCutoffPeriods.some((p) => p.id === selectedCutoffId);
+    if (!stillAvailable) {
+      setSelectedCutoffId('');
+      setDateRange({ from: '', to: '' });
+      setHoursLoaded(false);
+    }
+  }, [processedCutoffPeriods, selectedCutoffId]);
 
   const pendingCutoffPeriods = useMemo(() => {
     const unique = dedupeCutoffPeriodsByRange(
@@ -1219,7 +1310,13 @@ const EmployeeSheet = () => {
       );
     }
 
-    return result;
+    return [...result].sort((a, b) => {
+      const byLast = getLastNameSortKey(a.name).localeCompare(getLastNameSortKey(b.name), undefined, {
+        sensitivity: 'base',
+      });
+      if (byLast !== 0) return byLast;
+      return String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
+    });
   }, [rows, search, statusFilter]);
 
   const handleSendAllPayslips = async () => {
@@ -1276,9 +1373,12 @@ const EmployeeSheet = () => {
         if (row.totalPunchHours != null) acc.totalPunch += row.totalPunchHours;
         if (row.regularHours != null) acc.regular += row.regularHours;
         if (row.overtimeHours != null) acc.ot += row.overtimeHours;
+        if (row.driverHours != null) acc.driver += row.driverHours;
+        if (row.trainingHours != null) acc.training += row.trainingHours;
+        if (row.ptoHours != null) acc.pto += row.ptoHours;
         return acc;
       },
-      { totalPunch: 0, regular: 0, ot: 0 }
+      { totalPunch: 0, regular: 0, ot: 0, driver: 0, training: 0, pto: 0 }
     );
   }, [filteredRows]);
 
@@ -1337,9 +1437,10 @@ const EmployeeSheet = () => {
       if (hoursLoaded) {
         base['Regular Hrs'] = formatHours(row.regularHours);
         base['OT Hrs'] = formatHours(row.overtimeHours);
+        base['Driver Hrs'] = formatHours(row.driverHours);
+        base['Training Hrs'] = formatHours(row.trainingHours);
+        base.PTO = formatHours(row.ptoHours);
         base['Total Punch Hrs'] = formatHours(row.totalPunchHours);
-        base['Raw Clocked'] = formatHours(row.rawClockedHours);
-        base['Days Worked'] = row.daysWorked ?? '—';
       }
 
       base['Pay Type'] =
@@ -1395,11 +1496,11 @@ const EmployeeSheet = () => {
         return row.payType === '—' ? '—' : row.payType.toUpperCase();
       case 'regularHours':
       case 'overtimeHours':
+      case 'driverHours':
+      case 'trainingHours':
+      case 'ptoHours':
       case 'totalPunchHours':
-      case 'rawClockedHours':
         return formatHours(row[key]);
-      case 'daysWorked':
-        return row.daysWorked ?? '—';
       case 'grossPay':
       case 'taxes':
       case 'deductions':
@@ -1473,7 +1574,7 @@ const EmployeeSheet = () => {
                   <option value="" disabled>
                     {processedCutoffPeriods.length > 0
                       ? 'Select processed cutoff...'
-                      : 'No processed cutoffs available'}
+                      : 'No cutoffs with a payroll export yet'}
                   </option>
                   {processedCutoffPeriods.map((period) => (
                     <option key={period.id} value={period.id}>
@@ -1549,12 +1650,13 @@ const EmployeeSheet = () => {
             )}
             {!selectedCutoffId && processedCutoffPeriods.length === 0 && (
               <p className="mt-2 text-xs text-amber-700">
-                Create a cutoff period, review punches, mark it processed, then load payroll hours here.
+                Only periods with a payroll export appear here. Create a cutoff, review punches, mark
+                it processed (to generate the export), then load hours.
               </p>
             )}
             {!selectedCutoffId && processedCutoffPeriods.length > 0 && (
               <p className="mt-2 text-xs text-blue-700">
-                Select a processed cutoff period, then load hours for that pay window.
+                Select a processed cutoff with a payroll export, then load hours for that pay window.
               </p>
             )}
             {hoursLoaded && !hoursLoading && selectedCutoffId && (
@@ -1861,7 +1963,7 @@ const EmployeeSheet = () => {
                         <td
                           key={col.key}
                           className={`px-3 py-1.5 border border-gray-300 whitespace-nowrap ${
-                            ['employeeId', 'payRate', 'regularHours', 'overtimeHours', 'totalPunchHours', 'rawClockedHours', 'daysWorked', 'grossPay', 'taxes', 'deductions', 'netPay', 'futaDeduction', ...TAX_COLUMNS.map((c) => c.key)].includes(col.key)
+                            ['employeeId', 'payRate', 'regularHours', 'overtimeHours', 'driverHours', 'trainingHours', 'ptoHours', 'totalPunchHours', 'grossPay', 'taxes', 'deductions', 'netPay', 'futaDeduction', ...TAX_COLUMNS.map((c) => c.key)].includes(col.key)
                               ? 'font-mono text-xs'
                               : 'text-sm'
                           } ${col.key === 'name' ? 'font-medium text-gray-900' : 'text-gray-700'} ${
@@ -1906,20 +2008,6 @@ const EmployeeSheet = () => {
                               }`}
                             >
                               {cellValue(row, col.key)}
-                            </span>
-                          ) : col.key === 'name' && (row.hasActiveClockIn || row.hasPendingOT) ? (
-                            <span className="flex items-center gap-1.5 flex-wrap">
-                              {row.name}
-                              {row.hasActiveClockIn && (
-                                <span className="text-[10px] px-1 py-0.5 rounded bg-yellow-100 text-yellow-700">
-                                  CLOCKED IN
-                                </span>
-                              )}
-                              {row.hasPendingOT && (
-                                <span className="text-[10px] px-1 py-0.5 rounded bg-amber-100 text-amber-700">
-                                  PENDING OT
-                                </span>
-                              )}
                             </span>
                           ) : col.isDeductionInput ? (
                             <div className="flex flex-col items-end gap-0.5">
@@ -1967,6 +2055,9 @@ const EmployeeSheet = () => {
                       >
                         {col.key === 'regularHours' && formatHours(hoursTotals.regular)}
                         {col.key === 'overtimeHours' && formatHours(hoursTotals.ot)}
+                        {col.key === 'driverHours' && formatHours(hoursTotals.driver)}
+                        {col.key === 'trainingHours' && formatHours(hoursTotals.training)}
+                        {col.key === 'ptoHours' && formatHours(hoursTotals.pto)}
                         {col.key === 'totalPunchHours' && formatHours(hoursTotals.totalPunch)}
                         {col.key === 'grossPay' && formatCurrency(salaryTotals.gross)}
                         {col.isDeductionInput &&
@@ -1986,7 +2077,7 @@ const EmployeeSheet = () => {
         </div>
 
         <p className="mt-3 text-xs text-gray-500">
-          1) Set dates and Load Hours · 2) Compute Salary · 3) Adjust deductions · 4) Save payroll · 5) Export{' '}
+          1) Select a processed cutoff and Load Hours · 2) Compute Salary · 3) Adjust deductions · 4) Save payroll · 5) Export{' '}
           <strong>Payroll Summary</strong> from the Reports tab or use row <strong>Payslip</strong> actions.
         </p>
 
