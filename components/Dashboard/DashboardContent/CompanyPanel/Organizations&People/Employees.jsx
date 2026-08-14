@@ -155,8 +155,10 @@ export default function ModernEmployees() {
     probationEndDate: "",
     timeZone: "",
     isDriver: false,
+    supervisorId: "none",
   });
   const [editLoading, setEditLoading] = useState(false);
+  const [editHasEmploymentDetail, setEditHasEmploymentDetail] = useState(false);
 
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [employeeToDelete, setEmployeeToDelete] = useState(null);
@@ -244,6 +246,15 @@ export default function ModernEmployees() {
       };
     });
   }, [employees]);
+
+  const supervisorOptions = useMemo(() => {
+    return employees.filter(
+      (e) =>
+        e.id !== editForm.id &&
+        e.status === "active" &&
+        ["supervisor", "admin", "superadmin"].includes(e.role)
+    );
+  }, [employees, editForm.id]);
 
   // DataTable columns
   const columns = [
@@ -544,7 +555,7 @@ export default function ModernEmployees() {
           fetchEmployees();
         }
       } else {
-        toast.error(j.message || "Failed to create employee.");
+        toast.error(j.error || j.message || "Failed to create employee.");
       }
     } catch {
       toast.error("Failed to create employee.");
@@ -573,13 +584,15 @@ export default function ModernEmployees() {
       probationEndDate: employee.employmentDetail?.probationEndDate ? employee.employmentDetail.probationEndDate.split('T')[0] : "",
       timeZone: employee.employmentDetail?.timeZone || "",
       isDriver: employee.employmentDetail?.isDriver ?? false,
+      supervisorId: employee.employmentDetail?.supervisorId || "none",
     });
+    setEditHasEmploymentDetail(!!employee.employmentDetail);
     setShowEditModal(true);
   };
 
   const handleSaveEdit = async () => {
-    const { id, firstName, lastName, email, password, role, status, departmentId, employeeId, hireDate, isDriver, ...employment } = editForm;
-    
+    const { id, firstName, lastName, email, password, role, status, departmentId, employeeId, hireDate, isDriver, supervisorId, ...employment } = editForm;
+
     if (!val(firstName) || !val(lastName) || !val(email)) {
       toast.error("First name, last name, and email are required.");
       return;
@@ -597,6 +610,7 @@ export default function ModernEmployees() {
       hireDate: val(hireDate),
       ...Object.fromEntries(Object.entries(employment).map(([k, v]) => [k, v === "none" ? undefined : val(v)])),
       ...(isDayCare && { isDriver }),
+      ...(editHasEmploymentDetail && { supervisorId: supervisorId === "none" ? null : supervisorId }),
     };
 
     if (val(password)) payload.password = val(password);
@@ -619,7 +633,7 @@ export default function ModernEmployees() {
           fetchEmployees();
         }
       } else {
-        toast.error(j.message || "Failed to update employee.");
+        toast.error(j.error || j.message || "Failed to update employee.");
       }
     } catch {
       toast.error("Failed to update employee.");
@@ -1439,13 +1453,40 @@ export default function ModernEmployees() {
                       />
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Time Zone</label>
-                    <Input
-                      value={editForm.timeZone}
-                      onChange={(e) => setEditForm({ ...editForm, timeZone: e.target.value })}
-                      placeholder="e.g., America/Los_Angeles"
-                    />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Time Zone</label>
+                      <Input
+                        value={editForm.timeZone}
+                        onChange={(e) => setEditForm({ ...editForm, timeZone: e.target.value })}
+                        placeholder="e.g., America/Los_Angeles"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Direct Supervisor</label>
+                      <Select
+                        value={editForm.supervisorId}
+                        onValueChange={(v) => setEditForm({ ...editForm, supervisorId: v })}
+                        disabled={!editHasEmploymentDetail}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select supervisor" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No Direct Supervisor</SelectItem>
+                          {supervisorOptions.map((sup) => (
+                            <SelectItem key={sup.id} value={sup.id}>
+                              {`${sup.profile?.firstName || ""} ${sup.profile?.lastName || ""}`.trim() || sup.email}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {!editHasEmploymentDetail && (
+                        <p className="text-xs text-muted-foreground">
+                          Set up this employee's employment details above, save, then reopen to assign a supervisor.
+                        </p>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

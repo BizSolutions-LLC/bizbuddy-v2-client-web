@@ -165,6 +165,7 @@ export default function SupervisorLeaveRequests() {
     pendingSecondary: leaves.filter(r => r.status === "pending_secondary").length,
     approved: leaves.filter(r => r.status === "approved").length,
     rejected: leaves.filter(r => r.status === "rejected").length,
+    cancelled: leaves.filter(r => r.status === "cancelled").length,
   }), [leaves]);
 
   // ── Calendar data ─────────────────────────────────────────────────────────
@@ -224,6 +225,7 @@ export default function SupervisorLeaveRequests() {
     { label: "Pending Final", value: "pending_secondary", count: stats.pendingSecondary },
     { label: "Approved", value: "approved", count: stats.approved },
     { label: "Rejected", value: "rejected", count: stats.rejected },
+    { label: "Cancelled", value: "cancelled", count: stats.cancelled },
   ], [stats]);
 
   // ── Inline table state ────────────────────────────────────────────────────
@@ -699,6 +701,9 @@ export default function SupervisorLeaveRequests() {
 
         <DetailSectionLabel>Request Info</DetailSectionLabel>
         <DetailRow label="Submitted" value={`${new Date(request.createdAt).toLocaleDateString()} ${new Date(request.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`} />
+        {request.status === "cancelled" && request.cancelledAt && (
+          <DetailRow label="Cancelled" value={`${new Date(request.cancelledAt).toLocaleDateString()} ${new Date(request.cancelledAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`} />
+        )}
         {request.leaveReason && (
           <div className="mt-1.5">
             <span className="text-xs text-muted-foreground">Reason</span>

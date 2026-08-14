@@ -288,10 +288,11 @@ export default function EmployeeLeaveRequests() {
     const pendingSec = dateFilteredLeaves.filter(r => r.status === "pending_secondary").length;
     const approved   = dateFilteredLeaves.filter(r => r.status === "approved").length;
     const rejected   = dateFilteredLeaves.filter(r => r.status === "rejected").length;
+    const cancelled  = dateFilteredLeaves.filter(r => r.status === "cancelled").length;
     const totalDays  = dateFilteredLeaves
       .filter(r => r.status === "approved" && r.startDate && r.endDate)
       .reduce((s, r) => s + daysBetween(r.startDate, r.endDate), 0);
-    return { total, pending, pendingSec, approved, rejected, totalDays };
+    return { total, pending, pendingSec, approved, rejected, cancelled, totalDays };
   }, [dateFilteredLeaves]);
 
   const TABS = [
@@ -300,6 +301,7 @@ export default function EmployeeLeaveRequests() {
     { label: "Pending final", value: "pending_secondary", count: stats.pendingSec },
     { label: "Approved",      value: "approved",          count: stats.approved },
     { label: "Rejected",      value: "rejected",          count: stats.rejected },
+    { label: "Cancelled",     value: "cancelled",         count: stats.cancelled },
   ];
 
   // ── Table processing ──────────────────────────────────────────────────────
@@ -959,6 +961,9 @@ export default function EmployeeLeaveRequests() {
                 <div style={SEC_LBL}>Request info</div>
                 {[
                   ["Submitted", selectedRow.createdAt ? fmtSubmitted(selectedRow.createdAt) : "—"],
+                  ...(selectedRow.status === "cancelled" && selectedRow.cancelledAt
+                    ? [["Cancelled", fmtSubmitted(selectedRow.cancelledAt)]]
+                    : []),
                 ].map(([k, v]) => (
                   <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6, gap: 8 }}>
                     <span style={{ fontSize: 12, color: "#888", flexShrink: 0 }}>{k}</span>
