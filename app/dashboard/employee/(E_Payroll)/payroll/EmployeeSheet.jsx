@@ -9,6 +9,7 @@ import {
   calculateDeductionValue,
   calculateTaxes,
   calculateFutaDeduction,
+  getFederalTaxDetail,
   round2,
   DEFAULT_TAX_RATES,
   DEFAULT_FUTA_WAGE_CAP,
@@ -125,6 +126,19 @@ function getLastNameSortKey(name) {
   return parts[parts.length - 1].toLowerCase();
 }
 
+/** Reformats "First Middle Last" display names as "Last, First Middle". */
+function formatNameLastFirst(name) {
+  const parts = String(name || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return name || '—';
+  if (parts.length === 1) return parts[0];
+  const last = parts[parts.length - 1];
+  const rest = parts.slice(0, -1).join(' ');
+  return `${last}, ${rest}`;
+}
+
 function mapPayrollExportEntry(emp) {
   const regular = Number(emp.RegularHours) || 0;
   const ot = Number(emp.OTHours) || 0;
@@ -174,8 +188,8 @@ function formatPercent(rate) {
   return `${(rate * 100).toFixed(rate * 100 % 1 === 0 ? 0 : 2)}%`;
 }
 
-function TaxColumnInfo() {
-  const { federalRate, stateRate, ficaRate, medicareRate, sdiRate, ficaWageBase } = DEFAULT_TAX_RATES;
+function TaxColumnInfo({ taxRates = DEFAULT_TAX_RATES }) {
+  const { stateRate, ficaRate, medicareRate, sdiRate, ficaWageBase } = taxRates;
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -200,7 +214,10 @@ function TaxColumnInfo() {
             (same rates as Create Paycheck):
           </p>
           <ul className="list-disc pl-4 space-y-1 mb-2">
-            <li>Federal income tax: {formatPercent(federalRate)} of gross</li>
+            <li>
+              Federal income tax: bracket-based on annualized pay &amp; filing status
+              (see Company tab → Federal Income Tax Brackets)
+            </li>
             <li>State income tax: {formatPercent(stateRate)} of gross</li>
             <li>
               FICA (Social Security): {formatPercent(ficaRate)} of gross
@@ -215,6 +232,84 @@ function TaxColumnInfo() {
             FICA &amp; Medicare are skipped when &quot;Skip FICA/Medicare&quot; is enabled.
             This amount is included in Total Deductions. Net Pay = Gross − Total Deductions.
           </p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+const FILING_STATUS_LABELS = {
+  single: 'Single',
+  head_of_household: 'Head of Household',
+  married_filing_separately: 'Married Filing Separately',
+};
+
+function formatIncomeShort(value) {
+  const num = parseFloat(value);
+  if (Number.isNaN(num)) return '$0';
+  return `$${num.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+}
+
+/** Hover breakdown for a Federal (FWT) cell — shows the annualized-wage-method math behind the number. */
+function FederalTaxCellTooltip({ detail, children }) {
+  if (!detail) return children;
+
+  const {
+    filingStatus,
+    periodsPerYear,
+    periodGross,
+    annualIncome,
+    hasConfiguredBrackets,
+    appliedBrackets,
+    annualTax,
+    federalTax,
+  } = detail;
+
+  return (
+    <TooltipProvider delayDuration={150}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="cursor-help border-b border-dashed border-gray-300 hover:border-gray-500">
+            {children}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent
+          side="top"
+          align="center"
+          className="max-w-xs bg-gray-900 text-gray-100 border border-gray-700 p-3 text-left leading-relaxed"
+        >
+          <p className="font-semibold text-white mb-1.5">Federal withholding (FWT)</p>
+          <p className="mb-1.5">
+            {formatCurrency(periodGross)} this period × {periodsPerYear} pay periods/yr ={' '}
+            <strong>{formatIncomeShort(annualIncome)}</strong> annualized
+          </p>
+          <p className="mb-1.5 text-gray-300">
+            Filing status: {FILING_STATUS_LABELS[filingStatus] || filingStatus}
+          </p>
+          {hasConfiguredBrackets ? (
+            <>
+              <ul className="list-none space-y-0.5 mb-1.5 font-mono text-[11px]">
+                {appliedBrackets.map((b, idx) => (
+                  <li key={idx} className="flex justify-between gap-3">
+                    <span>
+                      {formatPercent(b.rate)} on {formatIncomeShort(b.minAnnualIncome)}–
+                      {b.maxAnnualIncome != null ? formatIncomeShort(b.maxAnnualIncome) : '∞'}
+                    </span>
+                    <span>{formatCurrency(b.taxForBracket)}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="mb-1 text-gray-300 text-[11px]">
+                Annual tax {formatCurrency(annualTax)} ÷ {periodsPerYear} periods
+              </p>
+              <p className="font-semibold text-white">= {formatCurrency(federalTax)} this period</p>
+            </>
+          ) : (
+            <p className="text-amber-300 text-[11px]">
+              No federal tax brackets configured for this filing status — $0 withheld. Configure
+              brackets in Company tab → Federal Income Tax Brackets.
+            </p>
+          )}
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
@@ -352,6 +447,7 @@ const EmployeeSheet = () => {
   const [salaryComputing, setSalaryComputing] = useState(false);
   const [companyConfig, setCompanyConfig] = useState(null);
   const [futaSettings, setFutaSettings] = useState({ enabled: false, rate: 7 });
+  const [taxRates, setTaxRates] = useState(DEFAULT_TAX_RATES);
   const [deductionTypes, setDeductionTypes] = useState([]);
   const [earningTypes, setEarningTypes] = useState([]);
   const [customDeductionColumns, setCustomDeductionColumns] = useState([]);
@@ -513,6 +609,7 @@ const EmployeeSheet = () => {
       grossPay: null,
       taxes: null,
       taxBreakdown: null,
+      federalTaxDetail: null,
       deductions: null,
       netPay: null,
       computeError: null,
@@ -703,7 +800,7 @@ const EmployeeSheet = () => {
         payrollDetails: row.payrollDetails,
         earningRates: row.earningRates || {},
       };
-      const taxes = calculateTaxes(employee, row.grossPay);
+      const taxes = calculateTaxes(employee, row.grossPay, taxRates, companyConfig?.payFrequency);
 
       return {
         id: row.id,
@@ -775,10 +872,12 @@ const EmployeeSheet = () => {
   }, [
     allDeductionColumns,
     checkNumber,
+    companyConfig,
     dateRange.from,
     dateRange.to,
     earningTypes,
     getEligiblePayrollRows,
+    taxRates,
     token,
   ]);
 
@@ -1001,7 +1100,7 @@ const EmployeeSheet = () => {
       setSalaryComputing(true);
       invalidateSavedPayroll();
 
-      const [detailsRes, settingsRes, futaRes] = await Promise.all([
+      const [detailsRes, settingsRes, futaRes, flatTaxRatesRes, federalTaxRatesRes] = await Promise.all([
         fetch(`${API_URL}/api/employee-payroll-details/employees-with-details`, {
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         }),
@@ -1011,11 +1110,19 @@ const EmployeeSheet = () => {
         fetch(`${API_URL}/api/deductions/settings`, {
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         }),
+        fetch(`${API_URL}/api/deductions/tax-rates`, {
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        }),
+        fetch(`${API_URL}/api/company-information/federal-tax-rates`, {
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        }),
       ]);
 
       const detailsData = await detailsRes.json();
       const settingsData = await settingsRes.json();
       const futaData = await futaRes.json();
+      const flatTaxRatesData = await flatTaxRatesRes.json();
+      const federalTaxRatesData = await federalTaxRatesRes.json();
 
       if (!detailsRes.ok || !detailsData.success) {
         throw new Error(detailsData.message || 'Failed to fetch employee payroll details');
@@ -1031,6 +1138,31 @@ const EmployeeSheet = () => {
           }
         : { enabled: false, rate: 7 };
       setFutaSettings(activeFutaSettings);
+
+      if ((!flatTaxRatesRes.ok || !flatTaxRatesData.success) || (!federalTaxRatesRes.ok || !federalTaxRatesData.success)) {
+        toast.warning('Could not load company tax rates — falling back to defaults for this calculation');
+      }
+
+      const activeTaxRates = flatTaxRatesRes.ok && flatTaxRatesData.success
+        ? {
+            stateRate: (flatTaxRatesData.data?.stateIncomeTaxRate ?? 0) / 100,
+            ficaRate: (flatTaxRatesData.data?.ficaRate ?? 0) / 100,
+            medicareRate: (flatTaxRatesData.data?.medicareRate ?? 0) / 100,
+            sdiRate: (flatTaxRatesData.data?.sdiRate ?? 0) / 100,
+            ficaWageBase: DEFAULT_TAX_RATES.ficaWageBase,
+            federalBrackets: federalTaxRatesRes.ok && federalTaxRatesData.success
+              ? (federalTaxRatesData.data || [])
+                  .filter((bracket) => bracket.enabled !== false)
+                  .map((bracket) => ({
+                    filingStatus: bracket.filingStatus,
+                    minAnnualIncome: bracket.minAnnualIncome,
+                    maxAnnualIncome: bracket.maxAnnualIncome,
+                    rate: (bracket.rate ?? 0) / 100,
+                  }))
+              : [],
+          }
+        : DEFAULT_TAX_RATES;
+      setTaxRates(activeTaxRates);
 
       const { employees: payrollEmployees, earningTypes, deductionTypes: dtData } = detailsData.data;
       const { company, payrollConfig } = settingsData.data;
@@ -1068,6 +1200,7 @@ const EmployeeSheet = () => {
               grossPay: null,
               taxes: null,
               taxBreakdown: null,
+              federalTaxDetail: null,
               deductions: null,
               netPay: null,
               computeError: 'no_profile',
@@ -1092,6 +1225,7 @@ const EmployeeSheet = () => {
               ptoHours: row.ptoHours ?? 0,
             },
             payFrequency,
+            taxRates: activeTaxRates,
           });
 
           if (result.error) {
@@ -1105,6 +1239,7 @@ const EmployeeSheet = () => {
               grossPay: null,
               taxes: null,
               taxBreakdown: null,
+              federalTaxDetail: null,
               deductions: null,
               netPay: null,
               computeError: result.error,
@@ -1115,7 +1250,13 @@ const EmployeeSheet = () => {
 
           computedCount++;
 
-          const taxBreakdown = calculateTaxes(employee, result.grossPay);
+          const taxBreakdown = calculateTaxes(employee, result.grossPay, activeTaxRates, payFrequency);
+          const federalTaxDetail = getFederalTaxDetail(
+            employee,
+            result.grossPay,
+            activeTaxRates.federalBrackets,
+            payFrequency
+          );
 
           const baseRow = {
             ...row,
@@ -1126,6 +1267,7 @@ const EmployeeSheet = () => {
             grossPay: result.grossPay,
             taxes: taxBreakdown.totalTaxes,
             taxBreakdown,
+            federalTaxDetail,
             computeError: null,
           };
 
@@ -1425,7 +1567,7 @@ const EmployeeSheet = () => {
     const exportData = filteredRows.map((row, index) => {
       const base = {
         '#': index + 1,
-        Name: row.name,
+        Name: formatNameLastFirst(row.name),
         Email: row.email,
         'Employee ID': row.employeeId,
         Department: row.departmentName,
@@ -1488,6 +1630,8 @@ const EmployeeSheet = () => {
     }
 
     switch (key) {
+      case 'name':
+        return formatNameLastFirst(row.name);
       case 'payRate':
         return formatPayRate(row.payType, row.payRate);
       case 'hourlyRate':
@@ -1909,7 +2053,7 @@ const EmployeeSheet = () => {
                           }`}
                         >
                           {col.label}
-                          <TaxColumnInfo />
+                          <TaxColumnInfo taxRates={taxRates} />
                         </span>
                       ) : col.key === 'futaDeduction' ? (
                         <span
@@ -2025,6 +2169,10 @@ const EmployeeSheet = () => {
                                 {formatCurrency(row.deductionBreakdown?.[col.deductionType.id] ?? 0)}
                               </span>
                             </div>
+                          ) : col.key === 'federalTax' && row.federalTaxDetail ? (
+                            <FederalTaxCellTooltip detail={row.federalTaxDetail}>
+                              {cellValue(row, col.key)}
+                            </FederalTaxCellTooltip>
                           ) : (hoursLoading && HOURS_COLUMNS.some((h) => h.key === col.key)) ||
                             (salaryComputing && SALARY_COLUMNS.some((s) => s.key === col.key)) ? (
                             <span className="text-gray-300">...</span>

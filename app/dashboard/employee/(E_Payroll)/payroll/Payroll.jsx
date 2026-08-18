@@ -7,7 +7,7 @@ import EmployeeSheet from './EmployeeSheet';
 import Company from './Company';
 import CheckSettings from '@/components/Dashboard/DashboardContent/CompanyPanel/Settings/CheckSettings';
 import useAuthStore from "@/store/useAuthStore";
-import { calculateDeductionValue } from '@/lib/payrollCompute';
+import { calculateDeductionValue, calculateTaxes, DEFAULT_TAX_RATES } from '@/lib/payrollCompute';
 import ModalPortal from '@/components/ui/modal-portal';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
@@ -24,6 +24,8 @@ const Payroll = () => {
   const [employees, setEmployees] = useState([]);
   const [earningTypes, setEarningTypes] = useState([]);
   const [deductionTypes, setDeductionTypes] = useState([]);
+  const [taxRates, setTaxRates] = useState(DEFAULT_TAX_RATES);
+  const [payFrequency, setPayFrequency] = useState('biweekly');
   
   // Loading & Error
   const [loading, setLoading] = useState(true);
@@ -147,17 +149,56 @@ const Payroll = () => {
       setLoading(true);
       setError(null);
 
-      const response = await fetch(`${API_URL}/api/employee-payroll-details/employees-with-details`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
+      const [response, settingsRes, flatTaxRatesRes, federalTaxRatesRes] = await Promise.all([
+        fetch(`${API_URL}/api/employee-payroll-details/employees-with-details`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        }),
+        fetch(`${API_URL}/api/company-information/company-settings`, {
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        }),
+        fetch(`${API_URL}/api/deductions/tax-rates`, {
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        }),
+        fetch(`${API_URL}/api/company-information/federal-tax-rates`, {
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        }),
+      ]);
 
       const data = await response.json();
+      const settingsData = await settingsRes.json();
+      const flatTaxRatesData = await flatTaxRatesRes.json();
+      const federalTaxRatesData = await federalTaxRatesRes.json();
 
       if (!response.ok) {
         throw new Error(data.message || 'Failed to fetch payroll data');
+      }
+
+      if (settingsRes.ok && settingsData.success) {
+        setPayFrequency(settingsData.data?.payrollConfig?.payFrequency || 'biweekly');
+      }
+
+      if ((!flatTaxRatesRes.ok || !flatTaxRatesData.success) || (!federalTaxRatesRes.ok || !federalTaxRatesData.success)) {
+        toast.warning('Could not load company tax rates — falling back to defaults for this calculation');
+        setTaxRates(DEFAULT_TAX_RATES);
+      } else {
+        setTaxRates({
+          stateRate: (flatTaxRatesData.data?.stateIncomeTaxRate ?? 0) / 100,
+          ficaRate: (flatTaxRatesData.data?.ficaRate ?? 0) / 100,
+          medicareRate: (flatTaxRatesData.data?.medicareRate ?? 0) / 100,
+          sdiRate: (flatTaxRatesData.data?.sdiRate ?? 0) / 100,
+          ficaWageBase: DEFAULT_TAX_RATES.ficaWageBase,
+          federalBrackets: (federalTaxRatesData.data || [])
+            .filter((bracket) => bracket.enabled !== false)
+            .map((bracket) => ({
+              filingStatus: bracket.filingStatus,
+              minAnnualIncome: bracket.minAnnualIncome,
+              maxAnnualIncome: bracket.maxAnnualIncome,
+              rate: (bracket.rate ?? 0) / 100,
+            })),
+        });
       }
 
       if (data.success) {
@@ -447,37 +488,6 @@ const Payroll = () => {
     };
   };
 
-  const calculateTaxes = (employee, grossEarnings) => {
-    const taxableGross = grossEarnings;
-    
-    const ficaRate = 0.062;
-    const ficaWageBase = 168600;
-    const fica = round2(Math.min(taxableGross, ficaWageBase) * ficaRate);
-    
-    const medicareRate = 0.0145;
-    const medicare = round2(taxableGross * medicareRate);
-    
-    const sdiRate = 0.011;
-    const sdi = round2(taxableGross * sdiRate);
-    
-    const federalTax = round2(taxableGross * 0.12);
-    
-    const stateTax = round2(taxableGross * 0.05);
-    
-    const calSaversRate = employee.payrollDetails?.withCalSavers ? 0.05 : 0;
-    const calSavers = round2(taxableGross * calSaversRate);
-    
-    return {
-      fica,
-      medicare,
-      sdi,
-      federalTax,
-      stateTax,
-      calSavers,
-      totalTaxes: round2(fica + medicare + sdi + federalTax + stateTax + calSavers),
-    };
-  };
-
   // ==================== EVENT HANDLERS ====================
 
   const handleEarningChange = (employeeId, earningTypeId, value) => {
@@ -694,7 +704,7 @@ const Payroll = () => {
       // Calculate all employee data
       const employeesData = employees.map((emp) => {
         const calculated = calculateRowValues(emp);
-        const taxes = calculateTaxes(emp, calculated.grossEarnings);
+        const taxes = calculateTaxes(emp, calculated.grossEarnings, taxRates, payFrequency);
         const netAfterTax = round2(calculated.netPay - taxes.totalTaxes);
         
         return {
@@ -1134,7 +1144,7 @@ const Payroll = () => {
 
     const employee = selectedEmployee;
     const calculated = calculateRowValues(employee);
-    const taxes = calculateTaxes(employee, calculated.grossEarnings);
+    const taxes = calculateTaxes(employee, calculated.grossEarnings, taxRates, payFrequency);
     const isSalary = employee.payrollDetails?.payType === 'salary';
 
     const employeeIndex = employees.findIndex(e => e.id === employee.id);
@@ -1550,7 +1560,7 @@ const Payroll = () => {
               <tbody className="bg-white divide-y divide-gray-200">
                 {employees.map((employee, index) => {
                   const calculated = calculateRowValues(employee);
-                  const taxes = calculateTaxes(employee, calculated.grossEarnings);
+                  const taxes = calculateTaxes(employee, calculated.grossEarnings, taxRates, payFrequency);
                   const netAfterTax = round2(calculated.netPay - taxes.totalTaxes);
                   const isSalary = employee.payrollDetails?.payType === 'salary';
                   const empHours = hoursData[employee.id] || {};
@@ -1870,7 +1880,7 @@ const Payroll = () => {
 
                       employees.forEach((emp) => {
                         const empCalc = calculateRowValues(emp);
-                        const empTaxes = calculateTaxes(emp, empCalc.grossEarnings);
+                        const empTaxes = calculateTaxes(emp, empCalc.grossEarnings, taxRates, payFrequency);
                         grandGross += empCalc.grossEarnings;
                         grandTaxes += empTaxes.totalTaxes;
                         grandDeductions += empCalc.totalDeductions;
@@ -1926,7 +1936,7 @@ const Payroll = () => {
 
     employees.forEach((emp) => {
       const calc = calculateRowValues(emp);
-      const taxes = calculateTaxes(emp, calc.grossEarnings);
+      const taxes = calculateTaxes(emp, calc.grossEarnings, taxRates, payFrequency);
       grandTotalGross += calc.grossEarnings;
       grandTotalTaxes += taxes.totalTaxes;
       grandTotalDeductions += calc.totalDeductions;
@@ -1937,7 +1947,7 @@ const Payroll = () => {
       <div className="space-y-4">
         {employees.map((employee, index) => {
           const calculated = calculateRowValues(employee);
-          const taxes = calculateTaxes(employee, calculated.grossEarnings);
+          const taxes = calculateTaxes(employee, calculated.grossEarnings, taxRates, payFrequency);
           const isSalary = employee.payrollDetails?.payType === 'salary';
           const empHours = hoursData[employee.id] || {};
           const hasNoPayRate = !employee.payrollDetails?.payRate || parseFloat(employee.payrollDetails?.payRate) <= 0;
