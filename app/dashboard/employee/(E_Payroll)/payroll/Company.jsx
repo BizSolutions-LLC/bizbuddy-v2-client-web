@@ -5,11 +5,30 @@ import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
 import { Info } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import ModalPortal from "@/components/ui/modal-portal";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
 
 const DEFAULT_FUTA_RATE = 7;
+
+const FILING_STATUS_OPTIONS = [
+  { value: "single", label: "Single" },
+  { value: "head_of_household", label: "Head of Household" },
+  { value: "married_filing_separately", label: "Married Filing Separately" },
+];
+
+const FILING_STATUS_COLORS = {
+  single: "bg-blue-500",
+  head_of_household: "bg-purple-500",
+  married_filing_separately: "bg-teal-500",
+};
+
+const formatIncome = (value) => {
+  const num = parseFloat(value);
+  if (Number.isNaN(num)) return "$0";
+  return `$${num.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+};
 
 function FutaInfoTooltip() {
   return (
@@ -77,13 +96,25 @@ const Company = () => {
     paymentDay: 20,
   });
 
-  // Tax Rates Configuration
-  const [taxRates, setTaxRates] = useState({
-    federalRate: 0.12,
-    stateRate: 0.05,
-    ficaRate: 0.062,
-    medicareRate: 0.0145,
-    sdiRate: 0.011,
+  // Flat Tax Rates (State Income Tax, FICA, Medicare, SDI) - real % values from server
+  const EMPTY_FLAT_TAX_RATES = {
+    stateIncomeTaxRate: 0,
+    ficaRate: 0,
+    medicareRate: 0,
+    sdiRate: 0,
+  };
+  const [flatTaxRates, setFlatTaxRates] = useState(EMPTY_FLAT_TAX_RATES);
+  const [flatTaxRatesDraft, setFlatTaxRatesDraft] = useState(EMPTY_FLAT_TAX_RATES);
+  const [flatTaxRatesSaving, setFlatTaxRatesSaving] = useState(false);
+
+  // Federal Tax Rate Brackets (per filing status)
+  const [federalTaxRates, setFederalTaxRates] = useState([]);
+  const [showAddFederalTaxRate, setShowAddFederalTaxRate] = useState(false);
+  const [newFederalTaxRate, setNewFederalTaxRate] = useState({
+    filingStatus: "single",
+    minAnnualIncome: "",
+    maxAnnualIncome: "",
+    rate: "",
   });
 
   const [earningTypes, setEarningTypes] = useState([]);
@@ -137,6 +168,51 @@ const Company = () => {
     return result.data;
   };
 
+  const fetchFlatTaxRates = async () => {
+    const response = await fetch(`${API_BASE_URL}/api/deductions/tax-rates`, {
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    });
+
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.message || "Failed to fetch tax rates");
+
+    if (result.success && result.data) {
+      setFlatTaxRates(result.data);
+      setFlatTaxRatesDraft(result.data);
+    }
+  };
+
+  const updateFlatTaxRates = async (payload) => {
+    const response = await fetch(`${API_BASE_URL}/api/deductions/tax-rates`, {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.message || "Failed to update tax rates");
+
+    if (result.success && result.data) {
+      setFlatTaxRates(result.data);
+      setFlatTaxRatesDraft(result.data);
+    }
+
+    return result.data;
+  };
+
+  const fetchFederalTaxRates = async () => {
+    const response = await fetch(`${API_BASE_URL}/api/company-information/federal-tax-rates`, {
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    });
+
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.message || "Failed to fetch federal tax rates");
+
+    if (result.success && result.data) {
+      setFederalTaxRates(result.data);
+    }
+  };
+
   const updateFutaRate = async (futaRate) => {
     const response = await fetch(`${API_BASE_URL}/api/deductions/futa/rate`, {
       method: "PUT",
@@ -164,11 +240,13 @@ const Company = () => {
   const fetchCompanySettings = async () => {
     try {
       setLoading(true);
-      const [companyResponse, deductionResult] = await Promise.allSettled([
+      const [companyResponse, deductionResult, flatTaxRatesResult, federalTaxRatesResult] = await Promise.allSettled([
         fetch(`${API_BASE_URL}/api/company-information/company-settings`, {
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         }),
         fetchDeductionSettings(),
+        fetchFlatTaxRates(),
+        fetchFederalTaxRates(),
       ]);
 
       if (companyResponse.status === "rejected") {
@@ -199,6 +277,16 @@ const Company = () => {
       if (deductionResult.status === "rejected") {
         console.error("Error loading deduction settings:", deductionResult.reason);
         toast.error(deductionResult.reason?.message || "Failed to load FUTA settings");
+      }
+
+      if (flatTaxRatesResult.status === "rejected") {
+        console.error("Error loading tax rates:", flatTaxRatesResult.reason);
+        toast.error(flatTaxRatesResult.reason?.message || "Failed to load tax rates");
+      }
+
+      if (federalTaxRatesResult.status === "rejected") {
+        console.error("Error loading federal tax rates:", federalTaxRatesResult.reason);
+        toast.error(federalTaxRatesResult.reason?.message || "Failed to load federal tax rate brackets");
       }
     } catch (err) {
       toast.error(err.message);
@@ -361,6 +449,63 @@ const Company = () => {
     await handleUpdateDeduction(id, { enabled: !currentEnabled });
   };
 
+  const handleCreateFederalTaxRate = async () => {
+    const { filingStatus, minAnnualIncome, maxAnnualIncome, rate } = newFederalTaxRate;
+
+    if (minAnnualIncome === "" || rate === "") {
+      toast.error("Min Income and Rate are required");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      const response = await fetch(`${API_BASE_URL}/api/company-information/federal-tax-rates`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filingStatus,
+          minAnnualIncome: parseFloat(minAnnualIncome),
+          maxAnnualIncome: maxAnnualIncome === "" ? null : parseFloat(maxAnnualIncome),
+          rate: parseFloat(rate),
+        }),
+      });
+
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || "Failed to create federal tax rate bracket");
+
+      await fetchFederalTaxRates();
+      setShowAddFederalTaxRate(false);
+      setNewFederalTaxRate({ filingStatus: "single", minAnnualIncome: "", maxAnnualIncome: "", rate: "" });
+      toast.success("Federal tax rate bracket created!");
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleUpdateFederalTaxRate = async (id, updates) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/company-information/federal-tax-rates/${id}`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
+
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message);
+
+      setFederalTaxRates((prev) => prev.map((ftr) => (ftr.id === id ? { ...ftr, ...result.data } : ftr)));
+      toast.success("Federal tax rate bracket updated");
+    } catch (err) {
+      toast.error(err.message);
+    }
+  };
+
+  const handleToggleFederalTaxRate = async (id, currentEnabled) => {
+    await handleUpdateFederalTaxRate(id, { enabled: !currentEnabled });
+  };
+
   const handleFutaToggleRequest = async () => {
     if (futaConfig.enabled) {
       try {
@@ -397,6 +542,38 @@ const Company = () => {
   };
 
   const futaRateDirty = futaConfig.enabled && parseFloat(futaRateDraft) !== parseFloat(String(futaConfig.rate));
+
+  const handleFlatTaxRateChange = (field, value) => {
+    setFlatTaxRatesDraft((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const flatTaxRatesDirty = ["stateIncomeTaxRate", "ficaRate", "medicareRate", "sdiRate"].some(
+    (field) => parseFloat(flatTaxRatesDraft[field]) !== parseFloat(String(flatTaxRates[field])),
+  );
+
+  const handleSaveFlatTaxRates = async () => {
+    const fields = ["stateIncomeTaxRate", "ficaRate", "medicareRate", "sdiRate"];
+    const payload = {};
+
+    for (const field of fields) {
+      const parsed = parseFloat(flatTaxRatesDraft[field]);
+      if (Number.isNaN(parsed) || parsed < 0 || parsed > 100) {
+        toast.error("Enter a valid rate between 0 and 100 for all tax rate fields");
+        return;
+      }
+      payload[field] = parsed;
+    }
+
+    try {
+      setFlatTaxRatesSaving(true);
+      await updateFlatTaxRates(payload);
+      toast.success("Tax rates saved");
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setFlatTaxRatesSaving(false);
+    }
+  };
 
   const handleSaveFutaRate = async () => {
     const parsed = parseFloat(futaRateDraft);
@@ -583,7 +760,178 @@ const Company = () => {
           </div>
         </div>
 
-        {/* Tax Configuration Card - Read Only (California Compliant) */}
+        {/* Federal Income Tax Brackets Card */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200">
+          <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-blue-100 flex flex-col sm:flex-row gap-2 sm:justify-between sm:items-center">
+            <div>
+              <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
+                  />
+                </svg>
+                Federal Income Tax Brackets
+              </h2>
+              <p className="text-xs text-gray-500 mt-1">Per filing status, based on annual taxable income</p>
+            </div>
+            <button
+              onClick={() => setShowAddFederalTaxRate(true)}
+              className="w-full sm:w-auto px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700"
+            >
+              + Add Bracket
+            </button>
+          </div>
+
+          <div className="p-4 sm:p-6">
+            <Accordion
+              type="multiple"
+              defaultValue={FILING_STATUS_OPTIONS.map((status) => status.value)}
+              className="space-y-4"
+            >
+            {FILING_STATUS_OPTIONS.map((status) => {
+              const brackets = federalTaxRates
+                .filter((r) => r.filingStatus === status.value)
+                .sort((a, b) => parseFloat(a.minAnnualIncome) - parseFloat(b.minAnnualIncome));
+
+              return (
+                <AccordionItem
+                  key={status.value}
+                  value={status.value}
+                  className="border border-gray-200 rounded-lg overflow-hidden"
+                >
+                  <AccordionTrigger className="px-4 py-2.5 bg-gray-50 hover:no-underline gap-2">
+                    <span className="flex items-center gap-2">
+                      <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${FILING_STATUS_COLORS[status.value]}`} />
+                      <h3 className="text-sm font-semibold text-gray-800">{status.label}</h3>
+                      <span className="text-xs text-gray-400">
+                        {brackets.length} {brackets.length === 1 ? "bracket" : "brackets"}
+                      </span>
+                    </span>
+                  </AccordionTrigger>
+                  <AccordionContent className="p-0 pt-0">
+
+                  {brackets.length === 0 ? (
+                    <p className="px-4 py-5 text-sm text-gray-400 text-center">
+                      No brackets configured for this filing status yet.
+                    </p>
+                  ) : (
+                    <div className="divide-y divide-gray-100">
+                      {brackets.map((ftr) => (
+                        <div key={ftr.id} className="px-4 py-3 flex flex-wrap items-end gap-x-5 gap-y-3">
+                          <div className="flex items-end gap-2">
+                            <div>
+                              <label className="block text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">
+                                Min Income
+                              </label>
+                              <div className="relative w-28">
+                                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-500">$</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={ftr.minAnnualIncome}
+                                  onChange={(e) =>
+                                    setFederalTaxRates((prev) =>
+                                      prev.map((r) => (r.id === ftr.id ? { ...r, minAnnualIncome: e.target.value } : r)),
+                                    )
+                                  }
+                                  onBlur={() =>
+                                    handleUpdateFederalTaxRate(ftr.id, {
+                                      minAnnualIncome: parseFloat(ftr.minAnnualIncome) || 0,
+                                    })
+                                  }
+                                  className="w-full pl-5 pr-2 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                              </div>
+                            </div>
+                            <span className="text-gray-300 pb-2">–</span>
+                            <div>
+                              <label className="block text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">
+                                Max Income
+                              </label>
+                              <div className="relative w-28">
+                                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-500">$</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  placeholder="No cap"
+                                  value={ftr.maxAnnualIncome ?? ""}
+                                  onChange={(e) =>
+                                    setFederalTaxRates((prev) =>
+                                      prev.map((r) => (r.id === ftr.id ? { ...r, maxAnnualIncome: e.target.value } : r)),
+                                    )
+                                  }
+                                  onBlur={() =>
+                                    handleUpdateFederalTaxRate(ftr.id, {
+                                      maxAnnualIncome:
+                                        ftr.maxAnnualIncome === "" || ftr.maxAnnualIncome === null
+                                          ? null
+                                          : parseFloat(ftr.maxAnnualIncome),
+                                    })
+                                  }
+                                  className="w-full pl-5 pr-2 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">
+                              Rate
+                            </label>
+                            <div className="relative w-24">
+                              <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="0.01"
+                                value={ftr.rate}
+                                onChange={(e) =>
+                                  setFederalTaxRates((prev) =>
+                                    prev.map((r) => (r.id === ftr.id ? { ...r, rate: e.target.value } : r)),
+                                  )
+                                }
+                                onBlur={() => handleUpdateFederalTaxRate(ftr.id, { rate: parseFloat(ftr.rate) || 0 })}
+                                className="w-full pl-2 pr-5 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              />
+                              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-500">%</span>
+                            </div>
+                          </div>
+
+                          <div className="text-xs text-gray-400 self-center hidden sm:block">
+                            {formatIncome(ftr.minAnnualIncome)} – {ftr.maxAnnualIncome ? formatIncome(ftr.maxAnnualIncome) : "no cap"}
+                          </div>
+
+                          <div className="ml-auto flex flex-col items-center">
+                            <label className="block text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">
+                              Enabled
+                            </label>
+                            <button
+                              onClick={() => handleToggleFederalTaxRate(ftr.id, ftr.enabled)}
+                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${ftr.enabled ? "bg-blue-600" : "bg-gray-300"}`}
+                            >
+                              <span
+                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${ftr.enabled ? "translate-x-6" : "translate-x-1"}`}
+                              />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  </AccordionContent>
+                </AccordionItem>
+              );
+            })}
+            </Accordion>
+          </div>
+        </div>
+
+        {/* State & Payroll Tax Rates Card */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200">
           <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200 bg-gradient-to-r from-purple-50 to-purple-100">
             <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
@@ -595,43 +943,30 @@ const Company = () => {
                   d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"
                 />
               </svg>
-              Tax Rate Configuration
+              State & Payroll Tax Rates
             </h2>
-            <p className="text-xs text-gray-500 mt-1">California state-compliant tax rates (Read-only)</p>
+            <p className="text-xs text-gray-500 mt-1">Editable percentages used for this company's payroll tax estimates</p>
           </div>
 
           <div className="p-4 sm:p-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-              {/* Federal Income Tax */}
-              <div className="bg-blue-50 rounded-lg p-5 border border-blue-200">
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <h3 className="text-sm font-bold text-blue-900">Federal Income Tax</h3>
-                    <p className="text-2xl font-bold text-blue-600 mt-1">{(taxRates.federalRate * 100).toFixed(2)}%</p>
-                  </div>
-                  <div className="bg-blue-200 rounded-full p-2">
-                    <svg className="w-5 h-5 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
-                      />
-                    </svg>
-                  </div>
-                </div>
-                <p className="text-xs text-blue-700 leading-relaxed">
-                  Federal withholding tax based on IRS Publication 15-T. Estimated rate for demonstration. Actual rate varies by
-                  filing status and allowances.
-                </p>
-              </div>
-
-              {/* State Income Tax (CA) */}
+              {/* State Income Tax */}
               <div className="bg-green-50 rounded-lg p-5 border border-green-200">
                 <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <h3 className="text-sm font-bold text-green-900">CA State Income Tax</h3>
-                    <p className="text-2xl font-bold text-green-600 mt-1">{(taxRates.stateRate * 100).toFixed(2)}%</p>
+                  <div className="flex-1">
+                    <h3 className="text-sm font-bold text-green-900">State Income Tax</h3>
+                    <div className="relative mt-2 max-w-[140px]">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        value={flatTaxRatesDraft.stateIncomeTaxRate}
+                        onChange={(e) => handleFlatTaxRateChange("stateIncomeTaxRate", e.target.value)}
+                        className="w-full pl-3 pr-7 py-1.5 border border-green-300 rounded-md bg-white text-lg font-bold text-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
+                      />
+                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-sm text-green-600">%</span>
+                    </div>
                   </div>
                   <div className="bg-green-200 rounded-full p-2">
                     <svg className="w-5 h-5 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -645,17 +980,27 @@ const Company = () => {
                   </div>
                 </div>
                 <p className="text-xs text-green-700 leading-relaxed">
-                  California state withholding per DE 4 form. Progressive tax rate (1%-13.3%) based on income bracket. Estimated
-                  average shown.
+                  State withholding tax rate applied per DE 4 (or equivalent) form for this company's payroll estimates.
                 </p>
               </div>
 
               {/* Social Security (FICA) */}
               <div className="bg-orange-50 rounded-lg p-5 border border-orange-200">
                 <div className="flex items-start justify-between mb-3">
-                  <div>
+                  <div className="flex-1">
                     <h3 className="text-sm font-bold text-orange-900">Social Security (FICA)</h3>
-                    <p className="text-2xl font-bold text-orange-600 mt-1">{(taxRates.ficaRate * 100).toFixed(2)}%</p>
+                    <div className="relative mt-2 max-w-[140px]">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        value={flatTaxRatesDraft.ficaRate}
+                        onChange={(e) => handleFlatTaxRateChange("ficaRate", e.target.value)}
+                        className="w-full pl-3 pr-7 py-1.5 border border-orange-300 rounded-md bg-white text-lg font-bold text-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      />
+                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-sm text-orange-600">%</span>
+                    </div>
                   </div>
                   <div className="bg-orange-200 rounded-full p-2">
                     <svg className="w-5 h-5 text-orange-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -669,17 +1014,27 @@ const Company = () => {
                   </div>
                 </div>
                 <p className="text-xs text-orange-700 leading-relaxed">
-                  Federal Insurance Contributions Act (FICA) - Social Security tax. Fixed at 6.2% on wages up to $168,600 annual
-                  cap (2024).
+                  Federal Insurance Contributions Act (FICA) - Social Security tax withheld on employee wages.
                 </p>
               </div>
 
               {/* Medicare */}
               <div className="bg-purple-50 rounded-lg p-5 border border-purple-200">
                 <div className="flex items-start justify-between mb-3">
-                  <div>
+                  <div className="flex-1">
                     <h3 className="text-sm font-bold text-purple-900">Medicare Tax</h3>
-                    <p className="text-2xl font-bold text-purple-600 mt-1">{(taxRates.medicareRate * 100).toFixed(2)}%</p>
+                    <div className="relative mt-2 max-w-[140px]">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        value={flatTaxRatesDraft.medicareRate}
+                        onChange={(e) => handleFlatTaxRateChange("medicareRate", e.target.value)}
+                        className="w-full pl-3 pr-7 py-1.5 border border-purple-300 rounded-md bg-white text-lg font-bold text-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      />
+                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-sm text-purple-600">%</span>
+                    </div>
                   </div>
                   <div className="bg-purple-200 rounded-full p-2">
                     <svg className="w-5 h-5 text-purple-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -693,17 +1048,27 @@ const Company = () => {
                   </div>
                 </div>
                 <p className="text-xs text-purple-700 leading-relaxed">
-                  Federal Medicare tax under FICA. Fixed at 1.45% on all wages. Additional 0.9% applies to high earners over
-                  $200k.
+                  Federal Medicare tax under FICA, withheld on all employee wages.
                 </p>
               </div>
 
-              {/* CA SDI */}
+              {/* SDI */}
               <div className="bg-red-50 rounded-lg p-5 border border-red-200">
                 <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <h3 className="text-sm font-bold text-red-900">CA State Disability (SDI)</h3>
-                    <p className="text-2xl font-bold text-red-600 mt-1">{(taxRates.sdiRate * 100).toFixed(2)}%</p>
+                  <div className="flex-1">
+                    <h3 className="text-sm font-bold text-red-900">State Disability (SDI)</h3>
+                    <div className="relative mt-2 max-w-[140px]">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        value={flatTaxRatesDraft.sdiRate}
+                        onChange={(e) => handleFlatTaxRateChange("sdiRate", e.target.value)}
+                        className="w-full pl-3 pr-7 py-1.5 border border-red-300 rounded-md bg-white text-lg font-bold text-red-700 focus:outline-none focus:ring-2 focus:ring-red-500"
+                      />
+                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-sm text-red-600">%</span>
+                    </div>
                   </div>
                   <div className="bg-red-200 rounded-full p-2">
                     <svg className="w-5 h-5 text-red-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -717,8 +1082,7 @@ const Company = () => {
                   </div>
                 </div>
                 <p className="text-xs text-red-700 leading-relaxed">
-                  California State Disability Insurance. Employee-funded at ~1.1% on wages up to $153,164 (2024). Provides
-                  short-term disability benefits.
+                  State Disability Insurance, employee-funded, provides short-term disability benefits.
                 </p>
               </div>
 
@@ -744,7 +1108,7 @@ const Company = () => {
                       <br />
                       <strong>• CA ETT:</strong> Employment Training Tax - 0.1% on first $7,000 (employer only)
                       <br />
-                      <strong>• FICA/Medicare Match:</strong> Employer matches employee contributions (6.2% + 1.45%)
+                      <strong>• FICA/Medicare Match:</strong> Employer matches employee contributions
                     </p>
                   </div>
                 </div>
@@ -762,13 +1126,24 @@ const Company = () => {
                   />
                 </svg>
                 <div>
-                  <p className="text-sm font-semibold text-gray-800">Read-Only Configuration</p>
+                  <p className="text-sm font-semibold text-gray-800">Company-Specific Configuration</p>
                   <p className="text-xs text-gray-600 mt-1">
-                    Tax rates are set by federal and California state law. These rates are automatically updated to remain
-                    compliant. Actual withholding amounts vary based on employee W-4 forms, filing status, and allowances.
+                    These rates drive payroll tax estimates for this company. Federal income tax uses bracket-based rates
+                    per filing status — see Federal Income Tax Brackets above. Actual withholding amounts vary based on
+                    employee W-4 forms, filing status, and allowances.
                   </p>
                 </div>
               </div>
+            </div>
+
+            <div className="flex justify-stretch sm:justify-end pt-4 mt-2 border-t">
+              <button
+                onClick={handleSaveFlatTaxRates}
+                disabled={!flatTaxRatesDirty || flatTaxRatesSaving}
+                className="w-full sm:w-auto px-4 sm:px-8 py-3 bg-orange-600 text-white font-medium rounded-md hover:bg-orange-700 transition-colors disabled:opacity-50"
+              >
+                {flatTaxRatesSaving ? "SAVING..." : "SAVE TAX RATES"}
+              </button>
             </div>
           </div>
         </div>
@@ -1218,6 +1593,101 @@ const Company = () => {
                   onClick={() => {
                     setShowAddDeduction(false);
                     setNewDeduction({ code: "", label: "", isPreTax: false, calculationType: "fixed" });
+                  }}
+                  className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </ModalPortal>
+      )}
+
+      {/* Add Federal Tax Rate Bracket Modal */}
+      {showAddFederalTaxRate && (
+        <ModalPortal>
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <div
+              className="absolute inset-0 bg-black/50"
+              onClick={() => {
+                setShowAddFederalTaxRate(false);
+                setNewFederalTaxRate({ filingStatus: "single", minAnnualIncome: "", maxAnnualIncome: "", rate: "" });
+              }}
+            />
+            <div className="relative bg-white rounded-xl p-6 w-full max-w-md shadow-2xl">
+              <h3 className="text-xl font-bold mb-4 text-gray-900">Add Federal Tax Rate Bracket</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Filing Status</label>
+                  <select
+                    value={newFederalTaxRate.filingStatus}
+                    onChange={(e) => setNewFederalTaxRate((prev) => ({ ...prev, filingStatus: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  >
+                    {FILING_STATUS_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Min Income</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={newFederalTaxRate.minAnnualIncome}
+                      onChange={(e) => setNewFederalTaxRate((prev) => ({ ...prev, minAnnualIncome: e.target.value }))}
+                      placeholder="0"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Max Income</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={newFederalTaxRate.maxAnnualIncome}
+                      onChange={(e) => setNewFederalTaxRate((prev) => ({ ...prev, maxAnnualIncome: e.target.value }))}
+                      placeholder="No cap"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500 -mt-2">Leave Max Income blank for the top (uncapped) bracket.</p>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Rate (%)</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      value={newFederalTaxRate.rate}
+                      onChange={(e) => setNewFederalTaxRate((prev) => ({ ...prev, rate: e.target.value }))}
+                      placeholder="0.00"
+                      className="w-full px-3 py-2 pr-8 border border-gray-300 rounded-md"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">%</span>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-6 flex gap-3">
+                <button
+                  onClick={handleCreateFederalTaxRate}
+                  disabled={saving}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {saving ? "Creating..." : "Create"}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowAddFederalTaxRate(false);
+                    setNewFederalTaxRate({ filingStatus: "single", minAnnualIncome: "", maxAnnualIncome: "", rate: "" });
                   }}
                   className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400"
                 >
