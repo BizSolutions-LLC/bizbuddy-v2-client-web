@@ -102,6 +102,13 @@ const TAG_TOOLTIPS = {
 
 const SEGMENT_LABELS = { driver_am: "Driver AM", regular: "Regular", driver_pm: "Driver PM" };
 const SEGMENT_ORDER  = { driver_am: 0, regular: 1, driver_pm: 2 };
+const PUNCH_TYPE_LABELS = {
+  DRIVER_AIDE:    "Driver/Aide",
+  DRIVER_AIDE_AM: "Driver AM Only",
+  DRIVER_AIDE_PM: "Driver PM Only",
+  REGULAR:        "Regular",
+  TRAINING:       "Training",
+};
 
 const formatDate = (d) => {
   if (!d) return "—";
@@ -931,8 +938,10 @@ const DriverSegmentRow = ({ seg, onApprove, onApproveOT, onApproveSchedule, onAp
 
 /** Driver day group — header row + one DriverSegmentRow per segment */
 const DriverGroupRow = ({ group, onApprove, onApproveOT, onApproveSchedule, onApproveRaw, onExclude, onReset, companyTimezone }) => {
-  const rawIn  = group.segments[0]?.rawTimeIn;
-  const rawOut = group.segments[0]?.rawTimeOut;
+  const useOriginal = group.segments[0]?.originalTimeIn && group.segments[0]?.originalTimeOut;
+  const rawIn  = useOriginal ? group.segments[0]?.originalTimeIn  : group.segments[0]?.rawTimeIn;
+  const rawOut = useOriginal ? group.segments[0]?.originalTimeOut : group.segments[0]?.rawTimeOut;
+  const punchType = group.segments[0]?.punchType;
   return (
     <>
       <tr className="bg-violet-50/40 dark:bg-violet-900/10 border-b border-violet-100 dark:border-violet-900/20">
@@ -944,9 +953,15 @@ const DriverGroupRow = ({ group, onApprove, onApproveOT, onApproveSchedule, onAp
             <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-violet-600">
               <Timer className="w-3 h-3" /> Driver Day — {group.segments.length} segments
             </span>
+            {punchType && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-violet-100 dark:bg-violet-900/30 text-violet-600 whitespace-nowrap">
+                {PUNCH_TYPE_LABELS[punchType] || punchType}
+              </span>
+            )}
             {rawIn && (
-              <span className="font-mono text-[10px] text-neutral-400">
+              <span className="inline-flex items-center font-mono text-[10px] text-neutral-400">
                 {formatDateTime(rawIn, companyTimezone)} → {rawOut ? formatDateTime(rawOut, companyTimezone) : "Not clocked out"}
+                <InfoTooltip text="Raw punch time — the actual clock in/out for this TimeLog, before schedule-window snapping." />
               </span>
             )}
           </div>
@@ -1947,6 +1962,8 @@ export default function CutoffReview({ cutoffId }) {
       availableShifts: approval.availableShifts || [],
       rawTimeIn:       tl.timeIn  || null,
       rawTimeOut:      tl.timeOut || null,
+      originalTimeIn:  tl.originalTimeIn  || null,
+      originalTimeOut: tl.originalTimeOut || null,
       date,
       type,
       detail,
@@ -2019,13 +2036,14 @@ export default function CutoffReview({ cutoffId }) {
 
     for (const rec of records) {
       if (rec.segmentType !== null) {
-        if (!driverGroupMap[rec.date]) {
-          const group = { id: `driver-group-${rec.date}`, type: "driver_group", date: rec.date, segments: [], hours: 0 };
-          driverGroupMap[rec.date] = group;
+        const driverKey = `${rec.date}::${rec.timeLogId}`;
+        if (!driverGroupMap[driverKey]) {
+          const group = { id: `driver-group-${driverKey}`, type: "driver_group", date: rec.date, timeLogId: rec.timeLogId, segments: [], hours: 0 };
+          driverGroupMap[driverKey] = group;
           addToDate(rec.date, group);
         }
-        driverGroupMap[rec.date].segments.push(rec);
-        driverGroupMap[rec.date].hours += rec.hours || 0;
+        driverGroupMap[driverKey].segments.push(rec);
+        driverGroupMap[driverKey].hours += rec.hours || 0;
       } else if (PUNCHABLE.has(rec.type) && punchCountPerDate[rec.date] > 1) {
         if (!punchGroupMap[rec.date]) {
           const group = { id: `punch-group-${rec.date}`, type: "punch_group", date: rec.date, punches: [], hours: 0 };
