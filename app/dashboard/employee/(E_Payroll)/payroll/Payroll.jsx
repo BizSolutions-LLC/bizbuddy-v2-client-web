@@ -149,7 +149,7 @@ const Payroll = () => {
       setLoading(true);
       setError(null);
 
-      const [response, settingsRes, flatTaxRatesRes, federalTaxRatesRes] = await Promise.all([
+      const [response, settingsRes, flatTaxRatesRes, federalTaxRatesRes, stateTaxRatesRes] = await Promise.all([
         fetch(`${API_URL}/api/employee-payroll-details/employees-with-details`, {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -165,12 +165,16 @@ const Payroll = () => {
         fetch(`${API_URL}/api/company-information/federal-tax-rates`, {
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         }),
+        fetch(`${API_URL}/api/company-information/state-tax-rates`, {
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        }),
       ]);
 
       const data = await response.json();
       const settingsData = await settingsRes.json();
       const flatTaxRatesData = await flatTaxRatesRes.json();
       const federalTaxRatesData = await federalTaxRatesRes.json();
+      const stateTaxRatesData = await stateTaxRatesRes.json();
 
       if (!response.ok) {
         throw new Error(data.message || 'Failed to fetch payroll data');
@@ -180,24 +184,30 @@ const Payroll = () => {
         setPayFrequency(settingsData.data?.payrollConfig?.payFrequency || 'biweekly');
       }
 
-      if ((!flatTaxRatesRes.ok || !flatTaxRatesData.success) || (!federalTaxRatesRes.ok || !federalTaxRatesData.success)) {
+      const bracketsFailed =
+        (!federalTaxRatesRes.ok || !federalTaxRatesData.success) || (!stateTaxRatesRes.ok || !stateTaxRatesData.success);
+
+      if ((!flatTaxRatesRes.ok || !flatTaxRatesData.success) || bracketsFailed) {
         toast.warning('Could not load company tax rates — falling back to defaults for this calculation');
         setTaxRates(DEFAULT_TAX_RATES);
       } else {
-        setTaxRates({
-          stateRate: (flatTaxRatesData.data?.stateIncomeTaxRate ?? 0) / 100,
-          ficaRate: (flatTaxRatesData.data?.ficaRate ?? 0) / 100,
-          medicareRate: (flatTaxRatesData.data?.medicareRate ?? 0) / 100,
-          sdiRate: (flatTaxRatesData.data?.sdiRate ?? 0) / 100,
-          ficaWageBase: DEFAULT_TAX_RATES.ficaWageBase,
-          federalBrackets: (federalTaxRatesData.data || [])
+        const mapBrackets = (bracketsData) =>
+          (bracketsData || [])
             .filter((bracket) => bracket.enabled !== false)
             .map((bracket) => ({
               filingStatus: bracket.filingStatus,
               minAnnualIncome: bracket.minAnnualIncome,
               maxAnnualIncome: bracket.maxAnnualIncome,
               rate: (bracket.rate ?? 0) / 100,
-            })),
+            }));
+
+        setTaxRates({
+          ficaRate: (flatTaxRatesData.data?.ficaRate ?? 0) / 100,
+          medicareRate: (flatTaxRatesData.data?.medicareRate ?? 0) / 100,
+          sdiRate: (flatTaxRatesData.data?.sdiRate ?? 0) / 100,
+          ficaWageBase: DEFAULT_TAX_RATES.ficaWageBase,
+          federalBrackets: mapBrackets(federalTaxRatesData.data),
+          stateBrackets: mapBrackets(stateTaxRatesData.data),
         });
       }
 
