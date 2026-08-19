@@ -139,6 +139,8 @@ export default function EmployeeLeaveRequests() {
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedRow, setSelectedRow] = useState(null);
   const [cancelling,  setCancelling]  = useState(false);
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+  const [cancelNote,        setCancelNote]        = useState("");
 
   // ── Date range filter ─────────────────────────────────────────────────────
   const [cutoffPeriods,    setCutoffPeriods]    = useState([]);
@@ -164,6 +166,7 @@ export default function EmployeeLeaveRequests() {
   const [endDate,          setEndDate]          = useState("");
   const [endTime,          setEndTime]          = useState("17:00");
   const [approvers,        setApprovers]        = useState([]);
+  const [supervisors,      setSupervisors]      = useState([]);
   const [loadingApprovers, setLoadingApprovers] = useState(false);
   const [affectedSchedules,   setAffectedSchedules]   = useState([]);
   const [loadingSchedules,    setLoadingSchedules]     = useState(false);
@@ -366,13 +369,19 @@ export default function EmployeeLeaveRequests() {
     if (!selectedRow || !token) return;
     setCancelling(true);
     try {
+      const trimmedNote = cancelNote.trim();
       const res  = await fetch(`${API_URL}/api/leaves/${selectedRow.id}/cancel`, {
         method: "PUT",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...(trimmedNote && { "Content-Type": "application/json" }),
+        },
+        ...(trimmedNote && { body: JSON.stringify({ note: trimmedNote }) }),
       });
       const data = await res.json();
       if (!res.ok) {
         setSelectedRow(null);
+        setCancelConfirmOpen(false);
         if (res.status === 409) {
           // Someone in the eligible approver pool already acted — not an error,
           // just stale state. Refresh so the list reflects the real outcome.
@@ -389,6 +398,8 @@ export default function EmployeeLeaveRequests() {
       }
       toast.success("Leave request cancelled.");
       setSelectedRow(null);
+      setCancelConfirmOpen(false);
+      setCancelNote("");
       fetchLeaves();
     } catch (e) {
       toast.error(e.message ?? "Failed to cancel leave request");
@@ -453,12 +464,9 @@ export default function EmployeeLeaveRequests() {
         const res  = await fetch(`${API_URL}/api/leaves/approvers`, { headers: { Authorization: `Bearer ${token}` } });
         const data = await res.json();
         if (res.ok) {
-          setApprovers(
-            (Array.isArray(data.data) ? data.data : []).map(a => ({
-              ...a,
-              label: a.email ?? a.username ?? `User ${a.id}`,
-            }))
-          );
+          const toLabel = a => ({ ...a, label: a.email ?? a.username ?? a.name ?? `User ${a.id}` });
+          setSupervisors((data.data?.supervisors || []).map(toLabel));
+          setApprovers((data.data?.approvers || []).map(toLabel));
         } else {
           toast.error("Failed to load approvers");
         }
@@ -1022,7 +1030,7 @@ export default function EmployeeLeaveRequests() {
               {["pending", "pending_secondary"].includes(selectedRow.status) && (
                 <div style={{ padding: 12, borderTop: "0.5px solid #e5e5e5" }}>
                   <button
-                    onClick={handleCancel}
+                    onClick={() => setCancelConfirmOpen(true)}
                     disabled={cancelling}
                     style={{
                       width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
@@ -1124,16 +1132,35 @@ export default function EmployeeLeaveRequests() {
                       <div className="flex items-center justify-center py-3 gap-2 text-xs text-muted-foreground">
                         <Loader2 className="h-3.5 w-3.5 animate-spin text-orange-500" /> Loading…
                       </div>
-                    ) : approvers.length === 0 ? (
+                    ) : supervisors.length === 0 && approvers.length === 0 ? (
                       <div className="text-xs text-muted-foreground py-3 text-center">No approvers available</div>
-                    ) : approvers.map(a => {
-                      const role = a.role === "superadmin" ? "Super Admin" : a.role === "admin" ? "Admin" : a.role === "supervisor" ? "Supervisor" : a.role;
-                      return (
-                        <SelectItem key={a.id} value={String(a.id)} className="text-xs">
-                          {a.label} <span className="text-muted-foreground">({role})</span>
-                        </SelectItem>
-                      );
-                    })}
+                    ) : (
+                      <>
+                        {supervisors.length > 0 && (
+                          <>
+                            <div className="px-2 py-1 text-xs font-medium text-muted-foreground">Direct Supervisor</div>
+                            {supervisors.map(s => (
+                              <SelectItem key={s.id} value={String(s.id)} className="text-xs">
+                                {s.label}
+                              </SelectItem>
+                            ))}
+                          </>
+                        )}
+                        {approvers.length > 0 && (
+                          <>
+                            <div className="px-2 py-1 text-xs font-medium text-muted-foreground">Approvers</div>
+                            {approvers.map(a => {
+                              const role = a.role === "superadmin" ? "Super Admin" : a.role === "admin" ? "Admin" : a.role;
+                              return (
+                                <SelectItem key={a.id} value={String(a.id)} className="text-xs">
+                                  {a.label} <span className="text-muted-foreground">({role})</span>
+                                </SelectItem>
+                              );
+                            })}
+                          </>
+                        )}
+                      </>
+                    )}
                   </SelectContent>
                 </Select>
                 {errors.approverId && (
@@ -1439,6 +1466,49 @@ export default function EmployeeLeaveRequests() {
             </div>
           </div>
 
+        </DialogContent>
+      </Dialog>
+
+      {/* Cancel request confirmation — reason is optional (no balance effect while pending) */}
+      <Dialog open={cancelConfirmOpen} onOpenChange={open => { if (!cancelling) { setCancelConfirmOpen(open); if (!open) setCancelNote(""); } }}>
+        <DialogContent className="sm:max-w-[440px] p-0 gap-0 overflow-hidden" style={{ borderRadius: 12, border: "0.5px solid #e5e5e5" }}>
+          <VisuallyHidden><DialogTitle>Cancel leave request</DialogTitle></VisuallyHidden>
+          <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#222" }}>Cancel this leave request?</div>
+              <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>This withdraws your pending request. It hasn't been approved yet, so no leave balance is affected.</div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              <div style={FIELD_LABEL}>
+                <FileText size={12} /> Reason (optional)
+              </div>
+              <Textarea
+                value={cancelNote}
+                onChange={e => setCancelNote(e.target.value)}
+                placeholder="Why are you cancelling this request? (optional)"
+                className="resize-none text-xs border-[0.5px] rounded-lg min-h-[64px] border-[#d0d0d0]"
+              />
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <Button
+                variant="outline"
+                onClick={() => { setCancelConfirmOpen(false); setCancelNote(""); }}
+                disabled={cancelling}
+                className="h-8 text-xs rounded-lg px-3"
+              >
+                Keep request
+              </Button>
+              <Button
+                onClick={handleCancel}
+                disabled={cancelling}
+                className="h-8 text-xs rounded-lg bg-red-600 hover:bg-red-700 text-white px-3 gap-1.5"
+              >
+                {cancelling
+                  ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Cancelling…</>
+                  : <><X className="h-3.5 w-3.5" />Cancel request</>}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

@@ -89,6 +89,7 @@ export function ContestDialog({
   // State values (from PunchLogs parent)
   filteredSorted,
   approvers,
+  supervisors = [],
 
   contestLogId,        setContestLogId,
   contestApproverId,   setContestApproverId,
@@ -309,11 +310,26 @@ export function ContestDialog({
                     <SelectValue placeholder="Select approver…" />
                   </SelectTrigger>
                   <SelectContent className="max-h-60">
-                    {approvers.map((a) => (
-                      <SelectItem key={a.id} value={String(a.id)}>
-                        {a.name || a.email}
-                      </SelectItem>
-                    ))}
+                    {supervisors.length > 0 && (
+                      <>
+                        <div className="px-2 py-1 text-xs font-medium text-muted-foreground">Team Supervisors</div>
+                        {supervisors.map((s) => (
+                          <SelectItem key={s.id} value={String(s.id)}>
+                            {s.name || s.email}
+                          </SelectItem>
+                        ))}
+                      </>
+                    )}
+                    {approvers.length > 0 && (
+                      <>
+                        <div className="px-2 py-1 text-xs font-medium text-muted-foreground">Approvers</div>
+                        {approvers.map((a) => (
+                          <SelectItem key={a.id} value={String(a.id)}>
+                            {a.name || a.email}
+                          </SelectItem>
+                        ))}
+                      </>
+                    )}
                   </SelectContent>
                 </Select>
                 {contestErrors.approverId && (
