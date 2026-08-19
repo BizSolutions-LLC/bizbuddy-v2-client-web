@@ -10,6 +10,7 @@ import {
   calculateTaxes,
   calculateFutaDeduction,
   getFederalTaxDetail,
+  getStateTaxDetail,
   round2,
   DEFAULT_TAX_RATES,
   DEFAULT_FUTA_WAGE_CAP,
@@ -189,7 +190,7 @@ function formatPercent(rate) {
 }
 
 function TaxColumnInfo({ taxRates = DEFAULT_TAX_RATES }) {
-  const { stateRate, ficaRate, medicareRate, sdiRate, ficaWageBase } = taxRates;
+  const { ficaRate, medicareRate, sdiRate, ficaWageBase } = taxRates;
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -216,9 +217,14 @@ function TaxColumnInfo({ taxRates = DEFAULT_TAX_RATES }) {
           <ul className="list-disc pl-4 space-y-1 mb-2">
             <li>
               Federal income tax: bracket-based on annualized pay &amp; filing status
-              (see Company tab → Federal Income Tax Brackets)
+              (see Company tab → Federal Income Tax Brackets), unless the employee has a
+              custom flat rate set on the Employees tab
             </li>
-            <li>State income tax: {formatPercent(stateRate)} of gross</li>
+            <li>
+              State income tax: bracket-based on annualized pay &amp; filing status
+              (see Company tab → State Income Tax Brackets), unless the employee has a
+              custom flat rate set on the Employees tab
+            </li>
             <li>
               FICA (Social Security): {formatPercent(ficaRate)} of gross
               {` (capped at $${ficaWageBase.toLocaleString()} per calc)`}
@@ -250,8 +256,12 @@ function formatIncomeShort(value) {
   return `$${num.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 }
 
-/** Hover breakdown for a Federal (FWT) cell — shows the annualized-wage-method math behind the number. */
-function FederalTaxCellTooltip({ detail, children }) {
+/**
+ * Hover breakdown for a Federal or State tax cell — shows the annualized-wage-method
+ * math behind the number. Shared by FederalTaxCellTooltip/StateTaxCellTooltip below,
+ * which are thin wrappers supplying the tax-specific label/copy.
+ */
+function BracketTaxCellTooltip({ detail, children, taxLabel, configureHint, taxField }) {
   if (!detail) return children;
 
   const {
@@ -262,8 +272,10 @@ function FederalTaxCellTooltip({ detail, children }) {
     hasConfiguredBrackets,
     appliedBrackets,
     annualTax,
-    federalTax,
+    isCustomRate,
+    customRate,
   } = detail;
+  const taxAmount = detail[taxField];
 
   return (
     <TooltipProvider delayDuration={150}>
@@ -278,41 +290,82 @@ function FederalTaxCellTooltip({ detail, children }) {
           align="center"
           className="max-w-xs bg-gray-900 text-gray-100 border border-gray-700 p-3 text-left leading-relaxed"
         >
-          <p className="font-semibold text-white mb-1.5">Federal withholding (FWT)</p>
-          <p className="mb-1.5">
-            {formatCurrency(periodGross)} this period × {periodsPerYear} pay periods/yr ={' '}
-            <strong>{formatIncomeShort(annualIncome)}</strong> annualized
-          </p>
-          <p className="mb-1.5 text-gray-300">
-            Filing status: {FILING_STATUS_LABELS[filingStatus] || filingStatus}
-          </p>
-          {hasConfiguredBrackets ? (
+          <p className="font-semibold text-white mb-1.5">{taxLabel}</p>
+          {isCustomRate ? (
             <>
-              <ul className="list-none space-y-0.5 mb-1.5 font-mono text-[11px]">
-                {appliedBrackets.map((b, idx) => (
-                  <li key={idx} className="flex justify-between gap-3">
-                    <span>
-                      {formatPercent(b.rate)} on {formatIncomeShort(b.minAnnualIncome)}–
-                      {b.maxAnnualIncome != null ? formatIncomeShort(b.maxAnnualIncome) : '∞'}
-                    </span>
-                    <span>{formatCurrency(b.taxForBracket)}</span>
-                  </li>
-                ))}
-              </ul>
-              <p className="mb-1 text-gray-300 text-[11px]">
-                Annual tax {formatCurrency(annualTax)} ÷ {periodsPerYear} periods
+              <p className="mb-1.5 text-amber-300">
+                Custom rate override: {formatPercent(customRate / 100)} of gross pay (bracket calculation bypassed).
               </p>
-              <p className="font-semibold text-white">= {formatCurrency(federalTax)} this period</p>
+              <p className="mb-1.5">
+                {formatCurrency(periodGross)} this period × {formatPercent(customRate / 100)} ={' '}
+                <strong>{formatCurrency(taxAmount)}</strong> this period
+              </p>
+              <p className="text-gray-300 text-[11px]">
+                Set on the Employees tab → Tax Rate Overrides. Switch back to Auto to use the company&apos;s
+                bracket tables.
+              </p>
             </>
           ) : (
-            <p className="text-amber-300 text-[11px]">
-              No federal tax brackets configured for this filing status — $0 withheld. Configure
-              brackets in Company tab → Federal Income Tax Brackets.
-            </p>
+            <>
+              <p className="mb-1.5">
+                {formatCurrency(periodGross)} this period × {periodsPerYear} pay periods/yr ={' '}
+                <strong>{formatIncomeShort(annualIncome)}</strong> annualized
+              </p>
+              <p className="mb-1.5 text-gray-300">
+                Filing status: {FILING_STATUS_LABELS[filingStatus] || filingStatus}
+              </p>
+              {hasConfiguredBrackets ? (
+                <>
+                  <ul className="list-none space-y-0.5 mb-1.5 font-mono text-[11px]">
+                    {appliedBrackets.map((b, idx) => (
+                      <li key={idx} className="flex justify-between gap-3">
+                        <span>
+                          {formatPercent(b.rate)} on {formatIncomeShort(b.minAnnualIncome)}–
+                          {b.maxAnnualIncome != null ? formatIncomeShort(b.maxAnnualIncome) : '∞'}
+                        </span>
+                        <span>{formatCurrency(b.taxForBracket)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mb-1 text-gray-300 text-[11px]">
+                    Annual tax {formatCurrency(annualTax)} ÷ {periodsPerYear} periods
+                  </p>
+                  <p className="font-semibold text-white">= {formatCurrency(taxAmount)} this period</p>
+                </>
+              ) : (
+                <p className="text-amber-300 text-[11px]">{configureHint}</p>
+              )}
+            </>
           )}
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
+  );
+}
+
+function FederalTaxCellTooltip({ detail, children }) {
+  return (
+    <BracketTaxCellTooltip
+      detail={detail}
+      taxField="federalTax"
+      taxLabel="Federal withholding (FWT)"
+      configureHint="No federal tax brackets configured for this filing status — $0 withheld. Configure brackets in Company tab → Federal Income Tax Brackets."
+    >
+      {children}
+    </BracketTaxCellTooltip>
+  );
+}
+
+function StateTaxCellTooltip({ detail, children }) {
+  return (
+    <BracketTaxCellTooltip
+      detail={detail}
+      taxField="stateTax"
+      taxLabel="State withholding (SWT)"
+      configureHint="No state tax brackets configured for this filing status — $0 withheld. Configure brackets in Company tab → State Income Tax Brackets."
+    >
+      {children}
+    </BracketTaxCellTooltip>
   );
 }
 
@@ -610,6 +663,7 @@ const EmployeeSheet = () => {
       taxes: null,
       taxBreakdown: null,
       federalTaxDetail: null,
+      stateTaxDetail: null,
       deductions: null,
       netPay: null,
       computeError: null,
@@ -1100,7 +1154,7 @@ const EmployeeSheet = () => {
       setSalaryComputing(true);
       invalidateSavedPayroll();
 
-      const [detailsRes, settingsRes, futaRes, flatTaxRatesRes, federalTaxRatesRes] = await Promise.all([
+      const [detailsRes, settingsRes, futaRes, flatTaxRatesRes, federalTaxRatesRes, stateTaxRatesRes] = await Promise.all([
         fetch(`${API_URL}/api/employee-payroll-details/employees-with-details`, {
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         }),
@@ -1116,6 +1170,9 @@ const EmployeeSheet = () => {
         fetch(`${API_URL}/api/company-information/federal-tax-rates`, {
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         }),
+        fetch(`${API_URL}/api/company-information/state-tax-rates`, {
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        }),
       ]);
 
       const detailsData = await detailsRes.json();
@@ -1123,6 +1180,7 @@ const EmployeeSheet = () => {
       const futaData = await futaRes.json();
       const flatTaxRatesData = await flatTaxRatesRes.json();
       const federalTaxRatesData = await federalTaxRatesRes.json();
+      const stateTaxRatesData = await stateTaxRatesRes.json();
 
       if (!detailsRes.ok || !detailsData.success) {
         throw new Error(detailsData.message || 'Failed to fetch employee payroll details');
@@ -1139,27 +1197,31 @@ const EmployeeSheet = () => {
         : { enabled: false, rate: 7 };
       setFutaSettings(activeFutaSettings);
 
-      if ((!flatTaxRatesRes.ok || !flatTaxRatesData.success) || (!federalTaxRatesRes.ok || !federalTaxRatesData.success)) {
+      const bracketsFailed =
+        (!federalTaxRatesRes.ok || !federalTaxRatesData.success) || (!stateTaxRatesRes.ok || !stateTaxRatesData.success);
+
+      if ((!flatTaxRatesRes.ok || !flatTaxRatesData.success) || bracketsFailed) {
         toast.warning('Could not load company tax rates — falling back to defaults for this calculation');
       }
 
+      const mapBrackets = (bracketsData) =>
+        (bracketsData || [])
+          .filter((bracket) => bracket.enabled !== false)
+          .map((bracket) => ({
+            filingStatus: bracket.filingStatus,
+            minAnnualIncome: bracket.minAnnualIncome,
+            maxAnnualIncome: bracket.maxAnnualIncome,
+            rate: (bracket.rate ?? 0) / 100,
+          }));
+
       const activeTaxRates = flatTaxRatesRes.ok && flatTaxRatesData.success
         ? {
-            stateRate: (flatTaxRatesData.data?.stateIncomeTaxRate ?? 0) / 100,
             ficaRate: (flatTaxRatesData.data?.ficaRate ?? 0) / 100,
             medicareRate: (flatTaxRatesData.data?.medicareRate ?? 0) / 100,
             sdiRate: (flatTaxRatesData.data?.sdiRate ?? 0) / 100,
             ficaWageBase: DEFAULT_TAX_RATES.ficaWageBase,
-            federalBrackets: federalTaxRatesRes.ok && federalTaxRatesData.success
-              ? (federalTaxRatesData.data || [])
-                  .filter((bracket) => bracket.enabled !== false)
-                  .map((bracket) => ({
-                    filingStatus: bracket.filingStatus,
-                    minAnnualIncome: bracket.minAnnualIncome,
-                    maxAnnualIncome: bracket.maxAnnualIncome,
-                    rate: (bracket.rate ?? 0) / 100,
-                  }))
-              : [],
+            federalBrackets: federalTaxRatesRes.ok && federalTaxRatesData.success ? mapBrackets(federalTaxRatesData.data) : [],
+            stateBrackets: stateTaxRatesRes.ok && stateTaxRatesData.success ? mapBrackets(stateTaxRatesData.data) : [],
           }
         : DEFAULT_TAX_RATES;
       setTaxRates(activeTaxRates);
@@ -1201,6 +1263,7 @@ const EmployeeSheet = () => {
               taxes: null,
               taxBreakdown: null,
               federalTaxDetail: null,
+              stateTaxDetail: null,
               deductions: null,
               netPay: null,
               computeError: 'no_profile',
@@ -1240,6 +1303,7 @@ const EmployeeSheet = () => {
               taxes: null,
               taxBreakdown: null,
               federalTaxDetail: null,
+              stateTaxDetail: null,
               deductions: null,
               netPay: null,
               computeError: result.error,
@@ -1257,6 +1321,12 @@ const EmployeeSheet = () => {
             activeTaxRates.federalBrackets,
             payFrequency
           );
+          const stateTaxDetail = getStateTaxDetail(
+            employee,
+            result.grossPay,
+            activeTaxRates.stateBrackets,
+            payFrequency
+          );
 
           const baseRow = {
             ...row,
@@ -1268,6 +1338,7 @@ const EmployeeSheet = () => {
             taxes: taxBreakdown.totalTaxes,
             taxBreakdown,
             federalTaxDetail,
+            stateTaxDetail,
             computeError: null,
           };
 
@@ -2173,6 +2244,10 @@ const EmployeeSheet = () => {
                             <FederalTaxCellTooltip detail={row.federalTaxDetail}>
                               {cellValue(row, col.key)}
                             </FederalTaxCellTooltip>
+                          ) : col.key === 'stateTax' && row.stateTaxDetail ? (
+                            <StateTaxCellTooltip detail={row.stateTaxDetail}>
+                              {cellValue(row, col.key)}
+                            </StateTaxCellTooltip>
                           ) : (hoursLoading && HOURS_COLUMNS.some((h) => h.key === col.key)) ||
                             (salaryComputing && SALARY_COLUMNS.some((s) => s.key === col.key)) ? (
                             <span className="text-gray-300">...</span>
