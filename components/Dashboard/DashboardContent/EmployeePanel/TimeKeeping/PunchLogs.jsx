@@ -1982,6 +1982,7 @@ export default function PunchLogs() {
           companyTimezone={companyTimezone}
           filteredSorted={filteredSorted}
           approvers={approvers}
+          supervisors={supervisors}
           contestLogId={contestLogId}                     setContestLogId={setContestLogId}
           contestApproverId={contestApproverId}           setContestApproverId={setContestApproverId}
           contestReason={contestReason}                   setContestReason={setContestReason}

@@ -198,11 +198,10 @@ export default function ModernEmployees() {
   
   const [visibleCols, setVisibleCols] = useState([
     "employeeId",
-    "name", 
-    "email", 
-    "role", 
-    "department", 
-    "hireDate",
+    "name",
+    "email",
+    "role",
+    "department",
     "jobTitle"
   ]);
 
@@ -248,13 +247,25 @@ export default function ModernEmployees() {
   }, [employees]);
 
   const supervisorOptions = useMemo(() => {
-    return employees.filter(
+    const eligible = employees.filter(
       (e) =>
         e.id !== editForm.id &&
         e.status === "active" &&
         ["supervisor", "admin", "superadmin"].includes(e.role)
     );
-  }, [employees, editForm.id]);
+    const currentSupervisorId = editForm.supervisorId;
+    if (
+      currentSupervisorId &&
+      currentSupervisorId !== "none" &&
+      !eligible.some((e) => e.id === currentSupervisorId)
+    ) {
+      const currentSupervisor = employees.find((e) => e.id === currentSupervisorId);
+      if (currentSupervisor) {
+        return [{ ...currentSupervisor, inactiveSupervisor: true }, ...eligible];
+      }
+    }
+    return eligible;
+  }, [employees, editForm.id, editForm.supervisorId]);
 
   // DataTable columns
   const columns = [
@@ -267,8 +278,8 @@ export default function ModernEmployees() {
             <BadgeIcon className="h-4 w-4 text-blue-600 dark:text-blue-400" />
           </div>
           <div>
-            <div className="font-medium">{row.employeeId || "—"}</div> 
-            <div className="text-xs text-muted-foreground font-mono">{row.id}</div>
+            <div className="font-medium">{row.employeeId || "—"}</div>
+            <div className="text-[10px] text-muted-foreground font-mono">{row.id || "—"}</div>
           </div>
         </div>
       ),
@@ -584,7 +595,7 @@ export default function ModernEmployees() {
       probationEndDate: employee.employmentDetail?.probationEndDate ? employee.employmentDetail.probationEndDate.split('T')[0] : "",
       timeZone: employee.employmentDetail?.timeZone || "",
       isDriver: employee.employmentDetail?.isDriver ?? false,
-      supervisorId: employee.employmentDetail?.supervisorId || "none",
+      supervisorId: employee.employmentDetail?.supervisor?.id || "none",
     });
     setEditHasEmploymentDetail(!!employee.employmentDetail);
     setShowEditModal(true);
@@ -1476,7 +1487,8 @@ export default function ModernEmployees() {
                           <SelectItem value="none">No Direct Supervisor</SelectItem>
                           {supervisorOptions.map((sup) => (
                             <SelectItem key={sup.id} value={sup.id}>
-                              {`${sup.profile?.firstName || ""} ${sup.profile?.lastName || ""}`.trim() || sup.email}
+                              {(`${sup.profile?.firstName || ""} ${sup.profile?.lastName || ""}`.trim() || sup.email)}
+                              {sup.inactiveSupervisor && " (former supervisor)"}
                             </SelectItem>
                           ))}
                         </SelectContent>

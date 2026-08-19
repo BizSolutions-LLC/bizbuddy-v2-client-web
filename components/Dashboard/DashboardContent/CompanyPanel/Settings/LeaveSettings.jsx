@@ -5,7 +5,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import {
-  AlertCircle, Archive, ArchiveRestore, Award, Calendar, Check, ChevronDown, CreditCard, Edit3, Info, Loader2,
+  AlertCircle, Archive, ArchiveRestore, Award, Calendar, Check, ChevronDown, CreditCard, Edit3, FileText, Info, Loader2,
   Plus, RefreshCw, Save, Settings, ShieldAlert, Timer, Trash2, TrendingUp, User, Users,
 } from "lucide-react";
 import { toast, Toaster } from "sonner";
@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
@@ -701,6 +702,7 @@ function AdjustCreditsModal({ open, onClose, token, API, leaveTypes, matrix, onS
   const [selectedTypes,  setSelectedTypes]  = useState([]);
   const [direction,      setDirection]      = useState("add"); // "add" | "subtract"
   const [amount,         setAmount]         = useState("");
+  const [note,           setNote]           = useState("");
   const [saving,         setSaving]         = useState(false);
 
   useEffect(() => {
@@ -709,6 +711,7 @@ function AdjustCreditsModal({ open, onClose, token, API, leaveTypes, matrix, onS
       setSelectedTypes([...leaveTypes]);
       setDirection("add");
       setAmount("");
+      setNote("");
       setEmpSearch("");
       setEmpOpen(false);
     }
@@ -730,7 +733,7 @@ function AdjustCreditsModal({ open, onClose, token, API, leaveTypes, matrix, onS
 
   const numAmount  = parseFloat(amount) || 0;
   const finalHours = direction === "add" ? numAmount : -numAmount;
-  const isValid    = selectedUserId && numAmount > 0 && selectedTypes.length > 0;
+  const isValid    = selectedUserId && numAmount > 0 && selectedTypes.length > 0 && note.trim().length > 0;
 
   // API: POST /api/leave-balances/adjust
   const applyAdjust = async () => {
@@ -740,7 +743,7 @@ function AdjustCreditsModal({ open, onClose, token, API, leaveTypes, matrix, onS
       const r = await fetch(`${API}/api/leave-balances/adjust`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ targetUserId: selectedUserId, leaveTypes: selectedTypes, hours: finalHours }),
+        body: JSON.stringify({ targetUserId: selectedUserId, leaveTypes: selectedTypes, hours: finalHours, note: note.trim() }),
       });
       const j = await r.json();
       if (r.ok) {
@@ -957,6 +960,22 @@ function AdjustCreditsModal({ open, onClose, token, API, leaveTypes, matrix, onS
                   {direction === "add" ? "+" : "−"}{numAmount.toFixed(2)} hours applied to {selectedTypes.length} leave type{selectedTypes.length !== 1 ? "s" : ""}
                 </p>
               )}
+            </div>
+          )}
+
+          {/* ── Step 4: Reason ── */}
+          {selectedUserId && selectedTypes.length > 0 && (
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5 text-orange-500" /> Reason <span className="text-red-500">*</span>
+              </label>
+              <Textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Why is this adjustment being made? (required — recorded on the leave ledger)"
+                className="text-sm resize-none"
+                rows={3}
+              />
             </div>
           )}
         </div>

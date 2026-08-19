@@ -54,6 +54,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import ModalPortal from "@/components/ui/modal-portal";
 import { toast } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
 import { fromZonedTime } from "date-fns-tz";
@@ -233,31 +234,22 @@ const PageHeader = ({ cutoff, status, onFinalize, finalizeReady, getDepartmentNa
           </Button>
           <span className="text-neutral-300 dark:text-neutral-600 text-lg font-light">/</span>
           <nav className="flex items-center gap-1.5 text-sm">
-            <span className="text-neutral-500">Cutoff Periods</span>
+            <span className="text-neutral-500 whitespace-nowrap">Cutoff Periods</span>
             <ChevronRight className="w-3.5 h-3.5 text-neutral-300" />
-            <span className="text-neutral-500">{getDepartmentName(cutoff?.departmentId)}</span>
+            <span className="text-neutral-500 whitespace-nowrap">{getDepartmentName(cutoff?.departmentId)}</span>
             <ChevronRight className="w-3.5 h-3.5 text-neutral-300" />
-            <span className="font-semibold text-neutral-800 dark:text-neutral-200">
+            <span className="font-semibold text-neutral-800 dark:text-neutral-200 whitespace-nowrap">
               {formatDate(cutoff?.periodStart)} – {formatDate(cutoff?.periodEnd)}
             </span>
           </nav>
         </div>
 
         <div className="flex items-center gap-3">
-          <Badge className={`gap-1.5 border ${STATUS_CONFIG[status]?.color || ""}`}>
+          <Badge className={`gap-1.5 border whitespace-nowrap ${STATUS_CONFIG[status]?.color || ""}`}>
             <StatusIcon className="w-3 h-3" />
             {STATUS_CONFIG[status]?.label || status}
           </Badge>
-          {/* BB-051 — read-only: informs the reviewer, doesn't gate Honor Punch/Honor
-              Leave below. An auto-resolved conflict never reaches this screen as a
-              pending row, so nothing here needs to change based on this setting. */}
-          {leaveConflictAutoRevert && (
-            <Badge className="gap-1.5 border bg-amber-50 text-amber-700 border-amber-200">
-              <ShieldAlert className="w-3 h-3" />
-              Auto-revert: ON
-            </Badge>
-          )}
-          <span className="text-xs text-neutral-400">
+          <span className="text-xs text-neutral-400 whitespace-nowrap">
             Payment: <strong className="text-neutral-700 dark:text-neutral-300">{formatDate(cutoff?.paymentDate)}</strong>
           </span>
 
@@ -310,9 +302,20 @@ const PageHeader = ({ cutoff, status, onFinalize, finalizeReady, getDepartmentNa
             </div>
           </div>
         ))}
+        {/* BB-051 — read-only: informs the reviewer, doesn't gate Honor Punch/Honor
+            Leave below. An auto-resolved conflict never reaches this screen as a
+            pending row, so nothing here needs to change based on this setting. */}
+        {leaveConflictAutoRevert && (
+          <div className="ml-auto flex items-center gap-2.5 border-l border-neutral-200 dark:border-neutral-700 pl-6 ml-6">
+            <Badge className="gap-1.5 border whitespace-nowrap bg-amber-50 text-amber-700 border-amber-200">
+              <ShieldAlert className="w-3 h-3" />
+              Auto-revert: ON
+            </Badge>
+          </div>
+        )}
         {/* OT config indicator — shows threshold normally; pulses "Computing OT…" while refreshOTBlocks is in flight */}
         {(otBasis || refreshingOT) && (
-          <div className="ml-auto flex items-center gap-2.5 border-l border-neutral-200 dark:border-neutral-700 pl-6 ml-6">
+          <div className={`flex items-center gap-2.5 border-l border-neutral-200 dark:border-neutral-700 pl-6 ml-6 ${leaveConflictAutoRevert ? "" : "ml-auto"}`}>
             {refreshingOT ? (
               <div className="flex items-center gap-2">
                 <Loader2 className="w-4 h-4 animate-spin text-purple-500 flex-shrink-0" />
@@ -2615,6 +2618,9 @@ export default function CutoffReview({ cutoffId }) {
     <div className="flex flex-col min-h-screen bg-neutral-50 dark:bg-neutral-950">
 
       {/* ── Sync overlay — blocks all interaction while sync + re-fetch is in flight ── */}
+      {/* Portaled to document.body so `fixed inset-0` centers on the actual viewport
+          instead of DashboardLayoutClient's transformed (framer-motion `y`) content wrapper. */}
+      <ModalPortal>
       <AnimatePresence>
         {syncing && (
           <motion.div
@@ -2662,6 +2668,7 @@ export default function CutoffReview({ cutoffId }) {
           </motion.div>
         )}
       </AnimatePresence>
+      </ModalPortal>
 
       {/* Sticky Header */}
       <PageHeader
