@@ -1,7 +1,7 @@
 // components/Dashboard/DashboardContent/CompanyPanel/PunchlogsB&OvertimesB&Leaves/CutoffReview.jsx
 "use client";
 
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
@@ -1427,6 +1427,11 @@ export default function CutoffReview({ cutoffId }) {
   const [localPunchType,      setLocalPunchType]      = useState({}); // { [recId]: 'TRAINING'|'REGULAR' } — optimistic punchType overrides
   const [refreshingOT,        setRefreshingOT]        = useState(false); // true while refreshOTBlocks fetch is in flight
 
+  // BB-075: admin-assigned driver designation ({ [userId]: boolean }) — a stable value
+  // fetched once per load, kept in a ref (not state) so refreshApprovals can read the
+  // latest map without needing to be a Promise.all dependency or re-fetch it itself.
+  const driverMapRef = useRef({});
+
   // ── Modals ──
   const [editModal,       setEditModal]       = useState(null); // { rec }
   const [editedClockIn,   setEditedClockIn]   = useState("");
@@ -1459,19 +1464,30 @@ export default function CutoffReview({ cutoffId }) {
     if (!token || !cutoffId) return;
     try {
       setIsLoading(true);
-      const [cutoffRes, deptRes, approvalsRes, settingsRes] = await Promise.all([
+      const [cutoffRes, deptRes, approvalsRes, settingsRes, employeesRes] = await Promise.all([
         fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/cutoff-periods/${cutoffId}`,         { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/departments`,                         { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/cutoff-periods/${cutoffId}/approvals`, { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/company-settings/`,                   { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/employee?all=1`,                      { headers: { Authorization: `Bearer ${token}` } }),
       ]);
 
-      const [cutoffData, deptData, approvalsData, settingsData] = await Promise.all([
+      const [cutoffData, deptData, approvalsData, settingsData, employeesData] = await Promise.all([
         cutoffRes.ok    ? cutoffRes.json()    : { data: null },
         deptRes.ok      ? deptRes.json()      : { data: [] },
         approvalsRes.ok ? approvalsRes.json() : { data: [] },
         settingsRes.ok  ? settingsRes.json()  : { data: {} },
+        employeesRes.ok ? employeesRes.json() : { data: [] },
       ]);
+
+      // BB-075: build the stable driver-designation map from admin-assigned
+      // employmentDetail.isDriver (same field/source the Employees list page reads),
+      // instead of inferring it from this period's punch segmentType.
+      const driverMap = {};
+      (employeesData.data || []).forEach((e) => {
+        if (e?.id) driverMap[e.id] = e.employmentDetail?.isDriver === true;
+      });
+      driverMapRef.current = driverMap;
 
       setCutoff(cutoffData.data);
       setDepartments(deptData.data || []);
@@ -1530,7 +1546,7 @@ export default function CutoffReview({ cutoffId }) {
             records:   [],
             hasOT:     false,
             hasBulk:   false,
-            isDriver:  false,
+            isDriver:  driverMap[userId] === true,
           };
         }
 
@@ -1538,7 +1554,6 @@ export default function CutoffReview({ cutoffId }) {
         const details = buildDetails(approval, tz, isBNCLocal);
         emp.records.push(details);
         if (details.hasOT) emp.hasOT = true;
-        if (details.segmentType !== null) emp.isDriver = true;
         if (
           details.actions?.some((a) => ["approve", "approve-schedule", "approve-raw"].includes(a)) &&
           !["conflict", "unscheduled"].includes(details.type)
@@ -1564,6 +1579,7 @@ export default function CutoffReview({ cutoffId }) {
             records:   [],
             hasOT:     false,
             hasBulk:   false,
+            isDriver:  driverMap[userId] === true,
           };
         }
 
@@ -1715,14 +1731,13 @@ export default function CutoffReview({ cutoffId }) {
             records:  [],
             hasOT:    false,
             hasBulk:  false,
-            isDriver: false,
+            isDriver: driverMapRef.current[userId] === true,
           };
         }
         const emp     = empMap[userId];
         const details = buildDetails(approval, companyTimezone, isBNC);
         emp.records.push(details);
         if (details.hasOT) emp.hasOT = true;
-        if (details.segmentType !== null) emp.isDriver = true;
         if (details.actions?.some((a) => ["approve", "approve-schedule", "approve-raw"].includes(a)) && !["conflict", "unscheduled"].includes(details.type)) {
           emp.hasBulk = true;
         }
@@ -1743,6 +1758,7 @@ export default function CutoffReview({ cutoffId }) {
             records:  [],
             hasOT:    false,
             hasBulk:  false,
+            isDriver: driverMapRef.current[userId] === true,
           };
         }
         const leaveScheduledHours = leaveRow.hours ?? 8;
