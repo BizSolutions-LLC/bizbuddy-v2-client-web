@@ -5,6 +5,44 @@ import useAuthStore from "@/store/useAuthStore";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
+const TAX_EXEMPTION_FIELDS = [
+  { key: "exemptFederal", label: "Federal" },
+  { key: "exemptSocialSecurity", label: "Social Security" },
+  { key: "exemptMedicare", label: "Medicare" },
+  { key: "exemptSdi", label: "SDI" },
+  { key: "exemptPit", label: "PIT" },
+];
+
+function resolveExemptFlag(value, fallback = false) {
+  if (value == null) return fallback;
+  return Boolean(value);
+}
+
+function ExemptToggle({ label, value, onChange }) {
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-2">{label}</label>
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => onChange(!value)}
+          aria-pressed={value}
+          className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
+            value ? "bg-orange-600" : "bg-gray-300"
+          }`}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              value ? "translate-x-6" : "translate-x-1"
+            }`}
+          />
+        </button>
+        <span className="text-sm text-gray-700">{value ? "Yes" : "No"}</span>
+      </div>
+    </div>
+  );
+}
+
 const Employee = () => {
   const { token } = useAuthStore();
 
@@ -46,7 +84,11 @@ const Employee = () => {
     stateRateMode: "auto",
     customStateRate: "",
     ptoHoursBalance: "",
-    skipFicaMedicare: false,
+    exemptFederal: false,
+    exemptSocialSecurity: false,
+    exemptMedicare: false,
+    exemptSdi: false,
+    exemptPit: false,
     withCalSavers: false,
 
     // Dynamic earning rates
@@ -157,7 +199,14 @@ const Employee = () => {
           stateRateMode: payrollDetails.customStateRate != null ? "custom" : "auto",
           customStateRate: payrollDetails.customStateRate != null ? payrollDetails.customStateRate.toString() : "",
           ptoHoursBalance: payrollDetails.ptoHoursBalance?.toString() || "",
-          skipFicaMedicare: payrollDetails.skipFicaMedicare || false,
+          exemptFederal: resolveExemptFlag(payrollDetails.exemptFederal),
+          exemptSocialSecurity: resolveExemptFlag(
+            payrollDetails.exemptSocialSecurity,
+            payrollDetails.skipFicaMedicare
+          ),
+          exemptMedicare: resolveExemptFlag(payrollDetails.exemptMedicare, payrollDetails.skipFicaMedicare),
+          exemptSdi: resolveExemptFlag(payrollDetails.exemptSdi),
+          exemptPit: resolveExemptFlag(payrollDetails.exemptPit),
           withCalSavers: payrollDetails.withCalSavers || false,
 
           // Dynamic earning rates
@@ -241,7 +290,12 @@ const Employee = () => {
         customFederalRate: formData.federalRateMode === "custom" ? parseFloat(formData.customFederalRate) || 0 : null,
         customStateRate: formData.stateRateMode === "custom" ? parseFloat(formData.customStateRate) || 0 : null,
         ptoHoursBalance: parseFloat(formData.ptoHoursBalance) || 0,
-        skipFicaMedicare: formData.skipFicaMedicare,
+        exemptFederal: formData.exemptFederal,
+        exemptSocialSecurity: formData.exemptSocialSecurity,
+        exemptMedicare: formData.exemptMedicare,
+        exemptSdi: formData.exemptSdi,
+        exemptPit: formData.exemptPit,
+        skipFicaMedicare: formData.exemptSocialSecurity && formData.exemptMedicare,
         withCalSavers: formData.withCalSavers,
         earningRates: earningRatesArray,
       };
@@ -323,7 +377,14 @@ const Employee = () => {
           stateRateMode: "auto",
           customStateRate: "",
           ptoHoursBalance: "",
-          skipFicaMedicare: payrollDetails.skipFicaMedicare,
+          exemptFederal: resolveExemptFlag(payrollDetails.exemptFederal),
+          exemptSocialSecurity: resolveExemptFlag(
+            payrollDetails.exemptSocialSecurity,
+            payrollDetails.skipFicaMedicare
+          ),
+          exemptMedicare: resolveExemptFlag(payrollDetails.exemptMedicare, payrollDetails.skipFicaMedicare),
+          exemptSdi: resolveExemptFlag(payrollDetails.exemptSdi),
+          exemptPit: resolveExemptFlag(payrollDetails.exemptPit),
           withCalSavers: payrollDetails.withCalSavers,
           earningRates: earningRatesMap,
         }));
@@ -364,7 +425,11 @@ const Employee = () => {
       stateRateMode: "auto",
       customStateRate: "",
       ptoHoursBalance: "",
-      skipFicaMedicare: false,
+      exemptFederal: false,
+      exemptSocialSecurity: false,
+      exemptMedicare: false,
+      exemptSdi: false,
+      exemptPit: false,
       withCalSavers: false,
       earningRates: earningRatesMap,
     });
@@ -683,17 +748,6 @@ const Employee = () => {
                       <label className="flex items-center cursor-pointer">
                         <input
                           type="checkbox"
-                          checked={formData.skipFicaMedicare}
-                          onChange={(e) => handleInputChange("skipFicaMedicare", e.target.checked)}
-                          className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500 mr-2"
-                        />
-                        <span className="text-sm text-gray-700">Do not calculate FICA and medicare taxes</span>
-                      </label>
-                    </div>
-                    <div className="flex items-end pb-2">
-                      <label className="flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
                           checked={formData.withCalSavers}
                           onChange={(e) => handleInputChange("withCalSavers", e.target.checked)}
                           className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500 mr-2"
@@ -701,6 +755,21 @@ const Employee = () => {
                         <span className="text-sm text-gray-700">With CalSavers</span>
                       </label>
                     </div>
+                  </div>
+
+                  <h4 className="text-sm font-medium text-gray-700 mt-6 mb-3">Tax Exemptions</h4>
+                  <p className="text-xs text-gray-500 mb-3">
+                    Yes means this employee is exempt — that tax is withheld at $0.
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                    {TAX_EXEMPTION_FIELDS.map(({ key, label }) => (
+                      <ExemptToggle
+                        key={key}
+                        label={label}
+                        value={formData[key]}
+                        onChange={(next) => handleInputChange(key, next)}
+                      />
+                    ))}
                   </div>
                 </div>
 

@@ -235,8 +235,9 @@ function TaxColumnInfo({ taxRates = DEFAULT_TAX_RATES }) {
             <li>Plus any additional federal/state amounts on the employee profile</li>
           </ul>
           <p className="text-gray-300 text-[11px]">
-            FICA &amp; Medicare are skipped when &quot;Skip FICA/Medicare&quot; is enabled.
-            This amount is included in Total Deductions. Net Pay = Gross − Total Deductions.
+            Federal, Social Security, Medicare, SDI, and PIT are each skipped when that
+            tax is marked exempt (Yes) on the Employees tab. This amount is included in
+            Total Deductions. Net Pay = Gross − Total Deductions.
           </p>
         </TooltipContent>
       </Tooltip>
@@ -274,6 +275,7 @@ function BracketTaxCellTooltip({ detail, children, taxLabel, configureHint, taxF
     annualTax,
     isCustomRate,
     customRate,
+    isExempt,
   } = detail;
   const taxAmount = detail[taxField];
 
@@ -291,7 +293,12 @@ function BracketTaxCellTooltip({ detail, children, taxLabel, configureHint, taxF
           className="max-w-xs bg-gray-900 text-gray-100 border border-gray-700 p-3 text-left leading-relaxed"
         >
           <p className="font-semibold text-white mb-1.5">{taxLabel}</p>
-          {isCustomRate ? (
+          {isExempt ? (
+            <p className="text-amber-300 text-[11px]">
+              This employee is exempt on the Employees tab — $0 withheld. Additional withholding
+              amounts still apply if set.
+            </p>
+          ) : isCustomRate ? (
             <>
               <p className="mb-1.5 text-amber-300">
                 Custom rate override: {formatPercent(customRate / 100)} of gross pay (bracket calculation bypassed).
