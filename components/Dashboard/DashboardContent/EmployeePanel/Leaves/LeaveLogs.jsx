@@ -563,8 +563,8 @@ export default function EmployeeLeaveRequests() {
     if (!endDate)    errs.endDate    = "End date is required";
     if (startDate && endDate && new Date(startDate) > new Date(endDate))
       errs.endDate = "End date must be after start date";
-    if (!reason || reason.trim().length < 30)
-      errs.reason = `Reason is required and must be at least 30 characters (${reason.trim().length}/30)`;
+    if (!reason || reason.trim().length < 15)
+      errs.reason = `Reason is required and must be at least 15 characters (${reason.trim().length}/15)`;
     if (Object.keys(errs).length) { setErrors(errs); return; }
 
     // Duplicate check — block if an active request overlaps the chosen date range
@@ -1456,7 +1456,7 @@ export default function EmployeeLeaveRequests() {
               </Button>
               <Button
                 onClick={handleSubmit}
-                disabled={submitting || !leaveType || !approverId || !startDate || !endDate || reason.trim().length < 30 || !!duplicateConflict}
+                disabled={submitting || !leaveType || !approverId || !startDate || !endDate || reason.trim().length < 15 || !!duplicateConflict}
                 className="h-8 text-xs rounded-lg bg-orange-500 hover:bg-orange-600 text-white px-3 gap-1.5"
               >
                 {submitting
