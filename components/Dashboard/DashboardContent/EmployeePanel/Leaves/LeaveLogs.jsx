@@ -563,8 +563,8 @@ export default function EmployeeLeaveRequests() {
     if (!endDate)    errs.endDate    = "End date is required";
     if (startDate && endDate && new Date(startDate) > new Date(endDate))
       errs.endDate = "End date must be after start date";
-    if (!reason || reason.trim().length < 15)
-      errs.reason = `Reason is required and must be at least 15 characters (${reason.trim().length}/15)`;
+    if (!reason || reason.trim().length < 10)
+      errs.reason = `Reason is required and must be at least 10 characters (${reason.trim().length}/10)`;
     if (Object.keys(errs).length) { setErrors(errs); return; }
 
     // Duplicate check — block if an active request overlaps the chosen date range
@@ -1421,14 +1421,14 @@ export default function EmployeeLeaveRequests() {
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
               <div style={FIELD_LABEL}>
                 <FileText size={12} /> Reason <span style={{ color: "#f97316" }}>*</span>
-                <span style={{ fontSize: 11, color: reason.trim().length >= 15 ? "#3b6d11" : "#bbb", fontWeight: 400, marginLeft: "auto" }}>
-                  {reason.trim().length}/15 min
+                <span style={{ fontSize: 11, color: reason.trim().length >= 10 ? "#3b6d11" : "#bbb", fontWeight: 400, marginLeft: "auto" }}>
+                  {reason.trim().length}/10 min
                 </span>
               </div>
               <Textarea
                 value={reason}
                 onChange={e => { setReason(e.target.value); setErrors(er => ({ ...er, reason: undefined })); }}
-                placeholder="Provide a reason for your leave request (at least 15 characters)…"
+                placeholder="Provide a reason for your leave request (at least 10 characters)…"
                 className={`resize-none text-xs border-[0.5px] rounded-lg min-h-[72px] ${errors.reason ? "border-red-500" : "border-[#d0d0d0]"}`}
               />
               {errors.reason && (
@@ -1456,7 +1456,7 @@ export default function EmployeeLeaveRequests() {
               </Button>
               <Button
                 onClick={handleSubmit}
-                disabled={submitting || !leaveType || !approverId || !startDate || !endDate || reason.trim().length < 15 || !!duplicateConflict}
+                disabled={submitting || !leaveType || !approverId || !startDate || !endDate || reason.trim().length < 10 || !!duplicateConflict}
                 className="h-8 text-xs rounded-lg bg-orange-500 hover:bg-orange-600 text-white px-3 gap-1.5"
               >
                 {submitting

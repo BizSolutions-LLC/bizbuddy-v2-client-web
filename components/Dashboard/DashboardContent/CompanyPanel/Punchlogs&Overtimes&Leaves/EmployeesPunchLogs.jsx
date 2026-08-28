@@ -40,6 +40,7 @@ import {
   Trash2,
   Tag,
   X,
+  Upload,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast, Toaster } from "sonner";
@@ -61,6 +62,7 @@ import ColumnSelector from "@/components/common/ColumnSelector";
 import CutoffDateRangeFilter, { periodRangeKey, groupPeriodsByRange, groupStatus } from "@/components/common/CutoffDateRangeFilter";
 import TableSkeleton from "@/components/common/TableSkeleton";
 import { Textarea } from "@/components/ui/textarea";
+import ImportPunchLogs from "./ImportPunchLogs";
 
 // ── D-2: DA hour constants ─────────────────────────────────────────────────────
 const DRIVER_AIDE_AM_HOURS      = 1.25;   // fixed always
@@ -1350,6 +1352,7 @@ export default function EmployeesPunchLogs() {
   const [refreshing,        setRefreshing]        = useState(false);
   const [generateModalOpen, setGenerateModalOpen] = useState(false);
   const [generating,        setGenerating]        = useState(false);
+  const [importModalOpen,   setImportModalOpen]   = useState(false);
   const [expandedRow,       setExpandedRow]       = useState(null);
 
   const [totalRows, setTotalRows] = useState(0);
@@ -2056,6 +2059,9 @@ export default function EmployeesPunchLogs() {
         <div className="flex gap-2">
           <IconBtn icon={RefreshCw} tooltip="Refresh data" spinning={refreshing} onClick={refreshAll} />
           <IconBtn icon={Download} tooltip="Generate Report" onClick={() => setGenerateModalOpen(true)} />
+          {canEdit && (
+            <IconBtn icon={Upload} tooltip="Import Punch Logs" onClick={() => setImportModalOpen(true)} />
+          )}
           <IconBtn
             icon={BookOpen}
             tooltip="Punch Log Rules Guide"
@@ -2994,6 +3000,14 @@ export default function EmployeesPunchLogs() {
         cutoffPeriods={cutoffPeriods}
         generating={generating}
         onGenerate={handleGenerateReport}
+      />
+
+      <ImportPunchLogs
+        open={importModalOpen}
+        onOpenChange={setImportModalOpen}
+        isDayCare={isDayCare}
+        currentUserRole={currentUserRole}
+        onImportComplete={refreshAll}
       />
 
       <ScheduleDialog open={schedDialogOpen} onOpenChange={setSchedDialogOpen} scheduleList={scheduleList} />
