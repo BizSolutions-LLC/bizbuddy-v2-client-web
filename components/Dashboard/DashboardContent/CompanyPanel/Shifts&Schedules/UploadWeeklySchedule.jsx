@@ -159,12 +159,12 @@ export default function UploadWeeklySchedule({ open, onOpenChange, onImportCompl
     }
   };
 
-  const handleShiftNameChange = (row, value) => {
-    setPreviewRows((prev) => prev.map((r) => (r.row === row ? { ...r, shiftName: value } : r)));
+  const handleShiftNameChange = (index, value) => {
+    setPreviewRows((prev) => prev.map((r, i) => (i === index ? { ...r, shiftName: value } : r)));
   };
 
-  const handleSkipToggle = (row, skip) => {
-    setPreviewRows((prev) => prev.map((r) => (r.row === row ? { ...r, skip } : r)));
+  const handleSkipToggle = (index, skip) => {
+    setPreviewRows((prev) => prev.map((r, i) => (i === index ? { ...r, skip } : r)));
   };
 
   const handleBack = () => {
@@ -400,8 +400,8 @@ export default function UploadWeeklySchedule({ open, onOpenChange, onImportCompl
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {previewRows.map((r) => (
-                    <TableRow key={r.row} className={r.skip ? "opacity-50" : ""}>
+                  {previewRows.map((r, i) => (
+                    <TableRow key={i} className={r.skip ? "opacity-50" : ""}>
                       <TableCell className="align-top break-words">{r.employeeName || r.employeeId || "—"}</TableCell>
                       <TableCell className="align-top">{r.date || "—"}</TableCell>
                       <TableCell className="align-top">
@@ -415,7 +415,7 @@ export default function UploadWeeklySchedule({ open, onOpenChange, onImportCompl
                       <TableCell className="align-top">
                         <Input
                           value={r.shiftName || ""}
-                          onChange={(e) => handleShiftNameChange(r.row, e.target.value)}
+                          onChange={(e) => handleShiftNameChange(i, e.target.value)}
                           disabled={r.status === "error"}
                           className="h-8 text-sm"
                         />
@@ -434,7 +434,7 @@ export default function UploadWeeklySchedule({ open, onOpenChange, onImportCompl
                           <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer w-fit">
                             <Checkbox
                               checked={!!r.skip}
-                              onCheckedChange={(v) => handleSkipToggle(r.row, !!v)}
+                              onCheckedChange={(v) => handleSkipToggle(i, !!v)}
                               className="h-3.5 w-3.5"
                             />
                             Skip this row
