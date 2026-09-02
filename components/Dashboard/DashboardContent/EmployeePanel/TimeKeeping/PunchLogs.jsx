@@ -62,6 +62,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ContestDialog } from "./ContestDialog";
 import FormDialog from "@/components/common/FormDialog";
 import OrangeLoadingSpinner from "@/components/common/Spinner";
+import MultiSelect from "@/components/common/MultiSelect";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const DAYCARE_COMPANY_IDS = (process.env.NEXT_PUBLIC_DAYCARE_COMPANY_IDS || "")
@@ -367,6 +368,17 @@ export default function PunchLogs() {
   const [requestStep,            setRequestStep]            = useState(1);
   const [isCheckingConflict,     setIsCheckingConflict]     = useState(false);
 
+  // BB-080 — supervisor/admin filing a request on behalf of an employee
+  const [requestOnBehalfMode,    setRequestOnBehalfMode]    = useState(false);
+  const [requestTargetUserId,    setRequestTargetUserId]    = useState("");
+  const [teamEmployees,          setTeamEmployees]          = useState([]);
+  const [loadingTeamEmployees,   setLoadingTeamEmployees]   = useState(false);
+  // useAuthStore().user is only the decoded JWT (userId/companyId/exp) — it does not
+  // reliably carry role. Every other role-gated view in this codebase (sidebar.jsx,
+  // UserMenu.jsx, EmployeesPunchLogs.jsx) fetches the live role from /api/account/profile
+  // instead, so we do the same here rather than trust user?.role.
+  const [currentUserRole,        setCurrentUserRole]        = useState("");
+
   // filters removed — now driven by queryParams (server-side)
 
   const isValidTimeFormat = (t) => /^([0-1]?[0-9]|2[0-3]):([0-5][0-9])$/.test(t);
@@ -513,6 +525,25 @@ export default function PunchLogs() {
     finally { setLoadingRequests(false); }
   }, [token, API_URL]);
 
+  // BB-080 — employees the logged-in supervisor/admin/superadmin may file a
+  // request on behalf of. Fetched lazily when the on-behalf picker is opened,
+  // not on mount, since most visits to this page never use it.
+  const fetchTeamEmployees = useCallback(async () => {
+    if (!token) return;
+    setLoadingTeamEmployees(true);
+    try {
+      const res = await fetch(`${API_URL}/api/employee/team`, { headers: { Authorization: `Bearer ${token}` } });
+      const j = await res.json();
+      if (res.ok) setTeamEmployees(j.data || []);
+    } catch {}
+    finally { setLoadingTeamEmployees(false); }
+  }, [token, API_URL]);
+
+  useEffect(() => {
+    if (!requestPunchLogsDialog || !requestOnBehalfMode) return;
+    fetchTeamEmployees();
+  }, [requestPunchLogsDialog, requestOnBehalfMode, fetchTeamEmployees]);
+
   const fetchLogs = useCallback(async (params) => {
     setLoading(true);
     try {
@@ -563,12 +594,24 @@ export default function PunchLogs() {
     } catch {}
   }, [token, API_URL]);
 
+  // BB-080 — same /api/account/profile call EmployeesPunchLogs.jsx already uses to
+  // read the logged-in user's real role (see note on currentUserRole above).
+  const fetchCurrentUserRole = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/api/account/profile`, { headers: { Authorization: `Bearer ${token}` } });
+      const j = await res.json();
+      if (res.ok) setCurrentUserRole(j.data?.user?.role || "");
+    } catch {}
+  }, [token, API_URL]);
+
   useEffect(() => {
     if (!token) return;
     fetchBootstrap();
     fetchUserShifts();
     fetchThresholdStatus();
-  }, [token, fetchBootstrap, fetchUserShifts, fetchThresholdStatus]);
+    fetchCurrentUserRole();
+  }, [token, fetchBootstrap, fetchUserShifts, fetchThresholdStatus, fetchCurrentUserRole]);
 
   useEffect(() => {
     if (!token) return;
@@ -970,6 +1013,16 @@ export default function PunchLogs() {
               <span className="sm:hidden">Request</span>
             </Button>
 
+            {/* File for employee — BB-080, supervisor/admin/superadmin only */}
+            {["supervisor", "admin", "superadmin"].includes((currentUserRole || "").toLowerCase()) && (
+              <Button variant="outline" className="h-8 text-xs rounded-lg px-2.5 gap-1.5"
+                onClick={() => { setRequestOnBehalfMode(true); setRequestPunchLogsDialog(true); }}>
+                <UserCheck className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">File for employee</span>
+                <span className="sm:hidden">For employee</span>
+              </Button>
+            )}
+
             {/* Export dropdown — desktop only */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -1104,6 +1157,16 @@ export default function PunchLogs() {
                               </div>
                               <span className="shrink-0">Submitted {submittedLabel}</span>
                             </div>
+
+                            {/* Row 5 (BB-080): filed on your behalf by a supervisor/admin */}
+                            {req.createdBy && (
+                              <div className="flex items-center gap-2 text-xs" style={{ color: "#633806" }}>
+                                <UserCheck className="h-3.5 w-3.5 flex-shrink-0" />
+                                <span>
+                                  Filed by {req.createdBy.profile ? `${req.createdBy.profile.firstName} ${req.createdBy.profile.lastName}` : req.createdBy.email} on your behalf
+                                </span>
+                              </div>
+                            )}
                           </div>
                         );
                       })}
@@ -1641,6 +1704,7 @@ export default function PunchLogs() {
               setRequestPunchType("REGULAR");
               setRequestApproverId(""); setRequestReason(""); setRequestDescription("");
               setRequestErrors({});
+              setRequestOnBehalfMode(false); setRequestTargetUserId("");
             }
           }}
         >
@@ -1713,6 +1777,31 @@ export default function PunchLogs() {
               {/* ── Step 1: Date & Times ── */}
               {requestStep === 1 && (
                 <>
+                  {requestOnBehalfMode && (
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                        <UserCheck className="h-3 w-3" />Employee <span className="text-orange-500">*</span>
+                      </label>
+                      <MultiSelect
+                        options={teamEmployees.map((e) => ({
+                          value: e.id,
+                          label: `${e.profile?.firstName || ""} ${e.profile?.lastName || ""}`.trim() || e.email,
+                        }))}
+                        selected={requestTargetUserId ? [requestTargetUserId] : []}
+                        onChange={(val) => {
+                          setRequestTargetUserId(val === "all" ? "" : val);
+                          setRequestErrors((p) => ({ ...p, targetUserId: undefined }));
+                        }}
+                        allLabel={loadingTeamEmployees ? "Loading employees…" : "Select an employee…"}
+                        width={0}
+                        className="w-full"
+                        searchable
+                        sortable
+                        singleSelect
+                      />
+                      {requestErrors.targetUserId && <p className="text-red-500 text-xs flex items-center gap-1"><AlertCircle className="h-3 w-3" />{requestErrors.targetUserId}</p>}
+                    </div>
+                  )}
                   <div className="space-y-1.5">
                     <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
                       <Calendar className="h-3 w-3" />Date <span className="text-orange-500">*</span>
@@ -1899,6 +1988,7 @@ export default function PunchLogs() {
                   onClick={async () => {
                     const errors = {};
                     if (requestStep === 1) {
+                      if (requestOnBehalfMode && !requestTargetUserId) errors.targetUserId = "Please select an employee";
                       if (!requestPunchDate)  errors.date     = "Please select a date";
                       if (!requestClockIn)    errors.clockIn  = "Please provide clock-in time";
                       if (!requestClockOut)   errors.clockOut = "Please provide clock-out time";
@@ -1951,14 +2041,15 @@ export default function PunchLogs() {
                       const res = await fetch(`${API_URL}/api/request-punch-log/submit`, {
                         method: "POST",
                         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                        body: JSON.stringify({ requestedDate: requestPunchDate, requestedClockIn: requestClockIn, requestedClockOut: requestClockOut, approverId: requestApproverId, reason: requestReason, description: requestDescription, ...(isDayCareCompany ? { punchType: requestPunchType } : {}) }),
+                        body: JSON.stringify({ requestedDate: requestPunchDate, requestedClockIn: requestClockIn, requestedClockOut: requestClockOut, approverId: requestApproverId, reason: requestReason, description: requestDescription, ...(isDayCareCompany ? { punchType: requestPunchType } : {}), ...(requestOnBehalfMode && requestTargetUserId ? { targetUserId: requestTargetUserId } : {}) }),
                       });
                       const result = await res.json();
                       if (res.ok) {
-                        toast.success("Punch log request submitted!");
+                        toast.success(requestOnBehalfMode ? "Punch log request filed for employee!" : "Punch log request submitted!");
                         setRequestPunchLogsDialog(false);
                         setRequestStep(1);
                         setRequestPunchDate(""); setRequestClockIn(""); setRequestClockOut(""); setRequestPunchType("REGULAR"); setRequestApproverId(""); setRequestReason(""); setRequestDescription(""); setRequestErrors({});
+                        setRequestOnBehalfMode(false); setRequestTargetUserId("");
                         fetchMyRequests();
                       } else if (res.status === 409) {
                         setRequestStep(1);

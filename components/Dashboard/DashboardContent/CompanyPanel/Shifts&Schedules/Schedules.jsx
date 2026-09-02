@@ -22,6 +22,7 @@ import {
   Loader2,
   X,
   LayoutList,
+  Upload,
 } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
@@ -37,20 +38,38 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
 import SchedulesCalendarView from "./SchedulesCalendarView";
+import UploadWeeklySchedule from "./UploadWeeklySchedule";
 
 export default function ModernCompanySchedules() {
-  const { token, role } = useAuthStore();
+  const { token } = useAuthStore();
   const API_URL = process.env.NEXT_PUBLIC_API_URL;
-  
+
+  // useAuthStore() never exposed a `role` property (only `token` and a computed
+  // `user` getter over the decoded JWT) — the old `const { role } = useAuthStore()`
+  // was always undefined, so this page's own access-control redirect never actually
+  // fired for anyone. Fetch the real role from /api/account/profile instead, same
+  // fix already applied to PunchLogs.jsx (BB-080) and the pattern EmployeesPunchLogs.jsx
+  // has used all along.
+  const [currentUserRole, setCurrentUserRole] = useState("");
+
+  const fetchCurrentUserRole = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/api/account/profile`, { headers: { Authorization: `Bearer ${token}` } });
+      const j = await res.json();
+      if (res.ok) setCurrentUserRole(j.data?.user?.role || "");
+    } catch {}
+  };
+
   useEffect(() => {
-    if (role && !["admin", "superadmin", "supervisor"].includes(role.toLowerCase())) {
+    if (currentUserRole && !["admin", "superadmin", "supervisor"].includes(currentUserRole.toLowerCase())) {
       window.location.href = "/dashboard";
     }
     if (!token) {
       toast.error("Session expired. Please log in again.");
       window.location.href = "/login";
     }
-  }, [role, token]);
+  }, [currentUserRole, token]);
 
   const DAY_DISPLAY = {
     0: "Sun", 1: "Mon", 2: "Tue", 3: "Wed", 4: "Thu", 5: "Fri", 6: "Sat"
@@ -71,6 +90,7 @@ export default function ModernCompanySchedules() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showConflictWarning, setShowConflictWarning] = useState(false);
+  const [uploadScheduleModalOpen, setUploadScheduleModalOpen] = useState(false); // BB-081
   const [selectedSchedule, setSelectedSchedule] = useState(null);
   const [conflictData, setConflictData] = useState(null);
   const [employeeSearch, setEmployeeSearch] = useState("");
@@ -380,6 +400,7 @@ export default function ModernCompanySchedules() {
 
   useEffect(() => {
     fetchAll();
+    fetchCurrentUserRole();
   }, []);
 
   if (loading) {
@@ -472,6 +493,15 @@ export default function ModernCompanySchedules() {
                   <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
                   Refresh
                 </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="outline" onClick={() => setUploadScheduleModalOpen(true)} className="gap-2">
+                      <Upload className="h-4 w-4" />
+                      Upload Weekly Schedule
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Upload Weekly Schedule</TooltipContent>
+                </Tooltip>
                 <Button
                   onClick={() => setShowCreateModal(true)}
                   className="bg-orange-500 hover:bg-orange-600 text-white gap-2"
@@ -1217,6 +1247,12 @@ export default function ModernCompanySchedules() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        <UploadWeeklySchedule
+          open={uploadScheduleModalOpen}
+          onOpenChange={setUploadScheduleModalOpen}
+          onImportComplete={fetchAll}
+        />
       </div>
     </TooltipProvider>
   );
