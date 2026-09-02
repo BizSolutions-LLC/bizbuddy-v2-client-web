@@ -2330,8 +2330,13 @@ export default function EmployeesPunchLogs() {
                                       </div>
                                     )}
                                   </div>
-                                  <div className="flex items-center justify-between text-xs text-muted-foreground pt-2 border-t">
+                                  <div className="flex items-center justify-between text-xs text-muted-foreground pt-2 border-t flex-wrap gap-1">
                                     <span>Submitted: {new Date(req.submittedAt).toLocaleDateString()}</span>
+                                    {req.createdByDisplayName && (
+                                      <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300">
+                                        <UserCheck className="h-3 w-3" />Filed by {req.createdByDisplayName}
+                                      </span>
+                                    )}
                                     <span>Approver: {req.approverDisplayName || "Not assigned"}</span>
                                   </div>
                                 </div>
