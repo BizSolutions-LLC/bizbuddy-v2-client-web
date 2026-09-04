@@ -413,6 +413,9 @@ const Company = () => {
   const [futaToggleSaving, setFutaToggleSaving] = useState(false);
   const [showFutaEnableModal, setShowFutaEnableModal] = useState(false);
 
+  const [suiEnabled, setSuiEnabled] = useState(false);
+  const [ettEnabled, setEttEnabled] = useState(false);
+
   const applyFutaSettings = ({ futaEnabled, futaRate }) => {
     const rate = futaRate ?? DEFAULT_FUTA_RATE;
     setFutaConfig({ enabled: Boolean(futaEnabled), rate });
@@ -1412,6 +1415,64 @@ const Company = () => {
                 FUTA is disabled. Turn on tracking to configure the employer tax rate.
               </p>
             )}
+          </div>
+        </div>
+
+        {/* CA Employer Taxes Card */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200">
+          <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200 bg-gradient-to-r from-yellow-50 to-yellow-100">
+            <h2 className="text-lg font-bold text-gray-800">CA Employer Taxes</h2>
+            <p className="text-xs text-gray-500 mt-1">
+              California SUI and ETT — employer-paid, never withheld from employee wages
+            </p>
+          </div>
+
+          <div className="p-4 sm:p-6 space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium text-gray-800">Enable SUI tracking</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  California State Unemployment Insurance (employer only)
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSuiEnabled((prev) => !prev)}
+                aria-pressed={suiEnabled}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
+                  suiEnabled ? "bg-teal-600" : "bg-gray-300"
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    suiEnabled ? "translate-x-6" : "translate-x-1"
+                  }`}
+                />
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium text-gray-800">Enable ETT tracking</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Employment Training Tax — 0.1% on the first $7,000 (employer only)
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEttEnabled((prev) => !prev)}
+                aria-pressed={ettEnabled}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
+                  ettEnabled ? "bg-teal-600" : "bg-gray-300"
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    ettEnabled ? "translate-x-6" : "translate-x-1"
+                  }`}
+                />
+              </button>
+            </div>
           </div>
         </div>
 

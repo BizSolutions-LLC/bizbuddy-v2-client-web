@@ -62,6 +62,7 @@ const BASE_COLUMNS = [
   { key: 'position', label: 'Position', align: 'left' },
   { key: 'status', label: 'Status', align: 'center' },
   { key: 'payRate', label: 'Pay Rate', align: 'right' },
+  { key: 'driverPayRate', label: 'Driver Rate', align: 'right' },
   { key: 'hourlyRate', label: 'Legacy Rate', align: 'right' },
 ];
 
@@ -1029,6 +1030,7 @@ const EmployeeSheet = () => {
         status: emp.status,
         payType: payroll?.payType || '—',
         payRate: payroll?.payRate ?? null,
+        driverPayRate: payroll?.driverPayRate ?? null,
         payrollDetails: payroll || null,
         earningRates: detail?.earningRates || {},
         hourlyRate: emp.hourlyRate,
@@ -1306,6 +1308,7 @@ const EmployeeSheet = () => {
               earningRates: detail.earningRates || {},
               payType: detail.payrollDetails.payType,
               payRate: detail.payrollDetails.payRate,
+              driverPayRate: detail.payrollDetails.driverPayRate,
               grossPay: null,
               taxes: null,
               taxBreakdown: null,
@@ -1341,6 +1344,7 @@ const EmployeeSheet = () => {
             earningRates: detail.earningRates || {},
             payType: detail.payrollDetails.payType,
             payRate: detail.payrollDetails.payRate,
+            driverPayRate: detail.payrollDetails.driverPayRate,
             grossPay: result.grossPay,
             taxes: taxBreakdown.totalTaxes,
             taxBreakdown,
@@ -1652,6 +1656,7 @@ const EmployeeSheet = () => {
         Position: row.position,
         Status: row.status,
         'Pay Rate': formatPayRate(row.payType, row.payRate),
+        'Driver Rate': formatLegacyRate(row.driverPayRate),
       };
 
       if (hoursLoaded) {
@@ -1712,6 +1717,8 @@ const EmployeeSheet = () => {
         return formatNameLastFirst(row.name);
       case 'payRate':
         return formatPayRate(row.payType, row.payRate);
+      case 'driverPayRate':
+        return formatLegacyRate(row.driverPayRate);
       case 'hourlyRate':
         return formatLegacyRate(row.hourlyRate);
       case 'payType':
@@ -2185,7 +2192,7 @@ const EmployeeSheet = () => {
                         <td
                           key={col.key}
                           className={`px-3 py-1.5 border border-gray-300 whitespace-nowrap ${
-                            ['employeeId', 'payRate', 'regularHours', 'overtimeHours', 'driverHours', 'trainingHours', 'ptoHours', 'totalPunchHours', 'grossPay', 'taxes', 'deductions', 'netPay', 'futaDeduction', ...TAX_COLUMNS.map((c) => c.key)].includes(col.key)
+                            ['employeeId', 'payRate', 'driverPayRate', 'regularHours', 'overtimeHours', 'driverHours', 'trainingHours', 'ptoHours', 'totalPunchHours', 'grossPay', 'taxes', 'deductions', 'netPay', 'futaDeduction', ...TAX_COLUMNS.map((c) => c.key)].includes(col.key)
                               ? 'font-mono text-xs'
                               : 'text-sm'
                           } ${col.key === 'name' ? 'font-medium text-gray-900' : 'text-gray-700'} ${
