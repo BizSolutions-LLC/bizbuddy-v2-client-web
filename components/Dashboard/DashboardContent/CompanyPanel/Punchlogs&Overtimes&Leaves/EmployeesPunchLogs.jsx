@@ -41,6 +41,7 @@ import {
   Tag,
   X,
   Upload,
+  History,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast, Toaster } from "sonner";
@@ -63,6 +64,7 @@ import CutoffDateRangeFilter, { periodRangeKey, groupPeriodsByRange, groupStatus
 import TableSkeleton from "@/components/common/TableSkeleton";
 import { Textarea } from "@/components/ui/textarea";
 import ImportPunchLogs from "./ImportPunchLogs";
+import ImportBacktrackPunchLogs from "./ImportBacktrackPunchLogs";
 
 // ── D-2: DA hour constants ─────────────────────────────────────────────────────
 const DRIVER_AIDE_AM_HOURS      = 1.25;   // fixed always
@@ -1353,6 +1355,7 @@ export default function EmployeesPunchLogs() {
   const [generateModalOpen, setGenerateModalOpen] = useState(false);
   const [generating,        setGenerating]        = useState(false);
   const [importModalOpen,   setImportModalOpen]   = useState(false);
+  const [backtrackImportModalOpen, setBacktrackImportModalOpen] = useState(false);
   const [expandedRow,       setExpandedRow]       = useState(null);
 
   const [totalRows, setTotalRows] = useState(0);
@@ -1447,6 +1450,10 @@ export default function EmployeesPunchLogs() {
   const applyDates = () => setFilters((prev) => ({ ...prev, from: pendingDates.from, to: pendingDates.to }));
 
   const canEdit = ["superadmin", "admin", "supervisor"].includes((currentUserRole || "").toLowerCase());
+  // Backtrack import is DayCare-only — B&C companies are rejected server-side (400), so hide
+  // the entry point entirely rather than let the admin hit that error, same as other
+  // Driver/Aide-only features gated by isDayCare elsewhere in this file.
+  const canBacktrackImport = canEdit && isDayCare;
 
   const employeeNameMap = useMemo(() => {
     const map = {};
@@ -2061,6 +2068,9 @@ export default function EmployeesPunchLogs() {
           <IconBtn icon={Download} tooltip="Generate Report" onClick={() => setGenerateModalOpen(true)} />
           {canEdit && (
             <IconBtn icon={Upload} tooltip="Import Punch Logs" onClick={() => setImportModalOpen(true)} />
+          )}
+          {canBacktrackImport && (
+            <IconBtn icon={History} tooltip="Import Backtrack Punch Logs" onClick={() => setBacktrackImportModalOpen(true)} />
           )}
           <IconBtn
             icon={BookOpen}
@@ -3013,6 +3023,18 @@ export default function EmployeesPunchLogs() {
         isDayCare={isDayCare}
         currentUserRole={currentUserRole}
         onImportComplete={refreshAll}
+      />
+
+      <ImportBacktrackPunchLogs
+        open={backtrackImportModalOpen}
+        onOpenChange={setBacktrackImportModalOpen}
+        cutoffPeriods={cutoffPeriods}
+        departments={departments}
+        employees={employees}
+        currentUserRole={currentUserRole}
+        companyTimezone={companyTimezone}
+        onImportComplete={refreshAll}
+        onCutoffPeriodCreated={fetchCutoffPeriods}
       />
 
       <ScheduleDialog open={schedDialogOpen} onOpenChange={setSchedDialogOpen} scheduleList={scheduleList} />

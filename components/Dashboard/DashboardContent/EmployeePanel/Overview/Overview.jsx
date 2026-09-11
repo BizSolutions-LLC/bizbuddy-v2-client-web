@@ -2,7 +2,7 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { RefreshCw, LayoutDashboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Toaster, toast } from "sonner";
@@ -15,9 +15,8 @@ export default function Overview() {
   const { token } = useAuthStore();
   const API = process.env.NEXT_PUBLIC_API_URL;
 
-  const [me, setMe] = useState(null);
+  const [mode, setMode] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [mode, setMode] = useState("employee");
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
@@ -29,29 +28,14 @@ export default function Overview() {
         });
         const j = await r.json();
         if (!r.ok) throw new Error(j.error || "Profile fetch error");
-        setMe({ role: j.data.user.role.toLowerCase() });
+        const role = j.data.user.role.toLowerCase();
+        setMode(role === "superadmin" ? "super" : role === "admin" ? "admin" : "employee");
       } catch (e) {
         toast.message(e.message);
       }
       setLoading(false);
     })();
   }, [API, token]);
-
-  const roleButtons = useMemo(() => {
-    if (!me) return [];
-    switch (me.role) {
-      case "superadmin":
-        return ["super", "admin", "employee"];
-      case "admin":
-        return ["admin", "employee"];
-      default:
-        return ["employee"];
-    }
-  }, [me]);
-
-  useEffect(() => {
-    if (roleButtons.length) setMode(roleButtons[0]);
-  }, [roleButtons]);
 
   return (
     <div className="max-w-full mx-auto p-4 lg:px-10 px-2 space-y-8">
@@ -63,19 +47,6 @@ export default function Overview() {
             <h1 className="text-xl font-semibold">Overview</h1>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex flex-wrap gap-1.5">
-              {roleButtons.map((r) => (
-                <Button
-                  key={r}
-                  variant={mode === r ? "default" : "outline"}
-                  onClick={() => setMode(r)}
-                  size="sm"
-                  className={mode === r ? "bg-orange-500 hover:bg-orange-600 text-white" : ""}
-                >
-                  {r === "super" ? "Super-Admin" : r.charAt(0).toUpperCase() + r.slice(1)}
-                </Button>
-              ))}
-            </div>
             <Button
               variant="outline"
               size="icon"

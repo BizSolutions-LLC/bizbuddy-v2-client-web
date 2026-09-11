@@ -4,17 +4,14 @@
 import { useEffect, useState } from "react";
 import useAuthStore from "@/store/useAuthStore";
 import { toast } from "sonner";
-import { 
-  Building, Users, BarChart3, Activity, DollarSign, Server, 
-  TrendingUp, TrendingDown, CalendarDays, ChevronDown, Zap, Globe 
-} from "lucide-react";
+import { Server, CalendarDays, ChevronDown } from "lucide-react";
 import { Card, CardHeader, CardContent, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChartCard, PieSimple, BarSimple, LineSimple, AreaSimple } from "./Commons";
-import { format } from "date-fns";
+import { format, subDays, startOfMonth, endOfMonth, subMonths } from "date-fns";
 import { cn } from "@/lib/utils";
 
 const DATE_PRESETS = [
@@ -26,15 +23,42 @@ const DATE_PRESETS = [
   { label: "Custom Range", value: "custom" },
 ];
 
+// Client-side approximation of each preset's actual date span, purely for display in the
+// date-range picker (start/end boxes + calendar highlight).
+const getPresetRange = (period, customRange) => {
+  const now = new Date();
+  switch (period) {
+    case "last_7_days":
+      return { from: subDays(now, 6), to: now };
+    case "last_14_days":
+      return { from: subDays(now, 13), to: now };
+    case "last_30_days":
+      return { from: subDays(now, 29), to: now };
+    case "last_month": {
+      const lastMonth = subMonths(now, 1);
+      return { from: startOfMonth(lastMonth), to: endOfMonth(lastMonth) };
+    }
+    case "custom":
+      return customRange?.from && customRange?.to ? customRange : { from: null, to: null };
+    case "this_month":
+    default:
+      return { from: startOfMonth(now), to: now };
+  }
+};
+
 export default function OverviewSuperadmin() {
   const { token } = useAuthStore();
   const API = process.env.NEXT_PUBLIC_API_URL;
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   
-  // Date range state
+  // Date range state — committed (drives the fetch) vs. pending (edited inside the open popover,
+  // only committed on "Apply").
   const [selectedPeriod, setSelectedPeriod] = useState("this_month");
   const [customDateRange, setCustomDateRange] = useState({ from: null, to: null });
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+  const [pendingPeriod, setPendingPeriod] = useState("this_month");
+  const [pendingCustomRange, setPendingCustomRange] = useState({ from: null, to: null });
 
   const fetchAnalytics = async (period, customStart, customEnd) => {
     setLoading(true);
@@ -63,36 +87,36 @@ export default function OverviewSuperadmin() {
     fetchAnalytics(selectedPeriod, customDateRange.from, customDateRange.to);
   }, [API, token, selectedPeriod]);
 
-  const handlePeriodChange = (period) => {
-    setSelectedPeriod(period);
-    if (period !== 'custom') {
-      setCustomDateRange({ from: null, to: null });
+  const handleDatePickerOpenChange = (open) => {
+    if (open) {
+      setPendingPeriod(selectedPeriod);
+      setPendingCustomRange(customDateRange);
     }
+    setIsDatePickerOpen(open);
   };
 
-  const handleCustomDateApply = () => {
-    if (customDateRange.from && customDateRange.to) {
+  const handleCalendarSelect = (range) => {
+    if (pendingPeriod !== 'custom') setPendingPeriod('custom');
+    setPendingCustomRange(range);
+  };
+
+  const handleApplyDateRange = () => {
+    if (pendingPeriod === 'custom') {
+      if (!pendingCustomRange.from || !pendingCustomRange.to) {
+        toast.error("Please select both start and end dates");
+        return;
+      }
+      setCustomDateRange(pendingCustomRange);
       setSelectedPeriod('custom');
-      fetchAnalytics('custom', customDateRange.from, customDateRange.to);
+      fetchAnalytics('custom', pendingCustomRange.from, pendingCustomRange.to);
     } else {
-      toast.error("Please select both start and end dates");
+      setCustomDateRange({ from: null, to: null });
+      setSelectedPeriod(pendingPeriod);
     }
+    setIsDatePickerOpen(false);
   };
 
-  // Mock trend calculation - replace with actual previous period comparison
-  const calculateTrend = (value) => {
-    const trend = Math.random() > 0.5 ? 1 : -1;
-    const percentage = (Math.random() * 15).toFixed(1);
-    return { trend, percentage };
-  };
-
-  const SkelCards = (n) => (
-    <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mb-4">
-      {Array.from({ length: n }).map((_, i) => (
-        <Skeleton key={i} className="h-32 w-full rounded-lg" />
-      ))}
-    </div>
-  );
+  const SkelMetrics = () => <Skeleton className="h-40 w-full rounded-xl mb-4" />;
 
   const SkelCharts = (n) => (
     <div className="grid lg:grid-cols-3 gap-3">
@@ -108,154 +132,152 @@ export default function OverviewSuperadmin() {
         <div className="mb-6">
           <Skeleton className="h-10 w-64 rounded-lg" />
         </div>
-        {SkelCards(8)}
+        <SkelMetrics />
         {SkelCharts(6)}
       </>
     );
   }
 
   const cards = [
-    { 
-      icon: <Building className="h-5 w-5 text-gray-500" />, 
-      label: "Total Companies", 
+    {
+      label: "Total Companies",
       value: data.summary.totalCompanies,
       subtitle: `+${data.summary.newCompaniesCount} this period`,
-      trend: calculateTrend(data.summary.totalCompanies)
     },
-    { 
-      icon: <Users className="h-5 w-5 text-gray-500" />, 
-      label: "Total Employees", 
+    {
+      label: "Total Employees",
       value: data.summary.totalEmployees,
       subtitle: `+${data.summary.newEmployeesCount} this period`,
-      trend: calculateTrend(data.summary.totalEmployees)
     },
-    { 
-      icon: <Activity className="h-5 w-5 text-gray-500" />, 
-      label: "Active Users", 
+    {
+      label: "Active Users",
       value: data.summary.activeUsersCount,
       subtitle: `${data.summary.engagementRate}% engagement`,
-      trend: calculateTrend(data.summary.activeUsersCount)
     },
-    { 
-      icon: <DollarSign className="h-5 w-5 text-gray-500" />, 
-      label: "Monthly Recurring Revenue", 
+    {
+      label: "Monthly Recurring Revenue",
       value: `$${data.summary.mrr.toLocaleString()}`,
       subtitle: `${data.summary.totalActiveSubscriptions} active subscriptions`,
-      trend: calculateTrend(data.summary.mrr),
-      highlight: true
+      highlight: true,
     },
-    { 
-      icon: <Zap className="h-5 w-5 text-gray-500" />, 
-      label: "Hours Tracked", 
+    {
+      label: "Hours Tracked",
       value: data.summary.totalHoursTracked.toLocaleString(),
       subtitle: `${data.summary.avgHoursPerUser} avg/user`,
-      trend: calculateTrend(data.summary.totalHoursTracked)
     },
-    { 
-      icon: <BarChart3 className="h-5 w-5 text-gray-500" />, 
-      label: "Subscription Plans", 
-      value: data.summary.totalPlans,
-      isText: true
-    },
-    { 
-      icon: <Server className="h-5 w-5 text-gray-500" />, 
-      label: "Server Uptime", 
+    { label: "Subscription Plans", value: data.summary.totalPlans, isText: true },
+    {
+      label: "Server Uptime",
       value: `${data.summary.serverUptime}%`,
       subtitle: `${data.summary.avgResponseTime}ms avg response`,
-      trend: { trend: 1, percentage: data.summary.serverUptime }
     },
-    { 
-      icon: <Globe className="h-5 w-5 text-gray-500" />, 
-      label: "Leave Requests", 
-      value: data.summary.leaveRequestsCount,
-      trend: calculateTrend(data.summary.leaveRequestsCount)
-    },
+    { label: "Leave Requests", value: data.summary.leaveRequestsCount },
   ];
 
   const currentPreset = DATE_PRESETS.find(p => p.value === selectedPeriod);
+  const committedRange = getPresetRange(selectedPeriod, customDateRange);
+  const pendingRange = getPresetRange(pendingPeriod, pendingCustomRange);
 
   return (
     <div className="animate-in fade-in duration-300">
       {/* Professional Date Range Selector */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <Popover>
+          <Popover open={isDatePickerOpen} onOpenChange={handleDatePickerOpenChange}>
             <PopoverTrigger asChild>
               <Button
                 variant="outline"
                 className={cn(
                   "justify-between font-medium shadow-sm hover:shadow-md transition-all duration-200",
                   "border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700",
-                  "bg-white dark:bg-gray-950 min-w-[200px]"
+                  "bg-white dark:bg-gray-950 min-w-[220px]"
                 )}
               >
                 <div className="flex items-center gap-2">
                   <CalendarDays className="h-4 w-4 text-gray-500" />
-                  <span className="text-sm">
-                    {selectedPeriod === 'custom' && customDateRange.from && customDateRange.to
-                      ? `${format(customDateRange.from, 'MMM dd')} - ${format(customDateRange.to, 'MMM dd, yyyy')}`
-                      : currentPreset?.label || "This Month"}
-                  </span>
+                  <span className="text-sm font-medium">{currentPreset?.label || "This Month"}</span>
+                  {committedRange.from && committedRange.to && (
+                    <span className="hidden sm:inline text-sm text-gray-400 dark:text-gray-500">
+                      {format(committedRange.from, 'MMM d')} – {format(committedRange.to, 'MMM d, yyyy')}
+                    </span>
+                  )}
                 </div>
                 <ChevronDown className="h-4 w-4 text-gray-400 ml-2" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-[min(320px,calc(100vw-2rem))] p-0" align="start">
-              <div className="flex flex-col">
-                {/* Preset Options */}
-                <div className="hidden sm:block p-2 border-b border-gray-200 dark:border-gray-800">
-                  <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-2 py-1.5">
-                    Quick Select
-                  </p>
-                  <div className="hidden sm:block">
-                    {DATE_PRESETS.filter(p => p.value !== 'custom').map((preset) => (
-                      <Button
-                        key={preset.value}
-                        variant="ghost"
-                        className={cn(
-                          "w-full justify-start font-normal",
-                          selectedPeriod === preset.value && "bg-gray-100 dark:bg-gray-800 font-medium"
-                        )}
-                        onClick={() => handlePeriodChange(preset.value)}
-                      >
-                        {preset.label}
-                      </Button>
-                    ))}
-                  </div>
+            <PopoverContent className="w-[min(700px,calc(100vw-2rem))] p-0" align="start">
+              <div className="flex flex-col sm:flex-row">
+                {/* Preset list */}
+                <div className="flex sm:flex-col overflow-x-auto sm:overflow-visible sm:w-44 shrink-0 border-b sm:border-b-0 sm:border-r border-gray-200 dark:border-gray-800 py-2">
+                  {DATE_PRESETS.map((preset) => (
+                    <button
+                      key={preset.value}
+                      type="button"
+                      onClick={() => setPendingPeriod(preset.value)}
+                      className={cn(
+                        "text-left px-4 py-2 text-sm whitespace-nowrap transition-colors rounded-md sm:rounded-none",
+                        pendingPeriod === preset.value
+                          ? "bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400 font-medium"
+                          : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-900"
+                      )}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
                 </div>
 
-                {/* Custom Date Range */}
-                <div className="p-3">
-                  <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-2 py-1.5 mb-2">
-                    Custom Range
-                  </p>
-                  <Calendar
-                    mode="range"
-                    selected={customDateRange}
-                    onSelect={setCustomDateRange}
-                    numberOfMonths={1}
-                    disabled={(date) => date > new Date() || date < new Date("2020-01-01")}
-                    className="rounded-md"
-                  />
-                  <div className="flex gap-2 mt-3 px-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="flex-1"
-                      onClick={() => setCustomDateRange({ from: null, to: null })}
-                    >
-                      Clear
-                    </Button>
-                    <Button
-                      size="sm"
-                      className="flex-1"
-                      onClick={handleCustomDateApply}
-                      disabled={!customDateRange.from || !customDateRange.to}
-                    >
-                      Apply
-                    </Button>
+                {/* Start/End display + calendar */}
+                <div className="flex-1 p-4 min-w-0">
+                  <div className="flex items-end gap-3 mb-3">
+                    <div className="flex-1 min-w-0">
+                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Start date</label>
+                      <div className="border border-gray-300 dark:border-gray-700 rounded-md px-3 py-1.5 text-sm truncate">
+                        {pendingRange.from ? format(pendingRange.from, 'MMM d, yyyy') : 'Select date'}
+                      </div>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">End date</label>
+                      <div className="border border-gray-300 dark:border-gray-700 rounded-md px-3 py-1.5 text-sm truncate">
+                        {pendingRange.to ? format(pendingRange.to, 'MMM d, yyyy') : 'Select date'}
+                      </div>
+                    </div>
+                    {pendingPeriod === 'custom' && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setPendingCustomRange({ from: null, to: null })}
+                      >
+                        Clear
+                      </Button>
+                    )}
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <Calendar
+                      mode="range"
+                      numberOfMonths={2}
+                      selected={pendingPeriod === 'custom' ? pendingCustomRange : pendingRange}
+                      onSelect={handleCalendarSelect}
+                      disabled={(date) => date > new Date() || date < new Date("2020-01-01")}
+                      className="rounded-md"
+                    />
                   </div>
                 </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-gray-200 dark:border-gray-800">
+                <Button variant="ghost" size="sm" onClick={() => setIsDatePickerOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleApplyDateRange}
+                  disabled={pendingPeriod === 'custom' && (!pendingCustomRange.from || !pendingCustomRange.to)}
+                  className="bg-orange-500 hover:bg-orange-600 text-white"
+                >
+                  Apply
+                </Button>
               </div>
             </PopoverContent>
           </Popover>
@@ -278,64 +300,30 @@ export default function OverviewSuperadmin() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mb-4">
-        {cards.map((c) => (
-          <Card 
-            key={c.label} 
-            className={cn(
-              "border transition-all duration-200 overflow-hidden shadow-none hover:shadow-sm",
-              c.highlight 
-                ? "border-orange-200 dark:border-orange-900/50 bg-gradient-to-br from-orange-50/50 to-white dark:from-orange-950/20 dark:to-gray-950" 
-                : "border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700"
-            )}
-          >
-            <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2 pt-4 px-4">
-              <CardTitle className="text-xs font-medium text-gray-600 dark:text-gray-400">
-                {c.label}
-              </CardTitle>
-              <div className={cn(
-                "p-1.5 rounded-md flex-shrink-0 shadow-sm",
-                c.highlight 
-                  ? "bg-gradient-to-br from-orange-100 to-orange-200 dark:from-orange-900/40 dark:to-orange-800/40" 
-                  : "bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900"
-              )}>
-                {c.icon}
-              </div>
-            </CardHeader>
-            <CardContent className="px-4 pb-4">
-              <div className="flex items-baseline justify-between gap-2">
-                <p className="text-lg sm:text-2xl font-semibold truncate" title={String(c.value)}>
+      <Card className="border border-gray-200 dark:border-gray-800 shadow-sm rounded-xl mb-4">
+        <CardContent className="p-6">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-6">
+            {cards.map((c) => (
+              <div key={c.label} className="min-w-0">
+                <span className="text-xs text-gray-500 dark:text-gray-400 border-b border-dotted border-gray-400 dark:border-gray-600 pb-0.5">
+                  {c.label}
+                </span>
+                <p
+                  className={`mt-1.5 font-bold truncate ${c.isText ? 'text-xl sm:text-2xl' : 'text-2xl sm:text-3xl'} ${
+                    c.highlight ? 'text-orange-600 dark:text-orange-500' : 'text-gray-900 dark:text-gray-100'
+                  }`}
+                  title={String(c.value)}
+                >
                   {c.value}
                 </p>
-                {c.trend && (
-                  <div className={`flex items-center text-xs font-medium flex-shrink-0 px-1.5 py-0.5 rounded ${
-                    c.trend.trend > 0 
-                      ? 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/30' 
-                      : 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30'
-                  }`}>
-                    {c.trend.trend > 0 ? (
-                      <TrendingUp className="h-3 w-3 mr-0.5" />
-                    ) : (
-                      <TrendingDown className="h-3 w-3 mr-0.5" />
-                    )}
-                    {c.trend.percentage}%
-                  </div>
+                {c.subtitle && (
+                  <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">{c.subtitle}</p>
                 )}
               </div>
-              {c.subtitle && (
-                <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
-                  {c.subtitle}
-                </p>
-              )}
-              {c.trend && !c.subtitle && (
-                <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
-                  vs previous period
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Charts - Row 1: Business Metrics */}
       <div className="grid lg:grid-cols-3 gap-3 mb-3">
@@ -491,7 +479,7 @@ export default function OverviewSuperadmin() {
                     >
                       <td className="py-3 px-4 font-medium">{c.name}</td>
                       <td className="py-3 px-4 text-right">
-                        <span className="px-2 py-1 bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400 rounded text-xs font-medium">
+                        <span className="px-2 py-1 bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400 rounded text-xs font-medium">
                           {c.daysAgo === 0 ? 'Today' : `${c.daysAgo} day${c.daysAgo > 1 ? 's' : ''} ago`}
                         </span>
                       </td>
