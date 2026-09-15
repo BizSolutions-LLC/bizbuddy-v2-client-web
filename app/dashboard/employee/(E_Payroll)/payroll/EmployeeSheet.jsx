@@ -677,6 +677,7 @@ const EmployeeSheet = () => {
       computeError: null,
       deductionBreakdown: null,
       futaDeduction: null,
+      earningsBreakdown: null,
     }));
   }, []);
 
@@ -874,7 +875,7 @@ const EmployeeSheet = () => {
           totalDeductions: row.deductions,
           netPay: round2(row.grossPay - row.deductions),
           deductionsBreakdown: row.deductionBreakdown || {},
-          earningsBreakdown: {},
+          earningsBreakdown: row.earningsBreakdown || {},
         },
         taxes,
         netPayAfterTaxes: row.netPay,
@@ -1278,6 +1279,7 @@ const EmployeeSheet = () => {
               computeError: 'no_profile',
               deductionBreakdown: null,
               futaDeduction: null,
+              earningsBreakdown: null,
             };
           }
 
@@ -1319,6 +1321,7 @@ const EmployeeSheet = () => {
               computeError: result.error,
               deductionBreakdown: null,
               futaDeduction: null,
+              earningsBreakdown: null,
             };
           }
 
@@ -1350,6 +1353,7 @@ const EmployeeSheet = () => {
             taxBreakdown,
             federalTaxDetail,
             stateTaxDetail,
+            earningsBreakdown: result.earningsBreakdown || {},
             computeError: null,
           };
 
