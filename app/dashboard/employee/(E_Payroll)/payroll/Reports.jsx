@@ -11,7 +11,8 @@ import {
   downloadPayslipPdf,
   sendPayslipEmail,
 } from '@/lib/payslipActions';
-import { Printer, RefreshCw, FileSpreadsheet } from 'lucide-react';
+import { Printer, RefreshCw, FileSpreadsheet, Info } from 'lucide-react';
+import ViewPaycheckModal from './ViewPaycheckModal';
 import {
   downloadPayrollSummaryExcel,
   mapReportEmployeeToSummaryRow,
@@ -94,6 +95,7 @@ const Reports = () => {
   const [selectedRunId, setSelectedRunId] = useState(null);
   const [usingMockData, setUsingMockData] = useState(false);
   const [payslipLoading, setPayslipLoading] = useState({});
+  const [selectedEmployee, setSelectedEmployee] = useState(null);
 
   const yearOptions = useMemo(() => {
     return Array.from({ length: 6 }, (_, i) => currentYear - i);
@@ -250,6 +252,19 @@ const Reports = () => {
   }, [payrollReports, selectedRunId, periodReport]);
 
   const isViewingPeriodReport = selectedRunId === PERIOD_AGGREGATE_ID;
+
+  useEffect(() => {
+    setSelectedEmployee(null);
+  }, [selectedRunId]);
+
+  const openPaycheckModal = (emp) => {
+    if (isViewingPeriodReport) return;
+    setSelectedEmployee(emp);
+  };
+
+  const closePaycheckModal = () => {
+    setSelectedEmployee(null);
+  };
 
   const filteredEmployees = useMemo(() => {
     if (!selectedReport?.employees) return [];
@@ -835,7 +850,19 @@ const Reports = () => {
                             index % 2 === 0 ? 'bg-white' : 'bg-[#fafafa]'
                           }`}
                         >
-                          {emp.employeeName || '—'}
+                          {isViewingPeriodReport ? (
+                            emp.employeeName || '—'
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => openPaycheckModal(emp)}
+                              title="View paycheck"
+                              className="inline-flex items-center gap-1.5 text-left font-medium text-orange-700 hover:text-orange-800 hover:underline"
+                            >
+                              <Info className="w-3.5 h-3.5 shrink-0 text-orange-500" />
+                              <span>{emp.employeeName || '—'}</span>
+                            </button>
+                          )}
                         </td>
                         <td className="px-3 py-1.5 text-sm text-gray-700 border border-gray-300">
                           {emp.position || '—'}
@@ -941,6 +968,12 @@ const Reports = () => {
   return (
     <>
       <Toaster position="top-center" richColors />
+      <ViewPaycheckModal
+        open={!!selectedEmployee && !isViewingPeriodReport}
+        onClose={closePaycheckModal}
+        report={selectedReport}
+        employee={selectedEmployee}
+      />
       <div>
         <div className="bg-gray-50 border-b">
           <div className="px-4 sm:px-6 pt-4 overflow-x-auto">
