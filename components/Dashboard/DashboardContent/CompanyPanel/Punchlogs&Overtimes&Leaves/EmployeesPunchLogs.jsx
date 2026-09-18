@@ -46,6 +46,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { toast, Toaster } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
+import YearlyTotalHoursReportTrigger from "./YearlyTotalHoursReportTrigger";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -2066,6 +2067,11 @@ export default function EmployeesPunchLogs() {
         <div className="flex gap-2">
           <IconBtn icon={RefreshCw} tooltip="Refresh data" spinning={refreshing} onClick={refreshAll} />
           <IconBtn icon={Download} tooltip="Generate Report" onClick={() => setGenerateModalOpen(true)} />
+          <YearlyTotalHoursReportTrigger
+            companyId={companyId}
+            companyName={companyName}
+            canDownload={canEdit}
+          />
           {canEdit && (
             <IconBtn icon={Upload} tooltip="Import Punch Logs" onClick={() => setImportModalOpen(true)} />
           )}

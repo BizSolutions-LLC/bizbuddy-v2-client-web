@@ -118,6 +118,23 @@ const formatDate = (d) => {
   });
 };
 
+/**
+ * Single source of truth for what counts as "Flagged" — a record needs attention if it's
+ * unscheduled (or, when includeConflict, a conflict) or carries a tag actually classed "flag"
+ * (e.g. "Left Xmin early", "Possible duplicate") — not merely informational tags like OT/late/
+ * snap/auto. Conflict is opt-in since some UI (the card badge) shows conflicts as their own
+ * separate red "Conflict" badge and would otherwise double up.
+ */
+const isRecordFlagged = (r, { includeConflict = false } = {}) => {
+  const hasFlagTag = (item) => item.tags?.some((t) => t.cls === "flag");
+  const itemNeedsAttention = (item, unresolvedType) =>
+    !item.localStatus && (item.type === unresolvedType || (includeConflict && item.type === "conflict") || hasFlagTag(item));
+
+  if (r.type === "driver_group") return r.segments.some((s) => !s.localStatus && hasFlagTag(s));
+  if (r.type === "punch_group")  return r.punches.some((p) => itemNeedsAttention(p, "unscheduled"));
+  return itemNeedsAttention(r, "unscheduled");
+};
+
 /** Inline info tooltip — renders below the icon to avoid overflow clipping */
 const InfoTooltip = ({ text, side = "bottom" }) => (
   <span className="relative group inline-flex items-center ml-0.5 cursor-help align-middle">
@@ -658,7 +675,10 @@ const TimelineRow = ({ rec, onApprove, onApproveOT, onApproveSchedule, onApprove
             {isLocked && (
               <div className="flex items-center justify-end gap-2">
                 {rec.localStatus === "excluded"
-                  ? <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-neutral-100 text-neutral-400 border border-neutral-200"><XCircle className="w-3 h-3" /> Excluded</span>
+                  ? <>
+                      <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-neutral-100 text-neutral-400 border border-neutral-200"><XCircle className="w-3 h-3" /> Excluded</span>
+                      <ActionBtn color="neutral" icon={RotateCcw} label="Reset" onClick={(e) => { e.stopPropagation(); onReset(rec.id); }} />
+                    </>
                   : <>
                       <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-200"><Check className="w-3 h-3" /> Approved</span>
                       <ActionBtn color="neutral" icon={RotateCcw} label="Reset" onClick={(e) => { e.stopPropagation(); onReset(rec.id); }} />
@@ -818,7 +838,10 @@ const PunchSubRow = ({ rec, onApprove, onApproveOT, onApproveSchedule, onApprove
             {isLocked && (
               <div className="flex items-center justify-end gap-2">
                 {rec.localStatus === "excluded"
-                  ? <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-neutral-100 text-neutral-400 border border-neutral-200"><XCircle className="w-3 h-3" /> Excluded</span>
+                  ? <>
+                      <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-neutral-100 text-neutral-400 border border-neutral-200"><XCircle className="w-3 h-3" /> Excluded</span>
+                      <ActionBtn color="neutral" icon={RotateCcw} label="Reset" onClick={(e) => { e.stopPropagation(); onReset(rec.id); }} />
+                    </>
                   : <>
                       <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-200"><Check className="w-3 h-3" /> Approved</span>
                       <ActionBtn color="neutral" icon={RotateCcw} label="Reset" onClick={(e) => { e.stopPropagation(); onReset(rec.id); }} />
@@ -915,7 +938,10 @@ const DriverSegmentRow = ({ seg, onApprove, onApproveOT, onApproveSchedule, onAp
         ) : isLocked ? (
           <div className="flex items-center justify-end gap-2">
             {seg.localStatus === "excluded"
-              ? <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-neutral-100 text-neutral-400 border border-neutral-200"><XCircle className="w-3 h-3" /> Excluded</span>
+              ? <>
+                  <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-neutral-100 text-neutral-400 border border-neutral-200"><XCircle className="w-3 h-3" /> Excluded</span>
+                  <ActionBtn color="neutral" icon={RotateCcw} label="Reset" onClick={() => onReset(seg.id)} />
+                </>
               : <>
                   <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-200"><Check className="w-3 h-3" /> Approved</span>
                   <ActionBtn color="neutral" icon={RotateCcw} label="Reset" onClick={() => onReset(seg.id)} />
@@ -1126,7 +1152,7 @@ const OTBlockRow = ({ block, onOTBlock, localOTBlockStatus, threshold, isCutoffB
 };
 
 /** Employee card */
-const EmployeeCard = ({ emp, onApprove, onApproveOT, onApproveSchedule, onApproveRaw, onEdit, onExclude, onConflict, onBulkApprove, onOTBlock, localOTBlockStatus, companyTimezone, dailyOtThresholdHours, cutoffOtThresholdHours, otBasis, onReset, onSetPunchType, trainingDates, onTrainingDay, refreshingOT }) => {
+const EmployeeCard = ({ emp, onApprove, onApproveOT, onApproveSchedule, onApproveRaw, onEdit, onExclude, onConflict, onBulkApproveRaw, onBulkApproveSchedule, onOTBlock, localOTBlockStatus, companyTimezone, dailyOtThresholdHours, cutoffOtThresholdHours, otBasis, onReset, onSetPunchType, trainingDates, onTrainingDay, refreshingOT }) => {
   const [expanded, setExpanded] = useState(false);
   const isCutoffBasis = otBasis === "cutoff";
 
@@ -1152,11 +1178,7 @@ const EmployeeCard = ({ emp, onApprove, onApproveOT, onApproveSchedule, onApprov
     if (r.type === "punch_group") return r.punches.some((p) => p.type === "conflict" && !p.localStatus);
     return r.type === "conflict" && !r.localStatus;
   });
-  const hasFlag      = emp.records.some((r) => {
-    if (r.type === "driver_group") return r.segments.some((s) => s.tags?.length && !s.localStatus);
-    if (r.type === "punch_group")  return r.punches.some((p) => (p.type === "unscheduled" || p.tags?.length) && !p.localStatus);
-    return (r.type === "unscheduled" || r.tags?.length) && !r.localStatus;
-  });
+  const hasFlag      = emp.records.some((r) => isRecordFlagged(r));
   const allDone      = emp.pending === 0;
   const punchCount   = emp.records.reduce((n, r) => {
     if (r.type === "driver_group") return n + r.segments.length;
@@ -1375,9 +1397,14 @@ const EmployeeCard = ({ emp, onApprove, onApproveOT, onApproveSchedule, onApprov
                 {punchCount} punch {punchCount !== 1 ? "records" : "record"} · {leaveCount} leave {leaveCount !== 1 ? "records" : "record"}
               </span>
               <div className="flex items-center gap-3">
-                {emp.hasBulk && emp.pending > 0 && (
-                  <Button size="sm" className="bg-orange-500 hover:bg-orange-600 gap-1.5 text-xs h-7" onClick={() => onBulkApprove(emp.id)}>
-                    <CheckCircle2 className="w-3 h-3" /> Approve All Clean
+                {emp.hasBulkSchedule && emp.pending > 0 && (
+                  <Button size="sm" className="bg-violet-500 hover:bg-violet-600 gap-1.5 text-xs h-7" onClick={() => onBulkApproveSchedule(emp.id)}>
+                    <CalendarCheck className="w-3 h-3" /> Approve All Schedule
+                  </Button>
+                )}
+                {emp.hasBulkRaw && emp.pending > 0 && (
+                  <Button size="sm" className="bg-orange-500 hover:bg-orange-600 gap-1.5 text-xs h-7" onClick={() => onBulkApproveRaw(emp.id)}>
+                    <Clock className="w-3 h-3" /> Approve All Raw
                   </Button>
                 )}
                 <div className="text-right">
@@ -1545,7 +1572,8 @@ export default function CutoffReview({ cutoffId }) {
             color:     COLORS[colorIdx++ % COLORS.length],
             records:   [],
             hasOT:     false,
-            hasBulk:   false,
+            hasBulkRaw: false,
+            hasBulkSchedule: false,
             isDriver:  driverMap[userId] === true,
           };
         }
@@ -1554,11 +1582,16 @@ export default function CutoffReview({ cutoffId }) {
         const details = buildDetails(approval, tz, isBNCLocal);
         emp.records.push(details);
         if (details.hasOT) emp.hasOT = true;
-        if (
-          details.actions?.some((a) => ["approve", "approve-schedule", "approve-raw"].includes(a)) &&
-          !["conflict", "unscheduled"].includes(details.type)
-        ) {
-          emp.hasBulk = true;
+        if (!["conflict", "unscheduled"].includes(details.type)) {
+          if (details.actions?.some((a) => ["approve", "approve-schedule", "approve-raw"].includes(a))) {
+            emp.hasBulkRaw = true;
+          }
+          // Schedule-mode bulk approve is DayCare-only — BNC's schedule-eligible records
+          // (regular, non-segment punches) require a manual shift picker per row (no single
+          // unambiguous matched shift), so there's nothing safely bulkable for them here.
+          if (!isBNCLocal && details.actions?.includes("approve-schedule")) {
+            emp.hasBulkSchedule = true;
+          }
         }
       });
 
@@ -1578,7 +1611,8 @@ export default function CutoffReview({ cutoffId }) {
             color:     COLORS[colorIdx++ % COLORS.length],
             records:   [],
             hasOT:     false,
-            hasBulk:   false,
+            hasBulkRaw: false,
+            hasBulkSchedule: false,
             isDriver:  driverMap[userId] === true,
           };
         }
@@ -1636,7 +1670,8 @@ export default function CutoffReview({ cutoffId }) {
             color:    COLORS[colorIdx++ % COLORS.length],
             records:  [],
             hasOT:    false,
-            hasBulk:  false,
+            hasBulkRaw: false,
+            hasBulkSchedule: false,
           };
         }
 
@@ -1730,7 +1765,8 @@ export default function CutoffReview({ cutoffId }) {
             color:    COLORS[colorIdx++ % COLORS.length],
             records:  [],
             hasOT:    false,
-            hasBulk:  false,
+            hasBulkRaw: false,
+            hasBulkSchedule: false,
             isDriver: driverMapRef.current[userId] === true,
           };
         }
@@ -1738,8 +1774,9 @@ export default function CutoffReview({ cutoffId }) {
         const details = buildDetails(approval, companyTimezone, isBNC);
         emp.records.push(details);
         if (details.hasOT) emp.hasOT = true;
-        if (details.actions?.some((a) => ["approve", "approve-schedule", "approve-raw"].includes(a)) && !["conflict", "unscheduled"].includes(details.type)) {
-          emp.hasBulk = true;
+        if (!["conflict", "unscheduled"].includes(details.type)) {
+          if (details.actions?.some((a) => ["approve", "approve-schedule", "approve-raw"].includes(a))) emp.hasBulkRaw = true;
+          if (!isBNC && details.actions?.includes("approve-schedule")) emp.hasBulkSchedule = true;
         }
       });
 
@@ -1757,7 +1794,8 @@ export default function CutoffReview({ cutoffId }) {
             color:    COLORS[colorIdx++ % COLORS.length],
             records:  [],
             hasOT:    false,
-            hasBulk:  false,
+            hasBulkRaw: false,
+            hasBulkSchedule: false,
             isDriver: driverMapRef.current[userId] === true,
           };
         }
@@ -1808,7 +1846,8 @@ export default function CutoffReview({ cutoffId }) {
             color:    COLORS[colorIdx++ % COLORS.length],
             records:  [],
             hasOT:    false,
-            hasBulk:  false,
+            hasBulkRaw: false,
+            hasBulkSchedule: false,
           };
         }
         empMap[userId].records.push(buildUnsyncedRecord(rawLog, companyTimezone));
@@ -1933,7 +1972,7 @@ export default function CutoffReview({ cutoffId }) {
     if (calc.willSnapIn)  tags.push({ cls: "snap", label: "Clock-in will snap" });
     if (calc.willSnapOut) tags.push({ cls: "snap", label: "Clock-out will snap" });
     if (tl.autoClockOut && !tl.isApproved)  tags.push({ cls: "auto", label: "Auto clock-out triggered" });
-    if (approval.isDuplicate) tags.push({ cls: "flag", label: "Possible duplicate" });
+    if (approval.isDuplicate && !tl.isApproved) tags.push({ cls: "flag", label: "Possible duplicate" });
 
     // Actions — both BNC and DayCare use the four-button model.
     // BNC segments skip the shift picker (segment times are authoritative).
@@ -2181,11 +2220,7 @@ export default function CutoffReview({ cutoffId }) {
     const totalPending    = mergedEmployees.reduce((s, e) => s + e.pending, 0);
     const totalHours      = mergedEmployees.reduce((s, e) => s + e.totalHours, 0);
     const totalFlagged    = mergedEmployees.filter((e) =>
-      e.records.some((r) => {
-        if (r.type === "driver_group") return r.segments.some((s) => s.tags?.length && !s.localStatus);
-        if (r.type === "punch_group")  return r.punches.some((p) => (p.type === "conflict" || p.type === "unscheduled" || p.tags?.length) && !p.localStatus);
-        return (r.type === "conflict" || r.type === "unscheduled" || r.tags?.length) && !r.localStatus;
-      })
+      e.records.some((r) => isRecordFlagged(r, { includeConflict: true }))
     ).length;
     const pct = totalActionable > 0 ? Math.round(((totalApproved) / totalActionable) * 100) : 0;
     return { totalActionable, totalApproved, totalPending, totalHours, totalFlagged, pct };
@@ -2208,10 +2243,7 @@ export default function CutoffReview({ cutoffId }) {
     const activeChips = chips.filter((c) => c.active).map((c) => c.id);
     return mergedEmployees.filter((emp) => {
       // Tab filter
-      if (activeTab === "flagged"  && !emp.records.some((r) => {
-        if (r.type === "punch_group") return r.punches.some((p) => ["conflict","unscheduled"].includes(p.type) && !p.localStatus);
-        return ["conflict","unscheduled"].includes(r.type) && !r.localStatus;
-      })) return false;
+      if (activeTab === "flagged"  && !emp.records.some((r) => isRecordFlagged(r, { includeConflict: true }))) return false;
       if (activeTab === "approved" && emp.pending > 0) return false;
       if (activeTab === "excluded" && !emp.records.some((r) => {
         if (r.type === "punch_group") return r.punches.some((p) => p.localStatus === "excluded");
@@ -2245,10 +2277,7 @@ export default function CutoffReview({ cutoffId }) {
 
   const tabs = useMemo(() => [
     { id: "all",      label: "All",      count: mergedEmployees.length },
-    { id: "flagged",  label: "Flagged",  count: mergedEmployees.filter((e) => e.records.some((r) => {
-      if (r.type === "punch_group") return r.punches.some((p) => ["conflict","unscheduled"].includes(p.type) && !p.localStatus);
-      return ["conflict","unscheduled"].includes(r.type) && !r.localStatus;
-    })).length },
+    { id: "flagged",  label: "Flagged",  count: mergedEmployees.filter((e) => e.records.some((r) => isRecordFlagged(r, { includeConflict: true }))).length },
     { id: "approved", label: "Approved", count: mergedEmployees.filter((e) => e.pending === 0 && e.approved > 0).length },
     { id: "excluded", label: "Excluded", count: mergedEmployees.filter((e) => e.records.some((r) => {
       if (r.type === "punch_group") return r.punches.some((p) => p.localStatus === "excluded");
@@ -2419,14 +2448,14 @@ export default function CutoffReview({ cutoffId }) {
     }
   }, [token, cutoffId, excludeModal, excludeReason, excludeNote, findRecord, refreshApprovals, isBNC, otBasis, refreshOTBlocks]);
 
-  const doBulkApprove = useCallback(async (empId) => {
+  const doBulkApprove = useCallback(async (empId, approvalMode) => {
     const emp = mergedEmployees.find((e) => e.id === empId);
     if (!emp) return;
 
-    const APPROVABLE_ACTIONS = ["approve", "approve-schedule", "approve-raw"];
+    const requiredAction = approvalMode === "schedule" ? "approve-schedule" : "approve-raw";
     const isApprovable = (r) =>
       !r.localStatus &&
-      r.actions?.some((a) => APPROVABLE_ACTIONS.includes(a)) &&
+      r.actions?.includes(requiredAction) &&
       !["conflict", "unscheduled"].includes(r.type);
 
     const toApprove = []; // [{ recId, timeLogId }]
@@ -2458,7 +2487,7 @@ export default function CutoffReview({ cutoffId }) {
         {
           method: "PATCH",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "approve", approvalMode: "raw", timeLogIds }),
+          body: JSON.stringify({ action: "approve", approvalMode, timeLogIds }),
         }
       );
       const data = await res.json();
@@ -2474,6 +2503,9 @@ export default function CutoffReview({ cutoffId }) {
       toast.error(err.message || "Bulk approve failed");
     }
   }, [token, cutoffId, mergedEmployees, isBNC, otBasis, refreshOTBlocks]);
+
+  const doBulkApproveRaw      = useCallback((empId) => doBulkApprove(empId, "raw"),      [doBulkApprove]);
+  const doBulkApproveSchedule = useCallback((empId) => doBulkApprove(empId, "schedule"), [doBulkApprove]);
 
   const doOTBlock = useCallback(async (blockId, action) => {
     setLocalOTBlockStatus((s) => ({ ...s, [blockId]: action === "approve" ? "approved" : "excluded" }));
@@ -2765,7 +2797,8 @@ export default function CutoffReview({ cutoffId }) {
                 }}
                 onExclude={(id) => setExcludeModal({ recId: id })}
                 onConflict={doConflict}
-                onBulkApprove={doBulkApprove}
+                onBulkApproveRaw={doBulkApproveRaw}
+                onBulkApproveSchedule={doBulkApproveSchedule}
                 onOTBlock={doOTBlock}
                 localOTBlockStatus={localOTBlockStatus}
                 companyTimezone={companyTimezone}
