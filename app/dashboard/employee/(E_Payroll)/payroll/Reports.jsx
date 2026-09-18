@@ -12,6 +12,7 @@ import {
   sendPayslipEmail,
 } from '@/lib/payslipActions';
 import { Printer, RefreshCw, FileSpreadsheet, Info } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import ViewPaycheckModal from './ViewPaycheckModal';
 import {
   downloadPayrollSummaryExcel,
@@ -28,6 +29,11 @@ import {
   reportMatchesDateRange,
   usesPeriodAggregateView,
 } from '@/lib/payrollReportPeriod';
+import {
+    canCreateDisbursement,
+    createDisbursementFromPayrollRun,
+    fetchDisbursementBatches,
+} from '@/lib/disbursementApi';
 
 const STICKY_ROW_NUM_LEFT = 'left-0';
 const STICKY_NAME_LEFT = 'left-12';
@@ -77,6 +83,7 @@ function formatDate(value) {
 
 const Reports = () => {
   const { token } = useAuthStore();
+  const router = useRouter();
   const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
   const [activeReportTab, setActiveReportTab] = useState('payroll-detail');
@@ -96,6 +103,9 @@ const Reports = () => {
   const [usingMockData, setUsingMockData] = useState(false);
   const [payslipLoading, setPayslipLoading] = useState({});
   const [selectedEmployee, setSelectedEmployee] = useState(null);
+  const [userRole, setUserRole] = useState(null);
+  const [disbursementByRunId, setDisbursementByRunId] = useState({});
+  const [creatingDisbursementId, setCreatingDisbursementId] = useState(null);
 
   const yearOptions = useMemo(() => {
     return Array.from({ length: 6 }, (_, i) => currentYear - i);
@@ -223,6 +233,30 @@ const Reports = () => {
   }, [fetchPayrollReports]);
 
   useEffect(() => {
+    if (!token) return;
+
+    fetch(`${API_URL}/api/account/profile`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => res.json())
+      .then((payload) => {
+        setUserRole(payload?.data?.user?.role?.toLowerCase() || null);
+      })
+      .catch(() => setUserRole(null));
+
+    fetchDisbursementBatches(API_URL, token, { limit: 200 })
+      .then((data) => {
+        const map = {};
+        (data?.batches || []).forEach((batch) => {
+          if (batch.status === 'CANCELLED') return;
+          if (!map[batch.payrollRunId]) map[batch.payrollRunId] = batch;
+        });
+        setDisbursementByRunId(map);
+      })
+      .catch(() => setDisbursementByRunId({}));
+  }, [API_URL, token]);
+
+  useEffect(() => {
     if (usesPeriodAggregateView(periodMode) && payrollReports.length > 0) {
       setSelectedRunId(PERIOD_AGGREGATE_ID);
     }
@@ -326,6 +360,30 @@ const Reports = () => {
       toast.error(error.message || 'Payslip action failed');
     } finally {
       setPayslipLoading((prev) => ({ ...prev, [loadingKey]: null }));
+    }
+  };
+
+  const handleCreateDisbursement = async (payrollRunId, event) => {
+    event?.stopPropagation();
+    if (isMockPayrollId(payrollRunId)) {
+      toast.info('Disbursement is not available for demo payroll runs.');
+      return;
+    }
+    const existing = disbursementByRunId[payrollRunId];
+    if (existing) {
+      router.push(`/dashboard/employee/disbursement?batchId=${existing.id}`);
+      return;
+    }
+    setCreatingDisbursementId(payrollRunId);
+    try {
+      const created = await createDisbursementFromPayrollRun(API_URL, token, payrollRunId);
+      toast.success('Disbursement batch created from finalized payroll.');
+      setDisbursementByRunId((prev) => ({ ...prev, [payrollRunId]: created }));
+      router.push(`/dashboard/employee/disbursement?batchId=${created.id}`);
+    } catch (error) {
+      toast.error(error.message || 'Failed to create disbursement batch');
+    } finally {
+      setCreatingDisbursementId(null);
     }
   };
 
@@ -642,7 +700,7 @@ const Reports = () => {
             <table className="w-full border-collapse text-sm min-w-[900px]">
               <thead className="sticky top-0 z-10">
                 <tr className="bg-[#f3f3f3]">
-                  {['View', 'Pay Date', 'Period', 'Employees', 'Gross Pay', 'Taxes', 'Deductions', 'Net Pay'].map(
+                  {['View', 'Pay Date', 'Period', 'Employees', 'Gross Pay', 'Taxes', 'Deductions', 'Net Pay', 'Actions'].map(
                     (label, i) => (
                       <th
                         key={label}
@@ -652,7 +710,9 @@ const Reports = () => {
                           label === 'Gross Pay' ? 'bg-green-100 text-green-800' : ''
                         } ${label === 'Taxes' ? 'bg-blue-100 text-blue-800' : ''} ${
                           label === 'Deductions' ? 'bg-red-100 text-red-800' : ''
-                        } ${label === 'View' ? 'bg-orange-50 text-orange-800 min-w-[140px]' : ''}`}
+                        } ${label === 'View' ? 'bg-orange-50 text-orange-800 min-w-[140px]' : ''} ${
+                          label === 'Actions' ? 'text-left bg-gray-50 min-w-[160px]' : ''
+                        }`}
                       >
                         {label}
                       </th>
@@ -693,6 +753,9 @@ const Reports = () => {
                     </td>
                     <td className="px-3 py-2 border border-gray-300 text-right font-mono text-xs font-semibold text-orange-700">
                       {formatCurrency(periodReport.totalNet)}
+                    </td>
+                    <td className="px-3 py-2 border border-gray-300 text-xs text-gray-400">
+                      —
                     </td>
                   </tr>
                 )}
@@ -738,6 +801,31 @@ const Reports = () => {
                       </td>
                       <td className="px-3 py-2 border border-gray-300 text-right font-mono text-xs font-semibold text-orange-700">
                         {formatCurrency(report.totalNet)}
+                      </td>
+                      <td className="px-3 py-2 border border-gray-300 text-left">
+                        {canCreateDisbursement(userRole) && (
+                          disbursementByRunId[report.id] ? (
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                router.push(`/dashboard/employee/disbursement?batchId=${disbursementByRunId[report.id].id}`);
+                              }}
+                              className="px-2 py-1 text-xs font-semibold text-orange-700 border border-orange-300 rounded hover:bg-orange-50"
+                            >
+                              View Disbursement
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(event) => handleCreateDisbursement(report.id, event)}
+                              disabled={creatingDisbursementId === report.id}
+                              className="px-2 py-1 text-xs font-semibold text-white bg-orange-600 rounded hover:bg-orange-700 disabled:opacity-50"
+                            >
+                              {creatingDisbursementId === report.id ? 'Creating…' : 'Create Disbursement Batch'}
+                            </button>
+                          )
+                        )}
                       </td>
                     </tr>
                   );

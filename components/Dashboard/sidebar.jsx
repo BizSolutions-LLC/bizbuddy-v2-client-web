@@ -60,6 +60,7 @@ function getPayrollItems(role) {
       label: "Payroll",
       children: [
         { id: "employee/payroll", label: "Payroll Management" },
+        { id: "employee/disbursement", label: "Disbursement" },
         { id: "employee/payslip", label: "My Payslip" },
       ],
     };
@@ -140,6 +141,7 @@ const FREE_ALLOWED = new Set([
   "employee/schedule",
   "employee/payslip",
   "employee/payroll",
+  "employee/disbursement",
   "company/punch-logs",
   "company/contest-requests",
   "company/deletion",
