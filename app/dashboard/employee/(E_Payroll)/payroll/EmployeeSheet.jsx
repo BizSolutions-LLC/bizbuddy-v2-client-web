@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { toast, Toaster } from 'sonner';
 import { jwtDecode } from 'jwt-decode';
 import useAuthStore from '@/store/useAuthStore';
@@ -9,19 +9,25 @@ import {
   calculateDeductionValue,
   calculateTaxes,
   calculateFutaDeduction,
+  calculateEmployerWageBaseTax,
   getFederalTaxDetail,
   getStateTaxDetail,
   round2,
   DEFAULT_TAX_RATES,
   DEFAULT_FUTA_WAGE_CAP,
+  DEFAULT_SUI_RATE,
+  DEFAULT_ETT_RATE,
 } from '@/lib/payrollCompute';
 import {
   viewPayslipPdf,
   downloadPayslipPdf,
   sendPayslipEmail,
-  sendAllPayslipEmails,
   isValidEmployeeEmail,
 } from '@/lib/payslipActions';
+import {
+  fetchPaidEmployeeIdsForPayrollRun,
+  UNVERIFIED_PAYMENT_PAYSLIP_MESSAGE,
+} from '@/lib/disbursementApi';
 import PayslipActionButtons from '@/components/payroll/PayslipActionButtons';
 import ModalPortal from '@/components/ui/modal-portal';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -37,7 +43,7 @@ import {
   Info,
   Plus,
   X,
-  Mail,
+  FileSpreadsheet,
   Save,
   MoreHorizontal,
   RefreshCw,
@@ -97,6 +103,23 @@ const TAX_COLUMNS = [
 const TAX_TOTAL_COLUMN = { key: 'taxes', label: 'Tax Total', align: 'right', isTaxTotal: true };
 
 const FUTA_DEDUCTION_COLUMN = { key: 'futaDeduction', label: 'FUTA', align: 'right', isFuta: true };
+const SUI_EMPLOYER_COLUMN = { key: 'suiDeduction', label: 'CA SUI', align: 'right', isEmployerCost: true };
+const ETT_EMPLOYER_COLUMN = { key: 'ettDeduction', label: 'CA ETT', align: 'right', isEmployerCost: true };
+
+function employerCostForRow(row, suiSettings, ettSettings) {
+  if (row.grossPay == null || row.computeError) {
+    return { suiDeduction: null, ettDeduction: null };
+  }
+
+  return {
+    suiDeduction: suiSettings?.enabled
+      ? calculateEmployerWageBaseTax(row.grossPay, row.payrollDetails?.suiBalance, suiSettings.rate)
+      : null,
+    ettDeduction: ettSettings?.enabled
+      ? calculateEmployerWageBaseTax(row.grossPay, row.payrollDetails?.ettBalance, ettSettings.rate)
+      : null,
+  };
+}
 
 function toLocalDateStr(isoDate, tz = 'UTC') {
   if (!isoDate) return '';
@@ -413,6 +436,42 @@ function FutaColumnInfo({ rate = 7 }) {
   );
 }
 
+function EmployerCostColumnInfo({ label, rate }) {
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex items-center justify-center rounded-full text-teal-700 hover:text-teal-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400"
+            aria-label={`How ${label} is calculated`}
+          >
+            <Info className="w-3.5 h-3.5" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent
+          side="bottom"
+          align="end"
+          className="max-w-sm bg-gray-900 text-gray-100 border border-gray-700 p-3 text-left leading-relaxed"
+        >
+          <p className="font-semibold text-white mb-2">{label}</p>
+          <p className="mb-2 text-sm">
+            Employer-paid cost for this pay period. It is not withheld from wages.
+          </p>
+          <ul className="list-disc pl-4 space-y-1 mb-2 text-sm">
+            <li>Rate: <strong>{rate}%</strong> of taxable wages this period</li>
+            <li>Taxable wages = min(gross pay, remaining wage-base balance)</li>
+            <li>Annual wage cap: $7,000 per employee</li>
+          </ul>
+          <p className="text-gray-300 text-[11px]">
+            Not included in Total Deductions. Net pay is unchanged.
+          </p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
 function TotalDeductionsColumnInfo() {
   return (
     <TooltipProvider delayDuration={200}>
@@ -508,6 +567,8 @@ const EmployeeSheet = () => {
   const [salaryComputing, setSalaryComputing] = useState(false);
   const [companyConfig, setCompanyConfig] = useState(null);
   const [futaSettings, setFutaSettings] = useState({ enabled: false, rate: 7 });
+  const [suiSettings, setSuiSettings] = useState({ enabled: false, rate: DEFAULT_SUI_RATE });
+  const [ettSettings, setEttSettings] = useState({ enabled: false, rate: DEFAULT_ETT_RATE });
   const [taxRates, setTaxRates] = useState(DEFAULT_TAX_RATES);
   const [deductionTypes, setDeductionTypes] = useState([]);
   const [earningTypes, setEarningTypes] = useState([]);
@@ -518,8 +579,8 @@ const EmployeeSheet = () => {
   const [newCustomDeduction, setNewCustomDeduction] = useState({ label: '', calculationType: 'fixed' });
   const [checkNumber, setCheckNumber] = useState('');
   const [savedPayrollRunId, setSavedPayrollRunId] = useState(null);
+  const [paidEmployeeIds, setPaidEmployeeIds] = useState(() => new Set());
   const [savingPayroll, setSavingPayroll] = useState(false);
-  const [sendingAllPayslips, setSendingAllPayslips] = useState(false);
   const [payslipLoading, setPayslipLoading] = useState({});
   const [departments, setDepartments] = useState([]);
   const [showCreateCutoffModal, setShowCreateCutoffModal] = useState(false);
@@ -528,7 +589,40 @@ const EmployeeSheet = () => {
 
   const invalidateSavedPayroll = useCallback(() => {
     setSavedPayrollRunId(null);
+    setPaidEmployeeIds(new Set());
   }, []);
+
+  const paidRunIdRef = useRef(savedPayrollRunId);
+  paidRunIdRef.current = savedPayrollRunId;
+
+  const refreshPaidEmployees = useCallback(async () => {
+    const runId = savedPayrollRunId;
+    if (!token || !runId) {
+      setPaidEmployeeIds(new Set());
+      return;
+    }
+
+    try {
+      const ids = await fetchPaidEmployeeIdsForPayrollRun(API_URL, token, runId);
+      if (paidRunIdRef.current !== runId) return;
+      setPaidEmployeeIds(ids);
+    } catch {
+      if (paidRunIdRef.current !== runId) return;
+      setPaidEmployeeIds(new Set());
+    }
+  }, [token, savedPayrollRunId]);
+
+  useEffect(() => {
+    refreshPaidEmployees();
+  }, [refreshPaidEmployees]);
+
+  useEffect(() => {
+    const onFocus = () => {
+      refreshPaidEmployees();
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [refreshPaidEmployees]);
 
   const fetchCutoffPeriods = useCallback(async () => {
     if (!token) return [];
@@ -677,6 +771,8 @@ const EmployeeSheet = () => {
       computeError: null,
       deductionBreakdown: null,
       futaDeduction: null,
+      suiDeduction: null,
+      ettDeduction: null,
       earningsBreakdown: null,
     }));
   }, []);
@@ -692,9 +788,15 @@ const EmployeeSheet = () => {
   );
 
   const applyDeductionsToRow = useCallback(
-    (row, inputsByType = {}, columns = allDeductionColumns, futaOverride = futaSettings) => {
+    (
+      row,
+      inputsByType = {},
+      columns = allDeductionColumns,
+      futaOverride = futaSettings,
+      employerSettings = { sui: suiSettings, ett: ettSettings }
+    ) => {
       if (row.grossPay == null || row.taxes == null || row.computeError) {
-        return row;
+        return { ...row, suiDeduction: null, ettDeduction: null };
       }
 
       let totalDeductions = 0;
@@ -724,9 +826,10 @@ const EmployeeSheet = () => {
         futaDeduction,
         deductions,
         netPay: round2(row.grossPay - deductions),
+        ...employerCostForRow(row, employerSettings.sui, employerSettings.ett),
       };
     },
-    [allDeductionColumns, futaSettings]
+    [allDeductionColumns, futaSettings, suiSettings, ettSettings]
   );
 
   const handleAddCustomDeductionColumn = () => {
@@ -879,6 +982,8 @@ const EmployeeSheet = () => {
         },
         taxes,
         netPayAfterTaxes: row.netPay,
+        suiDeduction: row.suiDeduction ?? null,
+        ettDeduction: row.ettDeduction ?? null,
       };
     });
 
@@ -890,6 +995,7 @@ const EmployeeSheet = () => {
         driverHours: row.driverHours ?? 0,
         trainingHours: row.trainingHours ?? 0,
         ptoHours: row.ptoHours ?? 0,
+        ptoHoursBalance: row.payrollDetails?.ptoHoursBalance ?? 0,
         isFinalClock: true,
       };
     });
@@ -958,7 +1064,7 @@ const EmployeeSheet = () => {
     try {
       setSavingPayroll(true);
       await savePayrollFromSheet();
-      toast.success('Payroll saved — you can now send payslips');
+      toast.success('Payroll saved');
     } catch (err) {
       toast.error(err.message || 'Failed to save payroll');
     } finally {
@@ -969,23 +1075,38 @@ const EmployeeSheet = () => {
   const runPayslipAction = async (row, action) => {
     if (!row.grossPay || row.computeError) return;
 
+    if (action === 'send') {
+      if (!savedPayrollRunId || !paidEmployeeIds.has(String(row.id))) {
+        toast.error(UNVERIFIED_PAYMENT_PAYSLIP_MESSAGE);
+        return;
+      }
+      if (!isValidEmployeeEmail(row.email)) {
+        toast.error(`${row.name} has no valid email on file`);
+        return;
+      }
+    }
+
     setPayslipLoading((prev) => ({ ...prev, [row.id]: action }));
     try {
+      if (action === 'send') {
+        await sendPayslipEmail({
+          apiUrl: API_URL,
+          token,
+          payrollRunId: savedPayrollRunId,
+          employeeId: row.id,
+        });
+        toast.success(`Payslip sent to ${row.email}`);
+        return;
+      }
+
       const payrollRunId = await ensurePayrollSaved();
       const params = { apiUrl: API_URL, token, payrollRunId, employeeId: row.id };
 
       if (action === 'view') {
         await viewPayslipPdf(params);
-      } else if (action === 'download') {
+      } else {
         await downloadPayslipPdf(params);
         toast.success(`Payslip downloaded for ${row.name}`);
-      } else {
-        if (!isValidEmployeeEmail(row.email)) {
-          toast.error(`${row.name} has no valid email on file`);
-          return;
-        }
-        await sendPayslipEmail(params);
-        toast.success(`Payslip sent to ${row.email}`);
       }
     } catch (err) {
       toast.error(err.message || 'Payslip action failed');
@@ -1205,7 +1326,21 @@ const EmployeeSheet = () => {
             rate: futaData.data?.futaRate ?? 7,
           }
         : { enabled: false, rate: 7 };
+      const activeSuiSettings = futaRes.ok && futaData.success
+        ? {
+            enabled: Boolean(futaData.data?.suiEnabled),
+            rate: futaData.data?.suiRate ?? DEFAULT_SUI_RATE,
+          }
+        : { enabled: false, rate: DEFAULT_SUI_RATE };
+      const activeEttSettings = futaRes.ok && futaData.success
+        ? {
+            enabled: Boolean(futaData.data?.ettEnabled),
+            rate: futaData.data?.ettRate ?? DEFAULT_ETT_RATE,
+          }
+        : { enabled: false, rate: DEFAULT_ETT_RATE };
       setFutaSettings(activeFutaSettings);
+      setSuiSettings(activeSuiSettings);
+      setEttSettings(activeEttSettings);
 
       const bracketsFailed =
         (!federalTaxRatesRes.ok || !federalTaxRatesData.success) || (!stateTaxRatesRes.ok || !stateTaxRatesData.success);
@@ -1279,6 +1414,8 @@ const EmployeeSheet = () => {
               computeError: 'no_profile',
               deductionBreakdown: null,
               futaDeduction: null,
+              suiDeduction: null,
+              ettDeduction: null,
               earningsBreakdown: null,
             };
           }
@@ -1321,6 +1458,8 @@ const EmployeeSheet = () => {
               computeError: result.error,
               deductionBreakdown: null,
               futaDeduction: null,
+              suiDeduction: null,
+              ettDeduction: null,
               earningsBreakdown: null,
             };
           }
@@ -1363,7 +1502,10 @@ const EmployeeSheet = () => {
           });
           rebuiltInputs[row.id] = rowInputs;
 
-          return applyDeductionsToRow(baseRow, rowInputs, allTypes, activeFutaSettings);
+          return applyDeductionsToRow(baseRow, rowInputs, allTypes, activeFutaSettings, {
+            sui: activeSuiSettings,
+            ett: activeEttSettings,
+          });
         });
 
         setDeductionInputs(rebuiltInputs);
@@ -1518,10 +1660,12 @@ const EmployeeSheet = () => {
         { key: 'deductions', label: 'Total Deductions', align: 'right' },
         { key: 'netPay', label: 'Net Pay', align: 'right' },
       );
+      if (suiSettings.enabled) cols.push(SUI_EMPLOYER_COLUMN);
+      if (ettSettings.enabled) cols.push(ETT_EMPLOYER_COLUMN);
       cols.push({ key: 'actions', label: 'Payslip', align: 'center', isActions: true });
     }
     return cols;
-  }, [hoursLoaded, salaryComputed, allDeductionColumns, futaSettings.enabled]);
+  }, [hoursLoaded, salaryComputed, allDeductionColumns, futaSettings.enabled, suiSettings.enabled, ettSettings.enabled]);
 
   const filteredRows = useMemo(() => {
     let result = rows;
@@ -1547,42 +1691,22 @@ const EmployeeSheet = () => {
     });
   }, [rows, search, statusFilter]);
 
-  const handleSendAllPayslips = async () => {
-    const eligible = filteredRows.filter(
-      (row) => row.grossPay != null && !row.computeError && isValidEmployeeEmail(row.email)
-    );
-
+  const handleProcessPayrollReport = async () => {
+    const eligible = getEligiblePayrollRows();
     if (eligible.length === 0) {
-      toast.error('No employees with computed pay and a valid email address');
+      toast.error('Compute salary first — no employees with pay data to process');
       return;
     }
 
-    const skipped = filteredRows.filter(
-      (row) => row.grossPay != null && !row.computeError && !isValidEmployeeEmail(row.email)
-    ).length;
-
     try {
-      setSendingAllPayslips(true);
-      const payrollRunId = await ensurePayrollSaved();
-      const result = await sendAllPayslipEmails({
-        apiUrl: API_URL,
-        token,
-        payrollRunId,
-        employeeIds: eligible.map((row) => row.id),
-      });
-
-      const sent = result.data?.sent ?? result.sent ?? eligible.length;
-      const failed = result.failed ?? result.data?.failed ?? 0;
-      if (failed > 0) {
-        toast.warning(`Sent ${sent} payslip(s), ${failed} failed${skipped > 0 ? ` (${skipped} skipped — no email)` : ''}`);
-      } else {
-        toast.success(`Sent ${sent} payslip(s)${skipped > 0 ? ` (${skipped} skipped — no email)` : ''}`);
-      }
+      setSavingPayroll(true);
+      await savePayrollFromSheet();
+      toast.success(`Payroll report processed for ${eligible.length} employee(s)`);
     } catch (err) {
-      console.error('Send all payslips error:', err);
-      toast.error(err.message || 'Failed to send payslips');
+      console.error('Process payroll report error:', err);
+      toast.error(err.message || 'Failed to process payroll report');
     } finally {
-      setSendingAllPayslips(false);
+      setSavingPayroll(false);
     }
   };
 
@@ -1628,6 +1752,8 @@ const EmployeeSheet = () => {
         if (row.deductions != null) acc.deductions += row.deductions;
         if (row.netPay != null) acc.net += row.netPay;
         if (row.futaDeduction != null) acc.futa += row.futaDeduction;
+        if (row.suiDeduction != null) acc.sui += row.suiDeduction;
+        if (row.ettDeduction != null) acc.ett += row.ettDeduction;
         allDeductionColumns.forEach((dt) => {
           const amount = row.deductionBreakdown?.[dt.id];
           if (amount != null) acc.deductionTotals[dt.id] += amount;
@@ -1638,7 +1764,7 @@ const EmployeeSheet = () => {
         });
         return acc;
       },
-      { gross: 0, taxes: 0, deductions: 0, net: 0, futa: 0, deductionTotals, taxTotals }
+      { gross: 0, taxes: 0, deductions: 0, net: 0, futa: 0, sui: 0, ett: 0, deductionTotals, taxTotals }
     );
 
     return totals;
@@ -1695,6 +1821,12 @@ const EmployeeSheet = () => {
         base['Tax Total'] = formatCurrency(row.taxes);
         base['Total Deductions'] = formatCurrency(row.deductions);
         base['Net Pay'] = formatCurrency(row.netPay);
+        if (suiSettings.enabled) {
+          base['CA SUI (employer)'] = formatCurrency(row.suiDeduction);
+        }
+        if (ettSettings.enabled) {
+          base['CA ETT (employer)'] = formatCurrency(row.ettDeduction);
+        }
       }
 
       return base;
@@ -1742,6 +1874,8 @@ const EmployeeSheet = () => {
         if (row.computeError === 'no_profile') return '—';
         return formatCurrency(row[key]);
       case 'futaDeduction':
+      case 'suiDeduction':
+      case 'ettDeduction':
         if (row.computeError || row.grossPay == null) return '—';
         return formatCurrency(row[key]);
       default:
@@ -1782,7 +1916,7 @@ const EmployeeSheet = () => {
           <div className="px-3 sm:px-4 py-3 border-b border-gray-100 bg-gray-50">
             <p className="text-sm font-semibold text-gray-800">Payroll workflow</p>
             <p className="text-xs text-gray-500 mt-0.5">
-              Load hours for the period, compute salaries, then send payslips
+              Load hours for the period, compute salaries, then process the payroll report
             </p>
           </div>
 
@@ -1900,7 +2034,7 @@ const EmployeeSheet = () => {
             )}
           </div>
 
-          {/* Steps 2–3 — compute & send */}
+          {/* Steps 2–3 — compute & process report */}
           <div className="p-3 sm:p-4 flex flex-col md:flex-row md:flex-wrap md:items-center md:justify-between gap-3 md:gap-4">
             <div className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-2 w-full md:w-auto min-w-0">
               <div className="flex items-center gap-2 w-full md:w-auto min-w-0">
@@ -1924,12 +2058,16 @@ const EmployeeSheet = () => {
                   3
                 </span>
                 <button
-                  onClick={handleSendAllPayslips}
-                  disabled={!salaryComputed || savingPayroll || sendingAllPayslips}
+                  onClick={handleProcessPayrollReport}
+                  disabled={!salaryComputed || savingPayroll}
                   className="inline-flex flex-1 min-w-0 md:flex-initial items-center justify-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <Mail className="w-4 h-4 shrink-0" />
-                  {sendingAllPayslips ? 'Sending...' : 'Send All Payslips'}
+                  <FileSpreadsheet className="w-4 h-4 shrink-0" />
+                  {savingPayroll
+                    ? 'Processing...'
+                    : savedPayrollRunId
+                      ? 'Reprocess Payroll Report'
+                      : 'Process Payroll Report'}
                 </button>
               </div>
             </div>
@@ -1950,7 +2088,7 @@ const EmployeeSheet = () => {
                   <>
                     <DropdownMenuItem
                       onClick={handleSavePayroll}
-                      disabled={savingPayroll || sendingAllPayslips}
+                      disabled={savingPayroll}
                     >
                       <Save className="text-indigo-600" />
                       {savingPayroll ? 'Saving...' : savedPayrollRunId ? 'Re-save Payroll' : 'Save Payroll'}
@@ -1997,10 +2135,28 @@ const EmployeeSheet = () => {
                       FUTA enabled at <span className="font-medium">{futaSettings.rate}%</span> (deducted from gross)
                     </>
                   )}
+                  {suiSettings.enabled && (
+                    <>
+                      {' · '}
+                      CA SUI <span className="font-medium">{suiSettings.rate}%</span> employer cost
+                    </>
+                  )}
+                  {ettSettings.enabled && (
+                    <>
+                      {' · '}
+                      CA ETT <span className="font-medium">{ettSettings.rate}%</span> employer cost
+                    </>
+                  )}
+                  {(suiSettings.enabled || ettSettings.enabled) && (
+                    <>
+                      {' '}
+                      (not deducted from net)
+                    </>
+                  )}
                   {savedPayrollRunId && (
                     <>
                       {' · '}
-                      <span className="font-medium">Payroll saved</span> — payslips ready to send
+                      <span className="font-medium">Payroll report processed</span>
                     </>
                   )}
                 </p>
@@ -2153,6 +2309,18 @@ const EmployeeSheet = () => {
                           {col.label}
                           <FutaColumnInfo rate={futaSettings.rate} />
                         </span>
+                      ) : col.isEmployerCost ? (
+                        <span
+                          className={`inline-flex items-center gap-1 ${
+                            col.align === 'right' ? 'justify-end' : 'justify-start'
+                          }`}
+                        >
+                          {col.label}
+                          <EmployerCostColumnInfo
+                            label={col.label}
+                            rate={col.key === 'suiDeduction' ? suiSettings.rate : ettSettings.rate}
+                          />
+                        </span>
                       ) : col.key === 'deductions' ? (
                         <span
                           className={`inline-flex items-center gap-1 ${
@@ -2196,7 +2364,7 @@ const EmployeeSheet = () => {
                         <td
                           key={col.key}
                           className={`px-3 py-1.5 border border-gray-300 whitespace-nowrap ${
-                            ['employeeId', 'payRate', 'driverPayRate', 'regularHours', 'overtimeHours', 'driverHours', 'trainingHours', 'ptoHours', 'totalPunchHours', 'grossPay', 'taxes', 'deductions', 'netPay', 'futaDeduction', ...TAX_COLUMNS.map((c) => c.key)].includes(col.key)
+                            ['employeeId', 'payRate', 'driverPayRate', 'regularHours', 'overtimeHours', 'driverHours', 'trainingHours', 'ptoHours', 'totalPunchHours', 'grossPay', 'taxes', 'deductions', 'netPay', 'futaDeduction', 'suiDeduction', 'ettDeduction', ...TAX_COLUMNS.map((c) => c.key)].includes(col.key)
                               ? 'font-mono text-xs'
                               : 'text-sm'
                           } ${col.key === 'name' ? 'font-medium text-gray-900' : 'text-gray-700'} ${
@@ -2210,6 +2378,8 @@ const EmployeeSheet = () => {
                           } ${col.key === 'netPay' && row.netPay != null ? 'font-semibold text-orange-700 bg-orange-50/50' : ''} ${
                             col.key === 'futaDeduction' && row.futaDeduction != null ? 'font-semibold text-red-700 bg-red-50/50' : ''
                           } ${
+                            col.isEmployerCost && row[col.key] != null ? 'font-semibold text-teal-800 bg-teal-50/50' : ''
+                          } ${
                             col.isActions ? 'sm:sticky right-0 z-10 bg-inherit' : ''
                           }`}
                           style={{ textAlign: col.align }}
@@ -2217,9 +2387,15 @@ const EmployeeSheet = () => {
                           {col.isActions ? (
                             <PayslipActionButtons
                               disabled={!row.grossPay || !!row.computeError}
-                              sendDisabled={!isValidEmployeeEmail(row.email)}
+                              sendDisabled={
+                                !paidEmployeeIds.has(String(row.id)) || !isValidEmployeeEmail(row.email)
+                              }
                               sendDisabledReason={
-                                !isValidEmployeeEmail(row.email) ? 'No email on file' : undefined
+                                !paidEmployeeIds.has(String(row.id))
+                                  ? 'Verify payment in Disbursement first'
+                                  : !isValidEmployeeEmail(row.email)
+                                    ? 'No email on file'
+                                    : undefined
                               }
                               loadingAction={payslipLoading[row.id]}
                               onView={() => runPayslipAction(row, 'view')}
@@ -2308,6 +2484,8 @@ const EmployeeSheet = () => {
                         {col.key === 'deductions' && formatCurrency(salaryTotals.deductions)}
                         {col.key === 'netPay' && formatCurrency(salaryTotals.net)}
                         {col.key === 'futaDeduction' && formatCurrency(salaryTotals.futa)}
+                        {col.key === 'suiDeduction' && formatCurrency(salaryTotals.sui)}
+                        {col.key === 'ettDeduction' && formatCurrency(salaryTotals.ett)}
                       </td>
                     ))}
                   </tr>
@@ -2318,7 +2496,7 @@ const EmployeeSheet = () => {
         </div>
 
         <p className="mt-3 text-xs text-gray-500">
-          1) Select a processed cutoff and Load Hours · 2) Compute Salary · 3) Adjust deductions · 4) Save payroll · 5) Export{' '}
+          1) Select a processed cutoff and Load Hours · 2) Compute Salary · 3) Process payroll report · 4) Export{' '}
           <strong>Payroll Summary</strong> from the Reports tab or use row <strong>Payslip</strong> actions.
         </p>
 
