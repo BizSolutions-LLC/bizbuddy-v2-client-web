@@ -249,7 +249,7 @@ const CheckSettings = () => {
               </button>
             </div>
             <div className="space-y-6">
-              {Object.entries(positions).map(([field, coords]) => (
+              {Object.entries(positions).filter(([field]) => field !== 'payeeAddress').map(([field, coords]) => (
                 <div key={field} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
                   <div className="font-semibold text-gray-800 mb-4 capitalize text-base flex items-center gap-2">
                     <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
@@ -512,20 +512,8 @@ const LiveCheckPreview = ({ positions, mockData }) => {
         {mockData.payeeName}
       </div>
 
-      {/* Payee Address */}
-      <div
-        className="absolute"
-        style={{
-          left: `${positions.payeeAddress.x * scale}px`,
-          top: `${positions.payeeAddress.y * scale}px`,
-          fontSize: `${(positions.payeeAddress.fontSize || 9) * scale}px`,
-        }}
-      >
-        {mockData.payeeAddress}
-      </div>
-
       {/* Position Indicators (Red Dots) */}
-      {Object.entries(positions).map(([key, pos]) => (
+      {Object.entries(positions).filter(([key]) => key !== 'payeeAddress').map(([key, pos]) => (
         <div
           key={key}
           className="absolute w-2 h-2 bg-red-500 rounded-full opacity-50"

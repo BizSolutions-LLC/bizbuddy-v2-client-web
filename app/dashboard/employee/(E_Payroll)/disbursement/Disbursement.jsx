@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast, Toaster } from "sonner";
 import {
@@ -10,8 +10,10 @@ import {
   CheckCircle2,
   CircleAlert,
   Clock,
+  FileImage,
   Loader2,
   Search,
+  Upload,
   Users,
   Wallet,
   XCircle,
@@ -77,6 +79,18 @@ function formatPeriod(run) {
   return `${formatDisbursementDay(run.periodStart)} – ${formatDisbursementDay(run.periodEnd)}`;
 }
 
+const PROOF_ACCEPT = "image/png,image/jpeg,image/webp,application/pdf,.png,.jpg,.jpeg,.webp,.pdf";
+const PROOF_MAX_BYTES = 5 * 1024 * 1024;
+
+function isAllowedProofFile(file) {
+  const type = String(file?.type || "").toLowerCase();
+  const name = String(file?.name || "").toLowerCase();
+  if (["image/png", "image/jpeg", "image/jpg", "image/webp", "application/pdf"].includes(type)) {
+    return true;
+  }
+  return [".png", ".jpg", ".jpeg", ".webp", ".pdf"].some((ext) => name.endsWith(ext));
+}
+
 export default function Disbursement() {
   const { token } = useAuthStore();
   const router = useRouter();
@@ -99,6 +113,8 @@ export default function Disbursement() {
   const [markPaidTarget, setMarkPaidTarget] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState("CHECK");
   const [proofFile, setProofFile] = useState(null);
+  const [proofDragActive, setProofDragActive] = useState(false);
+  const proofInputRef = useRef(null);
   const [proofPreviewUrl, setProofPreviewUrl] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [eligibleRuns, setEligibleRuns] = useState([]);
@@ -370,7 +386,7 @@ export default function Disbursement() {
       }
       setMarkPaidOpen(false);
       setMarkPaidTarget(null);
-      setProofFile(null);
+      clearProofFile();
       await loadDashboard();
       await loadDetail(detail.id);
     } catch (error) {
@@ -380,10 +396,32 @@ export default function Disbursement() {
     }
   };
 
+  const clearProofFile = () => {
+    setProofFile(null);
+    setProofDragActive(false);
+    if (proofInputRef.current) proofInputRef.current.value = "";
+  };
+
+  const applyProofFile = (file) => {
+    if (!file) {
+      clearProofFile();
+      return;
+    }
+    if (file.size > PROOF_MAX_BYTES) {
+      toast.error("Payment proof must be 5MB or smaller.");
+      return;
+    }
+    if (!isAllowedProofFile(file)) {
+      toast.error("Payment proof must be a PNG, JPEG, WebP, or PDF.");
+      return;
+    }
+    setProofFile(file);
+  };
+
   const openMarkPaidDialog = (target) => {
     setMarkPaidTarget(target);
     setPaymentMethod("CHECK");
-    setProofFile(null);
+    clearProofFile();
     setMarkPaidOpen(true);
   };
 
@@ -838,7 +876,7 @@ export default function Disbursement() {
           setMarkPaidOpen(open);
           if (!open) {
             setMarkPaidTarget(null);
-            setProofFile(null);
+            clearProofFile();
           }
         }}
       >
@@ -887,14 +925,71 @@ export default function Disbursement() {
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium" htmlFor="payment-proof">Screenshot / proof</label>
-              <input
-                id="payment-proof"
-                type="file"
-                accept="image/png,image/jpeg,image/webp,application/pdf"
-                onChange={(event) => setProofFile(event.target.files?.[0] || null)}
-                className="block w-full text-sm"
-              />
-              {proofFile && <p className="text-xs text-muted-foreground">{proofFile.name}</p>}
+              <div
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setProofDragActive(true);
+                }}
+                onDragLeave={() => setProofDragActive(false)}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  setProofDragActive(false);
+                  applyProofFile(event.dataTransfer.files?.[0] || null);
+                }}
+                onClick={() => proofInputRef.current?.click()}
+                className={`rounded-lg border-2 border-dashed p-5 text-center space-y-2 cursor-pointer transition-colors ${
+                  proofDragActive
+                    ? "border-orange-500 bg-orange-50"
+                    : "border-muted-foreground/25 hover:border-orange-400"
+                }`}
+              >
+                <input
+                  ref={proofInputRef}
+                  id="payment-proof"
+                  type="file"
+                  accept={PROOF_ACCEPT}
+                  className="hidden"
+                  onChange={(event) => applyProofFile(event.target.files?.[0] || null)}
+                />
+                {proofFile ? (
+                  <div className="space-y-1">
+                    <FileImage className="h-7 w-7 mx-auto text-green-600" />
+                    <p className="text-sm font-medium">{proofFile.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {(proofFile.size / 1024).toFixed(1)} KB
+                    </p>
+                    <button
+                      type="button"
+                      className="text-sm text-orange-600 hover:underline"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        clearProofFile();
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <Upload className="h-7 w-7 mx-auto text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground">
+                      Drag a screenshot here, or click to browse
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        proofInputRef.current?.click();
+                      }}
+                    >
+                      Browse files
+                    </Button>
+                    <p className="text-xs text-muted-foreground">PNG, JPEG, WebP, or PDF · up to 5MB</p>
+                  </>
+                )}
+              </div>
             </div>
           </div>
           <AlertDialogFooter>

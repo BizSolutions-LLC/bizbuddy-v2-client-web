@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { toast, Toaster } from 'sonner';
 import useAuthStore from '@/store/useAuthStore';
 import MockPayrollBanner from '@/components/common/MockPayrollBanner';
@@ -18,6 +18,7 @@ import {
   downloadPayrollSummaryExcel,
   mapReportEmployeeToSummaryRow,
 } from '@/lib/exportPayrollSummary';
+import { DEFAULT_ETT_RATE, DEFAULT_SUI_RATE } from '@/lib/payrollCompute';
 import {
   PERIOD_AGGREGATE_ID,
   buildAggregatedPeriodReport,
@@ -30,9 +31,11 @@ import {
   usesPeriodAggregateView,
 } from '@/lib/payrollReportPeriod';
 import {
-    canCreateDisbursement,
-    createDisbursementFromPayrollRun,
-    fetchDisbursementBatches,
+  canCreateDisbursement,
+  createDisbursementFromPayrollRun,
+  fetchDisbursementBatches,
+  fetchPaidEmployeeIdsForPayrollRun,
+  UNVERIFIED_PAYMENT_PAYSLIP_MESSAGE,
 } from '@/lib/disbursementApi';
 
 const STICKY_ROW_NUM_LEFT = 'left-0';
@@ -105,6 +108,7 @@ const Reports = () => {
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [userRole, setUserRole] = useState(null);
   const [disbursementByRunId, setDisbursementByRunId] = useState({});
+  const [paidEmployeeIds, setPaidEmployeeIds] = useState(() => new Set());
   const [creatingDisbursementId, setCreatingDisbursementId] = useState(null);
 
   const yearOptions = useMemo(() => {
@@ -256,6 +260,38 @@ const Reports = () => {
       .catch(() => setDisbursementByRunId({}));
   }, [API_URL, token]);
 
+  const paidRunIdRef = useRef(selectedRunId);
+  paidRunIdRef.current = selectedRunId;
+
+  const refreshPaidEmployees = useCallback(async () => {
+    const runId = selectedRunId;
+    if (!token || !runId || runId === PERIOD_AGGREGATE_ID || isMockPayrollId(runId)) {
+      setPaidEmployeeIds(new Set());
+      return;
+    }
+
+    try {
+      const ids = await fetchPaidEmployeeIdsForPayrollRun(API_URL, token, runId);
+      if (paidRunIdRef.current !== runId) return;
+      setPaidEmployeeIds(ids);
+    } catch {
+      if (paidRunIdRef.current !== runId) return;
+      setPaidEmployeeIds(new Set());
+    }
+  }, [API_URL, token, selectedRunId]);
+
+  useEffect(() => {
+    refreshPaidEmployees();
+  }, [refreshPaidEmployees]);
+
+  useEffect(() => {
+    const onFocus = () => {
+      refreshPaidEmployees();
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [refreshPaidEmployees]);
+
   useEffect(() => {
     if (usesPeriodAggregateView(periodMode) && payrollReports.length > 0) {
       setSelectedRunId(PERIOD_AGGREGATE_ID);
@@ -352,6 +388,10 @@ const Reports = () => {
         await downloadPayslipPdf(params);
         toast.success('Payslip downloaded!');
       } else {
+        if (!paidEmployeeIds.has(String(employee.employeeId))) {
+          toast.error(UNVERIFIED_PAYMENT_PAYSLIP_MESSAGE);
+          return;
+        }
         await sendPayslipEmail(params);
         toast.success(`Payslip sent to ${employee.employeeName}`);
       }
@@ -447,9 +487,10 @@ const Reports = () => {
       const companyName = settingsRes.ok && settingsData.success
         ? settingsData.data?.company?.name || 'Company'
         : 'Company';
-      const futaEnabled = futaRes.ok && futaData.success
-        ? Boolean(futaData.data?.futaEnabled)
-        : false;
+      const deductionSettings = futaRes.ok && futaData.success ? futaData.data || {} : {};
+      const futaEnabled = Boolean(deductionSettings.futaEnabled);
+      const suiEnabled = Boolean(deductionSettings.suiEnabled);
+      const ettEnabled = Boolean(deductionSettings.ettEnabled);
 
       const filename = await downloadPayrollSummaryExcel({
         companyName,
@@ -457,6 +498,10 @@ const Reports = () => {
         dateTo: periodTo,
         employees: eligible.map(mapReportEmployeeToSummaryRow),
         futaEnabled,
+        suiEnabled,
+        suiRate: deductionSettings.suiRate ?? DEFAULT_SUI_RATE,
+        ettEnabled,
+        ettRate: deductionSettings.ettRate ?? DEFAULT_ETT_RATE,
       });
       toast.success(
         `${isViewingPeriodReport ? 'Period' : 'Payroll'} summary exported (${eligible.length} employees) — ${filename}`
@@ -986,6 +1031,12 @@ const Reports = () => {
                             <div className="inline-flex items-center gap-1">
                               <PayslipActionButtons
                                 disabled={selectedReport.isMock}
+                                sendDisabled={!paidEmployeeIds.has(String(emp.employeeId))}
+                                sendDisabledReason={
+                                  paidEmployeeIds.has(String(emp.employeeId))
+                                    ? undefined
+                                    : 'Verify payment in Disbursement first'
+                                }
                                 loadingAction={payslipLoading[`${selectedReport.id}-${emp.employeeId}`]}
                                 onView={() => runPayslipAction(selectedReport.id, emp, 'view')}
                                 onDownload={() => runPayslipAction(selectedReport.id, emp, 'download')}
