@@ -28,6 +28,7 @@ const GROUPINGS = [
 const EXTRA_COLUMNS = [
   { value: "driver",  label: "Driver Total Hrs"   },
   { value: "regular", label: "Regular Total Hrs"  },
+  { value: "leave",   label: "Leave Hrs"          },
   { value: "ot",      label: "OT Hrs",            hideForYearly: true },
   { value: "average", label: "Avg Hrs per Cutoff" },
 ];
@@ -234,6 +235,7 @@ export default function YearlyTotalHoursReportTrigger({ companyId, companyName, 
                 </div>
                 <p className="text-xs text-muted-foreground">
                   Total Hrs is always included{isYearly ? " for the year" : ` for each ${isQuarterly ? "quarter" : "month"}`}.
+                  {selectedColumns.includes("leave") && " Leave Hrs is the paid leave already counted in Total Hrs."}
                 </p>
               </div>
             </div>

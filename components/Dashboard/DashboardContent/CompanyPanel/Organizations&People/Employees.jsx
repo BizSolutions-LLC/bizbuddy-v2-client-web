@@ -156,6 +156,10 @@ export default function ModernEmployees() {
     timeZone: "",
     isDriver: false,
     supervisorId: "none",
+    addressLine: "",
+    city: "",
+    state: "",
+    postalCode: "",
   });
   const [editLoading, setEditLoading] = useState(false);
   const [editHasEmploymentDetail, setEditHasEmploymentDetail] = useState(false);
@@ -596,13 +600,17 @@ export default function ModernEmployees() {
       timeZone: employee.employmentDetail?.timeZone || "",
       isDriver: employee.employmentDetail?.isDriver ?? false,
       supervisorId: employee.employmentDetail?.supervisor?.id || "none",
+      addressLine: employee.profile?.addressLine || "",
+      city: employee.profile?.city || "",
+      state: employee.profile?.state || "",
+      postalCode: employee.profile?.postalCode || "",
     });
     setEditHasEmploymentDetail(!!employee.employmentDetail);
     setShowEditModal(true);
   };
 
   const handleSaveEdit = async () => {
-    const { id, firstName, lastName, email, password, role, status, departmentId, employeeId, hireDate, isDriver, supervisorId, ...employment } = editForm;
+    const { id, firstName, lastName, email, password, role, status, departmentId, employeeId, hireDate, isDriver, supervisorId, addressLine, city, state, postalCode, ...employment } = editForm;
 
     if (!val(firstName) || !val(lastName) || !val(email)) {
       toast.error("First name, last name, and email are required.");
@@ -622,6 +630,11 @@ export default function ModernEmployees() {
       ...Object.fromEntries(Object.entries(employment).map(([k, v]) => [k, v === "none" ? undefined : val(v)])),
       ...(isDayCare && { isDriver }),
       ...(editHasEmploymentDetail && { supervisorId: supervisorId === "none" ? null : supervisorId }),
+      // null (not undefined) so clearing an address field is persisted
+      addressLine: val(addressLine) ?? null,
+      city: val(city) ?? null,
+      state: val(state) ?? null,
+      postalCode: val(postalCode) ?? null,
     };
 
     if (val(password)) payload.password = val(password);
@@ -1343,6 +1356,48 @@ export default function ModernEmployees() {
                   </div>
                 </div>
 
+                {/* Address */}
+                <div className="space-y-4 pt-4 border-t dark:border-white/10">
+                  <h3 className="text-lg font-medium flex items-center gap-2">
+                    <MapPin className="h-5 w-5 text-green-600" />
+                    Address
+                  </h3>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Address Line</label>
+                    <Input
+                      value={editForm.addressLine}
+                      onChange={(e) => setEditForm({ ...editForm, addressLine: e.target.value })}
+                      placeholder="123 Main Street, Apt 4B"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">City</label>
+                      <Input
+                        value={editForm.city}
+                        onChange={(e) => setEditForm({ ...editForm, city: e.target.value })}
+                        placeholder="City"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">State</label>
+                      <Input
+                        value={editForm.state}
+                        onChange={(e) => setEditForm({ ...editForm, state: e.target.value })}
+                        placeholder="State"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Postal Code</label>
+                      <Input
+                        value={editForm.postalCode}
+                        onChange={(e) => setEditForm({ ...editForm, postalCode: e.target.value })}
+                        placeholder="Postal Code"
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 {isDayCare && (
                   <div className="pt-2 border-t dark:border-white/10">
                     <p className="text-xs font-semibold text-orange-500 uppercase tracking-wide mb-3">DayCare Settings</p>
@@ -1578,6 +1633,16 @@ export default function ModernEmployees() {
                         <span className="text-muted-foreground">Phone Number:</span>
                         <div className="font-medium">{selectedEmployee.profile?.phoneNumber || "—"}</div>
                       </div>
+                      <div className="sm:col-span-2">
+                        <span className="text-muted-foreground">Address:</span>
+                        <div className="font-medium">
+                          {[
+                            selectedEmployee.profile?.addressLine,
+                            selectedEmployee.profile?.city,
+                            [selectedEmployee.profile?.state, selectedEmployee.profile?.postalCode].filter(Boolean).join(" "),
+                          ].filter(Boolean).join(", ") || "—"}
+                        </div>
+                      </div>
                       <div>
                         <span className="text-muted-foreground">Role:</span>
                         <div>
@@ -1699,8 +1764,7 @@ export default function ModernEmployees() {
                   </div>
 
                   {/* Personal Information */}
-                  {(selectedEmployee.profile?.dateOfBirth || 
-                    selectedEmployee.profile?.addressLine || 
+                  {(selectedEmployee.profile?.dateOfBirth ||
                     selectedEmployee.profile?.ssnItin) && (
                     <div className="space-y-3 pt-4 border-t dark:border-white/10">
                       <h3 className="text-lg font-medium flex items-center gap-2">
@@ -1720,17 +1784,6 @@ export default function ModernEmployees() {
                           <div>
                             <span className="text-muted-foreground">SSN/ITIN:</span>
                             <div className="font-medium font-mono">***-**-{selectedEmployee.profile.ssnItin.slice(-4)}</div>
-                          </div>
-                        )}
-                        {selectedEmployee.profile?.addressLine && (
-                          <div className="col-span-2">
-                            <span className="text-muted-foreground">Address:</span>
-                            <div className="font-medium">
-                              {selectedEmployee.profile.addressLine}
-                              {selectedEmployee.profile?.city && `, ${selectedEmployee.profile.city}`}
-                              {selectedEmployee.profile?.state && `, ${selectedEmployee.profile.state}`}
-                              {selectedEmployee.profile?.postalCode && ` ${selectedEmployee.profile.postalCode}`}
-                            </div>
                           </div>
                         )}
                       </div>
