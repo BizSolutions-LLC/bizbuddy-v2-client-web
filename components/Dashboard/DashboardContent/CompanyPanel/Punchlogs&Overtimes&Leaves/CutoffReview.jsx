@@ -33,6 +33,7 @@ import {
   RefreshCw,
   RotateCcw,
   GraduationCap,
+  Plus,
   ShieldAlert,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -376,7 +377,7 @@ const PageHeader = ({ cutoff, status, onFinalize, finalizeReady, getDepartmentNa
 };
 
 /** Filter bar */
-const FilterBar = ({ tabs, activeTab, onTab, search, onSearch, chips, onChip }) => (
+const FilterBar = ({ tabs, activeTab, onTab, search, onSearch, chips, onChip, showTrainingDay, onTrainingDay }) => (
   <div className="bg-white dark:bg-neutral-900 border-b border-neutral-200 dark:border-neutral-800 px-6">
     {/* Tabs */}
     <div className="flex items-center gap-1 border-b border-neutral-100 dark:border-neutral-800">
@@ -423,6 +424,17 @@ const FilterBar = ({ tabs, activeTab, onTab, search, onSearch, chips, onChip }) 
           <c.icon className="w-3 h-3" /> {c.label}
         </button>
       ))}
+      {/* BB-095: whole-day Training designation across all employees */}
+      {showTrainingDay && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onTrainingDay}
+          className="ml-auto h-8 gap-1.5 text-xs font-semibold border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/30 hover:text-amber-700"
+        >
+          <Plus className="w-3.5 h-3.5" /> Add Training Day
+        </Button>
+      )}
     </div>
   </div>
 );
@@ -1223,7 +1235,7 @@ const OTBlockRow = ({ block, onOTBlock, localOTBlockStatus, threshold, isCutoffB
 };
 
 /** Employee card */
-const EmployeeCard = ({ emp, onApprove, onApproveOT, onApproveSchedule, onApproveRaw, onEdit, onExclude, onConflict, onBulkApproveRaw, onBulkApproveSchedule, onOTBlock, localOTBlockStatus, companyTimezone, dailyOtThresholdHours, cutoffOtThresholdHours, otBasis, onReset, onSetPunchType, trainingDates, onTrainingDay, refreshingOT, cutoffStatus, onEditFixedHours }) => {
+const EmployeeCard = ({ emp, onApprove, onApproveOT, onApproveSchedule, onApproveRaw, onEdit, onExclude, onConflict, onBulkApproveRaw, onBulkApproveSchedule, onOTBlock, localOTBlockStatus, companyTimezone, dailyOtThresholdHours, cutoffOtThresholdHours, otBasis, onReset, onSetPunchType, trainingDates, refreshingOT, cutoffStatus, onEditFixedHours }) => {
   const [expanded, setExpanded] = useState(false);
   const isCutoffBasis = otBasis === "cutoff";
 
@@ -1555,6 +1567,9 @@ export default function CutoffReview({ cutoffId }) {
   const [fixedHoursModal, setFixedHoursModal] = useState(null); // BB-089: fixedHours row being edited
   const [fixedHoursInput, setFixedHoursInput] = useState("");
   const [fixedHoursNotes, setFixedHoursNotes] = useState("");
+  const [trainingDayModal,  setTrainingDayModal]  = useState(false); // BB-095: whole-day Training dialog
+  const [trainingDayDate,   setTrainingDayDate]   = useState("");
+  const [trainingDaySaving, setTrainingDaySaving] = useState(null);  // "TRAINING" | "REGULAR" while in flight
 
   // ── Filters ──
   const [activeTab,    setActiveTab]    = useState("all");
@@ -2356,6 +2371,39 @@ export default function CutoffReview({ cutoffId }) {
     return s;
   }, [mergedEmployees]);
 
+  // BB-095: punches eligible for whole-day Training designation, grouped by date across ALL
+  // employees (unfiltered). Server only accepts pending REGULAR/TRAINING punches, so anything
+  // approved/excluded or mid-approval is skipped here rather than sent and rejected.
+  const trainingDayPunchesByDate = useMemo(() => {
+    const byDate = new Map();
+    const add = (empId, p) => {
+      if (!p.date || p.date === "—") return;
+      if (!p.actions?.includes("toggle-training") || p.localStatus || p.isApproving) return;
+      if (!byDate.has(p.date)) byDate.set(p.date, { date: p.date, punches: [], employeeIds: new Set() });
+      const entry = byDate.get(p.date);
+      entry.punches.push(p);
+      entry.employeeIds.add(empId);
+    };
+    for (const emp of mergedEmployees) {
+      for (const r of emp.records) {
+        if (r.type === "punch_group") r.punches.forEach((p) => add(emp.id, p));
+        else add(emp.id, r);
+      }
+    }
+    return byDate;
+  }, [mergedEmployees]);
+
+  // Sorted chronologically by earliest raw timeIn — the `date` key is a display label ("Oct 7").
+  const trainingDayCandidates = useMemo(() =>
+    [...trainingDayPunchesByDate.values()].map((e) => ({
+      date:            e.date,
+      sortKey:         Math.min(...e.punches.map((p) => (p.rawTimeIn ? new Date(p.rawTimeIn).getTime() : Infinity))),
+      employeeCount:   e.employeeIds.size,
+      regularPending:  e.punches.filter((p) => p.punchType !== "TRAINING").length,
+      trainingPending: e.punches.filter((p) => p.punchType === "TRAINING").length,
+    })).sort((a, b) => a.sortKey - b.sortKey),
+  [trainingDayPunchesByDate]);
+
   // Global stats
   const globalStats = useMemo(() => {
     const totalActionable = mergedEmployees.reduce((s, e) => s + e.approved + e.pending, 0);
@@ -2763,26 +2811,19 @@ export default function CutoffReview({ cutoffId }) {
     }
   }, [token, cutoffId, findRecord, localPunchType, refreshApprovals]);
 
+  // BB-095: whole-day Training designation across all employees.
+  // Returns { ok, failed } so the Training Day dialog knows whether to close.
   const doSetPunchTypeForDate = useCallback(async (date, targetType) => {
-    // Collect all eligible records for this date across ALL employees
-    const targets = [];
-    for (const emp of mergedEmployees) {
-      for (const r of emp.records) {
-        if (r.type === "punch_group") {
-          r.punches.forEach((p) => {
-            if (p.date === date && p.actions?.includes("toggle-training")) targets.push(p);
-          });
-        } else if (r.date === date && r.actions?.includes("toggle-training")) {
-          targets.push(r);
-        }
-      }
-    }
+    // Only pending punches not already at the target type — the server rejects anything else
+    const targets = (trainingDayPunchesByDate.get(date)?.punches ?? [])
+      .filter((p) => (targetType === "TRAINING") !== (p.punchType === "TRAINING"));
     if (targets.length === 0) {
       toast.info("No eligible punches on this date to update");
-      return;
+      return { ok: 0, failed: 0 };
     }
 
-    // Optimistic update
+    // Optimistic update — remember previous overrides so failed ones can be restored individually
+    const prevOverrides = Object.fromEntries(targets.map((r) => [r.id, localPunchType[r.id]]));
     setLocalPunchType((s) => {
       const n = { ...s };
       targets.forEach((r) => { n[r.id] = targetType; });
@@ -2803,27 +2844,35 @@ export default function CutoffReview({ cutoffId }) {
       )
     );
 
-    const failed = results.filter((r) => r.status === "rejected").length;
+    // Successful PATCHes are already persisted server-side — roll back only the ones that failed
+    const failedIds = targets.filter((_, i) => results[i].status === "rejected").map((r) => r.id);
+    const failed = failedIds.length;
+    const ok     = targets.length - failed;
     if (failed > 0) {
-      // Roll back all on any failure
       setLocalPunchType((s) => {
         const n = { ...s };
-        targets.forEach((r) => { delete n[r.id]; });
+        failedIds.forEach((id) => {
+          if (prevOverrides[id] != null) n[id] = prevOverrides[id]; else delete n[id];
+        });
         return n;
       });
-      toast.error(`${failed} of ${targets.length} update(s) failed — no changes saved`);
-    } else {
-      toast.success(
-        targetType === "TRAINING"
-          ? `${targets.length} punch(es) on ${date} marked as Training`
-          : `${targets.length} punch(es) on ${date} reset to Regular`
-      );
-      const anyExcluded = targetType === "TRAINING" && results.some(
-        (r) => r.status === "fulfilled" && (r.value?.data?.excludedSegmentCount ?? 0) > 0
-      );
-      if (anyExcluded) await refreshApprovals(targets[0]?.id);
     }
-  }, [token, cutoffId, mergedEmployees, refreshApprovals]);
+
+    const label   = targetType === "TRAINING" ? "marked as Training" : "reset to Regular";
+    const punches = (n) => `${n} ${n === 1 ? "punch" : "punches"}`;
+    if (ok === 0)        toast.error(`Failed to update ${punches(failed)} on ${date} — no changes saved`);
+    else if (failed > 0) toast.warning(`${ok} of ${punches(targets.length)} on ${date} ${label} — ${failed} failed`);
+    else                 toast.success(`${punches(ok)} on ${date} ${label}`);
+
+    // Refresh when the server auto-excluded DA segments, or when a partial failure may have
+    // left local state out of sync with the server
+    const anyExcluded = targetType === "TRAINING" && results.some(
+      (r) => r.status === "fulfilled" && (r.value?.data?.excludedSegmentCount ?? 0) > 0
+    );
+    if (anyExcluded || (failed > 0 && ok > 0)) await refreshApprovals(targets[0]?.id);
+
+    return { ok, failed };
+  }, [token, cutoffId, trainingDayPunchesByDate, localPunchType, refreshApprovals]);
 
   const confirmFinalize = useCallback(async () => {
     setIsSaving(true);
@@ -2943,6 +2992,8 @@ export default function CutoffReview({ cutoffId }) {
         onSearch={setSearch}
         chips={chips}
         onChip={(id) => setChips((c) => c.map((chip) => chip.id === id ? { ...chip, active: !chip.active } : chip))}
+        showTrainingDay={(cutoff?.status || "open") === "open" && trainingDayCandidates.length > 0}
+        onTrainingDay={() => { setTrainingDayDate(trainingDayCandidates[0]?.date ?? ""); setTrainingDayModal(true); }}
       />
 
       {/* Employee Cards */}
@@ -2991,7 +3042,6 @@ export default function CutoffReview({ cutoffId }) {
                 onReset={doReset}
                 onSetPunchType={doSetPunchType}
                 trainingDates={trainingDates}
-                onTrainingDay={doSetPunchTypeForDate}
                 refreshingOT={refreshingOT}
               />
             </motion.div>
@@ -3152,6 +3202,85 @@ export default function CutoffReview({ cutoffId }) {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ── Training Day Modal (BB-095) — whole-day Training designation across all employees ── */}
+      {(() => {
+        const sel = trainingDayCandidates.find((c) => c.date === trainingDayDate) || null;
+        const run = async (targetType) => {
+          setTrainingDaySaving(targetType);
+          const res = await doSetPunchTypeForDate(trainingDayDate, targetType);
+          setTrainingDaySaving(null);
+          if (res && res.failed === 0 && res.ok > 0) setTrainingDayModal(false);
+        };
+        return (
+          <Dialog open={trainingDayModal} onOpenChange={(v) => !v && !trainingDaySaving && setTrainingDayModal(false)}>
+            <DialogContent className="w-[90vw] sm:max-w-[500px] grid-cols-[minmax(0,1fr)]">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <GraduationCap className="w-4 h-4 text-amber-500" /> Training Day
+                </DialogTitle>
+                <DialogDescription>
+                  Apply the Training punch type to every employee who punched on a date. Only pending punches are updated.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="min-w-0 space-y-4 pt-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-bold uppercase tracking-wide text-neutral-500">Date *</Label>
+                  <Select value={trainingDayDate} onValueChange={setTrainingDayDate} disabled={!!trainingDaySaving}>
+                    <SelectTrigger><SelectValue placeholder="Select a date..." /></SelectTrigger>
+                    <SelectContent>
+                      {trainingDayCandidates.map((c) => (
+                        <SelectItem key={c.date} value={c.date}>
+                          <span className="flex items-center gap-2">
+                            {c.date}
+                            {trainingDates.has(c.date) && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-600 dark:text-amber-400">
+                                <GraduationCap className="w-2.5 h-2.5" /> Training Day
+                              </span>
+                            )}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {sel && (
+                  <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 px-3 py-2.5 text-xs text-neutral-600 dark:text-neutral-300 space-y-1">
+                    <p><span className="font-semibold">{sel.employeeCount}</span> {sel.employeeCount === 1 ? "employee" : "employees"} with pending punches on {sel.date}</p>
+                    <p>
+                      <span className="font-semibold">{sel.regularPending}</span> Regular ·{" "}
+                      <span className={`font-semibold ${sel.trainingPending > 0 ? "text-amber-600 dark:text-amber-400" : ""}`}>{sel.trainingPending}</span> Training
+                    </p>
+                    <p className="text-[11px] text-neutral-400">
+                      Marking as Training also auto-excludes pending driver/aide segments for those employees on that day.
+                    </p>
+                  </div>
+                )}
+                <div className="flex flex-wrap justify-end gap-2 pt-2">
+                  <Button variant="outline" onClick={() => setTrainingDayModal(false)} disabled={!!trainingDaySaving}>Cancel</Button>
+                  <Button
+                    variant="outline"
+                    className="gap-2"
+                    onClick={() => run("REGULAR")}
+                    disabled={!!trainingDaySaving || !sel || sel.trainingPending === 0}
+                  >
+                    {trainingDaySaving === "REGULAR" ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+                    Revert to Regular{sel?.trainingPending ? ` (${sel.trainingPending})` : ""}
+                  </Button>
+                  <Button
+                    className="gap-2 bg-amber-500 hover:bg-amber-600 text-white"
+                    onClick={() => run("TRAINING")}
+                    disabled={!!trainingDaySaving || !sel || sel.regularPending === 0}
+                  >
+                    {trainingDaySaving === "TRAINING" ? <Loader2 className="w-4 h-4 animate-spin" /> : <GraduationCap className="w-4 h-4" />}
+                    Mark as Training{sel?.regularPending ? ` (${sel.regularPending})` : ""}
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
 
       {/* ── Shift Picker Modal (B&C — Approve Schedule) ── */}
       <Dialog open={!!shiftPickerModal} onOpenChange={() => setShiftPickerModal(null)}>

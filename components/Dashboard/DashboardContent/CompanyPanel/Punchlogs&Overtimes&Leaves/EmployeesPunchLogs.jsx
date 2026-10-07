@@ -64,6 +64,7 @@ import ColumnSelector from "@/components/common/ColumnSelector";
 import CutoffDateRangeFilter, { periodRangeKey, groupPeriodsByRange, groupStatus } from "@/components/common/CutoffDateRangeFilter";
 import TableSkeleton from "@/components/common/TableSkeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { fromZonedTime } from "date-fns-tz";
 import ImportPunchLogs from "./ImportPunchLogs";
 import ImportBacktrackPunchLogs from "./ImportBacktrackPunchLogs";
 
@@ -531,6 +532,120 @@ const SummaryStats = ({ data }) => {
 };
 
 // ── FIX 4: DriverAideBreakdown — conditional AM/PM rows based on punch type ───
+// ── BB-092 follow-up: lunch attribution for the Driver/Aide breakdown ───────────
+// Display only. Rebuilds each segment's clamped window (same rule as the server's
+// computeSegmentHours: [max(timeIn, shiftStart), min(timeOut, shiftEnd)]) and compares it
+// with the STORED segment hours to tell whether the lunch was actually deducted there.
+// lunchDeductionMinutes is deliberately not used — records computed before BB-092 still
+// carry the full lunch there while their segments were never reduced.
+const SEGMENT_HOURS_TOLERANCE = 0.015; // server rounds segment hours to 2 decimals
+const LONG_LUNCH_MINUTES      = 120;   // usually a lunch that was never ended
+
+// Shift times are wall-clock values stored as UTC (see fmtUTCTime) — anchor them to the
+// punch's local date in the company timezone, as the server's combineDateWithTimeTz does.
+const shiftTimeOnDate = (shiftTime, localDate, tz) => {
+  if (!shiftTime || !localDate) return null;
+  const d  = new Date(shiftTime);
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  const mm = String(d.getUTCMinutes()).padStart(2, "0");
+  return fromZonedTime(`${localDate}T${hh}:${mm}:00`, tz || "UTC").getTime();
+};
+
+const computeLunchAttribution = (log, segments, tz) => {
+  const lb = log.lunchBreak;
+  if (!lb?.start || !lb?.end) return null;
+  const lunchStart = new Date(lb.start).getTime();
+  const lunchEnd   = new Date(lb.end).getTime();
+  const lunchMins  = Math.max(0, lunchEnd - lunchStart) / 60000;
+  const base = {
+    lunchMins,
+    isAuto:          lb.auto === true,
+    notDeductible:   lb.auto === true && lb.deductible === false,
+    isLong:          lunchMins > LONG_LUNCH_MINUTES,
+    status:          "unknown", // "deducted" | "not_deducted" | "outside" | "unknown"
+    parts:           [],        // [{ key, label, hours }] — only when status === "deducted"
+  };
+  if (!log.timeIn || !log.timeOut) return base;
+
+  const timeInMs  = new Date(log.timeIn).getTime();
+  const timeOutMs = new Date(log.timeOut).getTime();
+  const localDate = toLocalDateStr(log.timeIn, tz);
+
+  const results = [];
+  for (const seg of segments) {
+    if (!seg.shift?.startTime || !seg.shift?.endTime || seg.stored == null) {
+      // Can't rebuild this window — only matters if the lunch could fall inside it
+      results.push({ ...seg, verdict: "unknown", overlapMins: null });
+      continue;
+    }
+    const winStart = Math.max(timeInMs,  shiftTimeOnDate(seg.shift.startTime, localDate, tz));
+    const winEnd   = Math.min(timeOutMs, shiftTimeOnDate(seg.shift.endTime,   localDate, tz));
+    const windowH  = Math.max(0, winEnd - winStart) / 3600000;
+    const overlapMins = Math.max(0, Math.min(lunchEnd, winEnd) - Math.max(lunchStart, winStart)) / 60000;
+    if (overlapMins === 0) { results.push({ ...seg, verdict: "none", overlapMins }); continue; }
+    const overlapH  = overlapMins / 60;
+    const matchDed  = Math.abs(seg.stored - (windowH - overlapH)) <= SEGMENT_HOURS_TOLERANCE;
+    const matchFull = Math.abs(seg.stored - windowH)              <= SEGMENT_HOURS_TOLERANCE;
+    const verdict   = matchDed && !matchFull ? "deducted" : matchFull && !matchDed ? "not_deducted" : "unknown";
+    results.push({ ...seg, verdict, overlapMins });
+  }
+
+  const touched = results.filter((r) => r.verdict !== "none");
+  if (touched.length === 0) return { ...base, status: "outside" };
+  if (touched.some((r) => r.verdict === "unknown")) return base;
+  if (touched.every((r) => r.verdict === "deducted")) {
+    return { ...base, status: "deducted", parts: touched.map((r) => ({ key: r.key, label: r.label, hours: r.overlapMins / 60 })) };
+  }
+  if (touched.every((r) => r.verdict === "not_deducted")) return { ...base, status: "not_deducted" };
+  return base;
+};
+
+const LunchBreakTooltip = ({ log, attribution, companyTimezone }) => {
+  const a = attribution;
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button type="button" aria-label="Lunch break details" className="text-muted-foreground hover:text-foreground">
+            <Info className="h-3 w-3" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs">
+          <div className="space-y-1 text-xs">
+            <div className="font-medium">
+              {a.isAuto ? "Auto lunch" : "Lunch"}: {safeTime(log.lunchBreak.start, companyTimezone)} → {safeTime(log.lunchBreak.end, companyTimezone)} ({Math.round(a.lunchMins)} min)
+              {a.notDeductible && <span className="ml-1 text-muted-foreground">· not deducted</span>}
+            </div>
+            {a.isLong && (
+              <div className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                <AlertTriangle className="h-3 w-3" /> Over {LONG_LUNCH_MINUTES} min — lunch may not have been ended
+              </div>
+            )}
+            {!a.notDeductible && a.status === "deducted" && (
+              <div>
+                Deducted from:{" "}
+                {a.parts.length === 1
+                  ? a.parts[0].label
+                  : a.parts.map((p) => `${p.label.replace(/ Hours$/, "")} ${p.hours.toFixed(2)}h`).join(" · ")}
+              </div>
+            )}
+            {!a.notDeductible && a.status === "not_deducted" && <div className="text-muted-foreground">Not deducted from segment hours</div>}
+            {a.status === "outside" && <div className="text-muted-foreground">Outside the scheduled segments — not deducted</div>}
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+};
+
+const LunchDeductionNote = ({ attribution, segKey }) => {
+  const part = attribution?.status === "deducted" && !attribution.notDeductible
+    ? attribution.parts.find((p) => p.key === segKey)
+    : null;
+  if (!part) return null;
+  return <span className="basis-full text-xs text-muted-foreground font-normal">−{part.hours.toFixed(2)}h lunch</span>;
+};
+
 const DriverAideBreakdown = ({ log, companyTimezone }) => {
   const regularShiftEntry  = log.scheduleList?.find((s) => s.shift?.shiftName?.toLowerCase().includes("regular"));
   const schedStartStr      = regularShiftEntry?.shift?.startTime ? fmtUTCTime(regularShiftEntry.shift.startTime) : null;
@@ -544,6 +659,17 @@ const DriverAideBreakdown = ({ log, companyTimezone }) => {
     : 0;
   const driverPMShiftEntry = log.scheduleList?.find((s) => s.shift?.shiftName?.toLowerCase().includes("pm"));
   const driverPMEndStr     = driverPMShiftEntry?.shift?.endTime ? fmtUTCTime(driverPMShiftEntry.shift.endTime) : null;
+  // \bam\b so "Driver/Aide AM Shift" matches without catching names that merely contain "am"
+  const driverAMShiftEntry = log.scheduleList?.find((s) => /\bam\b/.test(s.shift?.shiftName?.toLowerCase() ?? ""));
+  const driverAMStartStr   = driverAMShiftEntry?.shift?.startTime ? fmtUTCTime(driverAMShiftEntry.shift.startTime) : null;
+  const driverAMEndStr     = driverAMShiftEntry?.shift?.endTime   ? fmtUTCTime(driverAMShiftEntry.shift.endTime)   : null;
+
+  // BB-092 follow-up: which segment(s) the punched lunch was deducted from
+  const lunchAttribution = computeLunchAttribution(log, [
+    ...((log.isDA || log.isDA_AM) ? [{ key: "am", label: "Driver/Aide AM", shift: driverAMShiftEntry?.shift, stored: log.daAMHours }] : []),
+    { key: "regular", label: "Regular Hours", shift: regularShiftEntry?.shift, stored: log.daRegularHours },
+    ...((log.isDA || log.isDA_PM) ? [{ key: "pm", label: "Driver/Aide PM", shift: driverPMShiftEntry?.shift, stored: log.daPMHours }] : []),
+  ], companyTimezone);
 
   return (
     <div className="space-y-2 text-sm">
@@ -556,9 +682,13 @@ const DriverAideBreakdown = ({ log, companyTimezone }) => {
       {/* AM row — only for DRIVER_AIDE and DRIVER_AIDE_AM */}
       {(log.isDA || log.isDA_AM) && (
         <div className="flex justify-between items-center p-2 rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800">
-          <span className="text-blue-700 dark:text-blue-300 flex items-center gap-1">
+          <span className="text-blue-700 dark:text-blue-300 flex items-center gap-1 flex-wrap">
             <Car className="h-3 w-3" /> Driver/Aide AM
             <span className="ml-1 text-xs text-muted-foreground font-normal">(fixed)</span>
+            {driverAMStartStr && driverAMEndStr && (
+              <span className="text-xs text-muted-foreground/60">{driverAMStartStr} → {driverAMEndStr}</span>
+            )}
+            <LunchDeductionNote attribution={lunchAttribution} segKey="am" />
           </span>
           <span className="font-bold text-blue-700 dark:text-blue-300">{log.daAMHours?.toFixed(2)}h</span>
         </div>
@@ -571,6 +701,7 @@ const DriverAideBreakdown = ({ log, companyTimezone }) => {
           {schedStartStr && schedEndStr && (
             <span className="text-xs text-muted-foreground/60">{schedStartStr} → {schedEndStr}</span>
           )}
+          <LunchDeductionNote attribution={lunchAttribution} segKey="regular" />
         </span>
         <span className="font-bold text-purple-700 dark:text-purple-300">{log.daRegularHours?.toFixed(2)}h</span>
       </div>
@@ -589,6 +720,7 @@ const DriverAideBreakdown = ({ log, companyTimezone }) => {
             {schedEndStr && driverPMEndStr && (
               <span className="text-xs text-muted-foreground/60">{schedEndStr} → {driverPMEndStr}</span>
             )}
+            <LunchDeductionNote attribution={lunchAttribution} segKey="pm" />
           </span>
           <span className="font-bold text-blue-700 dark:text-blue-300">{log.daPMHours?.toFixed(2)}h</span>
         </div>
@@ -612,7 +744,13 @@ const DriverAideBreakdown = ({ log, companyTimezone }) => {
       </div>
       <div className="pt-1 border-t text-xs space-y-1">
         <div className="flex justify-between"><span className="text-muted-foreground">Coffee Break:</span><span>{log.coffeeMins}h</span></div>
-        <div className="flex justify-between"><span className="text-muted-foreground">Lunch Break:</span><span>{log.lunchMins}h</span></div>
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">Lunch Break:</span>
+          <span className={`flex items-center gap-1 ${lunchAttribution?.isLong ? "text-amber-600 dark:text-amber-400 font-medium" : ""}`}>
+            {log.lunchMins}h
+            {lunchAttribution && <LunchBreakTooltip log={log} attribution={lunchAttribution} companyTimezone={companyTimezone} />}
+          </span>
+        </div>
       </div>
     </div>
   );
