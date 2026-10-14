@@ -71,7 +71,7 @@ function getPayrollItems(role) {
   };
 }
 
-const CompanyPanelItems = [
+export const CompanyPanelItems = [
   {
     id: "organizations&people",
     label: "Organizations & People",
@@ -147,7 +147,7 @@ const FREE_ALLOWED = new Set([
   "company/subscription",
 ]);
 
-function lockChildByPlan(child, plan) {
+export function lockChildByPlan(child, plan) {
   switch (plan) {
     case "pro":
       return { ...child, locked: false, requiredPlan: null };
@@ -162,7 +162,7 @@ function lockChildByPlan(child, plan) {
   }
 }
 
-function filterCompanyPanelByRole(items, role) {
+export function filterCompanyPanelByRole(items, role) {
   const r = role.toLowerCase();
   if (r === "employee") return [];
   if (r === "supervisor")
