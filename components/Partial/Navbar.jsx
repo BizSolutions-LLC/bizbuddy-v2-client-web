@@ -5,8 +5,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { MenuIcon, DoorClosedIcon as CloseIcon } from "lucide-react";
+import { MenuIcon, DoorClosedIcon as CloseIcon, BookOpen } from "lucide-react";
 import { ThemeToggle } from "../Theme/ThemeToggle";
+import { Button } from "@/components/ui/button";
+import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import useAuthStore from "@/store/useAuthStore";
 import UserMenu from "./Navbar/UserMenu";
 import MobileMenu from "./Navbar/MobileMenu";
@@ -64,6 +66,25 @@ function SignInButton() {
   );
 }
 
+// BB-097 — Employee documentation entry point (signed-in users only)
+function DocsLink() {
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button asChild variant="ghost" size="icon" className="hover:bg-transparent group">
+            <Link href="/dashboard/employee/documentation">
+              <BookOpen className="h-5 w-5 group-hover:text-orange-500" />
+              <span className="sr-only">Documentation</span>
+            </Link>
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Documentation</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
 export default function NavBar() {
   const { token, sidebarOpen, toggleSidebar } = useAuthStore();
   const pathname = usePathname();
@@ -98,6 +119,7 @@ export default function NavBar() {
           {hideLogo && <div />}
 
           <div className="flex items-center space-x-6">
+            {token && <DocsLink />}
             <ThemeToggle />
             {!token ? (
               <>
@@ -140,6 +162,7 @@ export default function NavBar() {
             </div>
 
             <div className="flex items-center space-x-2 shrink-0">
+              {token && <DocsLink />}
               <ThemeToggle />
               {!token ? (
                 <>
