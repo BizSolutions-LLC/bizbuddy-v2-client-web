@@ -1948,6 +1948,8 @@ export default function EmployeesPunchLogs() {
       // are covered by a locked department — so it never double-counts the same leave.
       let approvalLeaves = [];
       const lockedUserIds = new Set();
+      // BB-089: fixed-hours (SV) totals from locked cutoffs — open cutoffs don't carry them
+      let fixedHours = [];
 
       if (cutoffId && cutoffId !== "all" && selectedPeriods.length) {
         // One cutoff period per department can share the same pay-period range — pull
@@ -1973,6 +1975,7 @@ export default function EmployeesPunchLogs() {
           rawRows.push(...buildRowsFromApprovals(j, companyTimezone));
           freshOtBlocks.push(...(j.otBlocks || []));
           approvalLeaves.push(...buildLeavesFromApprovals(j));
+          fixedHours.push(...(j.fixedHours || []));
           for (const approval of j.data || []) {
             const uid = approval.timeLog?.user?.id;
             if (uid) lockedUserIds.add(uid);
@@ -2027,6 +2030,18 @@ export default function EmployeesPunchLogs() {
         );
       }
 
+      // BB-089: same employee/search filters as `enriched`
+      if (!filters.employeeIds.includes("all"))
+        fixedHours = fixedHours.filter((fh) => filters.employeeIds.includes(fh.userId || fh.user?.id));
+      if (filters.search) {
+        const q = filters.search.toLowerCase();
+        fixedHours = fixedHours.filter((fh) => {
+          const p = fh.user?.profile;
+          const name = `${p?.firstName || ""} ${p?.lastName || fh.user?.username || ""}`.trim();
+          return name.toLowerCase().includes(q) || fh.user?.email?.toLowerCase().includes(q);
+        });
+      }
+
       // Sort: Last name → First name → date asc
       enriched.sort((a, b) => {
         const aN = employeeNameMap[a.userId] ?? {};
@@ -2064,7 +2079,7 @@ export default function EmployeesPunchLogs() {
           data: enriched, visibleColumns: columns, columnMap: columnMapForExport,
           filters: exportFilters, userTimezone, companyTimezone, isDayCare: freshIsDayCare,
           bncOtBlocks: freshOtBlocks, bncDailyOtThreshold: freshOtThreshold,
-          otBasis, cutoffOtThreshold, employeeNameMap,
+          otBasis, cutoffOtThreshold, employeeNameMap, fixedHours,
         });
         if (result.success) toast.success(result.filename);
       } else if (type === "csv-payroll") {
@@ -2074,6 +2089,11 @@ export default function EmployeesPunchLogs() {
           approvedLeaves: finalApprovedLeaves, defaultShiftHours: defaultHours,
           fromDate: from, toDate: to,
           cutoffOtThreshold,
+          // BB-089: ID / job title from the same maps as the punch rows, for SV rows with no punches
+          fixedHours: fixedHours.map((fh) => {
+            const uid = fh.userId || fh.user?.id;
+            return { ...fh, employeeId: employeeIdMap[uid] ?? fh.user?.employeeId, employeeRole: employeeRoleMap[uid] };
+          }),
         });
         if (result.success) toast.success(result.filename);
       }
