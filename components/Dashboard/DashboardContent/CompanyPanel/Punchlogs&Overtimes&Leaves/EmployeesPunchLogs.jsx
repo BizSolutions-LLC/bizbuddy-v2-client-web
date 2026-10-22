@@ -42,6 +42,7 @@ import {
   X,
   Upload,
   History,
+  Utensils,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast, Toaster } from "sonner";
@@ -1047,15 +1048,25 @@ function buildRowsFromApprovals(approvalsData, companyTimezone) {
         driverAmSegmentHours: null,
         regularSegmentHours:  null,
         driverPmSegmentHours: null,
+        // BB-089 rework: actual hours of fixed-hours (SV) scheduled-day punches. The server
+        // excludes them (covered by the flat hours), so they never reach netWorkedHours —
+        // kept separate so only the payroll grid's daily cells read them.
+        fixedHoursScheduledHours: 0,
+        isOffDay: false,
       });
     }
     const g = groups.get(key);
+    if (approval.isFixedHoursEmployee && approval.isOffDay) g.isOffDay = true;
     if (tl.timeOut && (!g.timeOut || new Date(tl.timeOut) > new Date(g.timeOut))) g.timeOut = tl.timeOut;
 
     const isApproved   = approval.status === "approved" || approval.status === "resolved";
     const calc         = approval.calculatedData || {};
     const payroll      = approval.payrollSummary || {};
     const payableHours = isApproved ? (payroll.totalPayableHours ?? calc.payableHours ?? 0) : 0;
+    // Exclusion only flips the status — the calculated hours are still on the approval.
+    if (approval.isFixedHoursEmployee && !approval.isOffDay && approval.status === "excluded") {
+      g.fixedHoursScheduledHours += parseFloat(payroll.totalPayableHours ?? calc.payableHours ?? 0) || 0;
+    }
 
     if (approval.segmentType) {
       // Any DA punchType is enough to make enrichTimelogs() treat this as a driver/aide row
@@ -1515,6 +1526,10 @@ export default function EmployeesPunchLogs() {
   const [editTimeIn,         setEditTimeIn]         = useState("");
   const [editTimeOut,        setEditTimeOut]        = useState("");
   const [clearingAutoBreaks, setClearingAutoBreaks] = useState(false);
+  // BB-102 — admin add / edit / delete lunch (PUT/DELETE /api/timelogs/:id/lunch-break)
+  const [editLunchStart,     setEditLunchStart]     = useState("");
+  const [editLunchEnd,       setEditLunchEnd]       = useState("");
+  const [savingLunch,        setSavingLunch]        = useState(false);
 
   // Edit punch type dialog (DayCare only)
   const [editPunchTypeOpen, setEditPunchTypeOpen] = useState(false);
@@ -2089,6 +2104,7 @@ export default function EmployeesPunchLogs() {
           approvedLeaves: finalApprovedLeaves, defaultShiftHours: defaultHours,
           fromDate: from, toDate: to,
           cutoffOtThreshold,
+          otBlocks: freshOtBlocks, // BB-089 rework: approved SV off-day OT blocks
           // BB-089: ID / job title from the same maps as the punch rows, for SV rows with no punches
           fixedHours: fixedHours.map((fh) => {
             const uid = fh.userId || fh.user?.id;
@@ -2118,7 +2134,50 @@ export default function EmployeesPunchLogs() {
     setEditLog(log);
     setEditTimeIn(toCompanyInputValue(log.timeIn, companyTimezone));
     setEditTimeOut(toCompanyInputValue(log.timeOut, companyTimezone));
+    setEditLunchStart(log.lunchBreak?.start ? toCompanyInputValue(log.lunchBreak.start, companyTimezone) : "");
+    setEditLunchEnd(log.lunchBreak?.end ? toCompanyInputValue(log.lunchBreak.end, companyTimezone) : "");
     setEditDialogOpen(true);
+  };
+
+  // Hours are recomputed server-side; refetch to show them. 409s (approved punch,
+  // locked/processed cutoff) carry a message meant to be shown as-is.
+  const saveLunch = async () => {
+    if (!editLog) return;
+    if (!editLunchStart || !editLunchEnd) { toast.error("Set both lunch start and end."); return; }
+    setSavingLunch(true);
+    try {
+      const res = await fetch(`${API_URL}/api/timelogs/${editLog.id}/lunch-break`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          start: fromCompanyInputToISO(editLunchStart, companyTimezone),
+          end:   fromCompanyInputToISO(editLunchEnd,   companyTimezone),
+        }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.message || "Failed to save lunch");
+      toast.success(j.message || "Lunch saved");
+      setEditDialogOpen(false); setEditLog(null);
+      await fetchTimelogs();
+    } catch (e) { toast.error(e.message); }
+    finally { setSavingLunch(false); }
+  };
+
+  const deleteLunch = async () => {
+    if (!editLog) return;
+    setSavingLunch(true);
+    try {
+      const res = await fetch(`${API_URL}/api/timelogs/${editLog.id}/lunch-break`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.message || "Failed to delete lunch");
+      toast.success(j.message || "Lunch deleted");
+      setEditDialogOpen(false); setEditLog(null);
+      await fetchTimelogs();
+    } catch (e) { toast.error(e.message); }
+    finally { setSavingLunch(false); }
   };
 
   const submitEdit = async () => {
@@ -3429,6 +3488,76 @@ export default function EmployeesPunchLogs() {
                   >
                     {clearingAutoBreaks ? "Clearing…" : "Clear Auto-Breaks & Reset Flags"}
                   </Button>
+                </div>
+              )}
+              {editLog.timeOut && (
+                <div className="border rounded-lg p-3 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm font-medium flex items-center gap-1.5">
+                      <Utensils className="h-4 w-4 text-orange-500" />
+                      Lunch
+                    </div>
+                    {editLog.lunchBreak?.start ? (
+                      <span className="text-xs text-muted-foreground">
+                        Current: {safeTime(editLog.lunchBreak.start, companyTimezone)} – {safeTime(editLog.lunchBreak.end, companyTimezone)}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">No lunch on this punch</span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-xs font-medium mb-1 block">Start</label>
+                      <Input
+                        type="datetime-local"
+                        value={editLunchStart}
+                        min={editTimeIn}
+                        max={editTimeOut}
+                        onChange={(e) => setEditLunchStart(e.target.value)}
+                        className="w-full"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium mb-1 block">End</label>
+                      <Input
+                        type="datetime-local"
+                        value={editLunchEnd}
+                        min={editLunchStart || editTimeIn}
+                        max={editTimeOut}
+                        onChange={(e) => setEditLunchEnd(e.target.value)}
+                        className="w-full"
+                      />
+                    </div>
+                  </div>
+                  {editLog.lunchBreak?.editedAt && (
+                    <div className="text-xs text-muted-foreground">
+                      Edited by an admin on {safeDateTime(editLog.lunchBreak.editedAt, companyTimezone)}
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={saveLunch}
+                      disabled={savingLunch}
+                      className="flex-1 bg-orange-500 hover:bg-orange-600"
+                    >
+                      {savingLunch ? "Saving…" : editLog.lunchBreak?.start ? "Update Lunch" : "Add Lunch"}
+                    </Button>
+                    {editLog.lunchBreak?.start && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={deleteLunch}
+                        disabled={savingLunch}
+                        className="border-red-300 text-red-700 hover:bg-red-100 hover:text-red-800 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-900/30"
+                      >
+                        <Trash2 className="h-4 w-4 mr-1" /> Delete
+                      </Button>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">
+                    Saves the lunch only. Time In / Time Out changes still need Save Changes below.
+                  </div>
                 </div>
               )}
             </div>
