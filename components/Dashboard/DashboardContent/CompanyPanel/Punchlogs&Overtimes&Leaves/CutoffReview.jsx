@@ -56,7 +56,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import ModalPortal from "@/components/ui/modal-portal";
-import { toast } from "sonner";
+import { toast, Toaster } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
 import { fromZonedTime } from "date-fns-tz";
 
@@ -462,7 +462,7 @@ const TagPill = ({ cls, label, tooltip }) => {
 };
 
 /** Action button */
-const ActionBtn = ({ color, icon: Icon, label, onClick }) => {
+const ActionBtn = ({ color, icon: Icon, label, onClick, disabled = false, title }) => {
   const variants = {
     green:   "text-emerald-600 border-emerald-200 hover:bg-emerald-500 hover:text-white hover:border-emerald-500",
     purple:  "text-violet-600  border-violet-200  hover:bg-violet-500  hover:text-white hover:border-violet-500",
@@ -471,13 +471,48 @@ const ActionBtn = ({ color, icon: Icon, label, onClick }) => {
     red:     "text-red-500     border-red-200     hover:bg-red-500     hover:text-white hover:border-red-500",
     amber:   "text-amber-600   border-amber-200   hover:bg-amber-500   hover:text-white hover:border-amber-500",
   };
+  // Wrapped in a span so the hover tooltip still shows while the button is disabled
+  // (disabled buttons don't fire hover events). Same dark tooltip as InfoTooltip.
   return (
-    <button onClick={onClick}
-      className={`inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg border bg-white transition-all duration-150 ${variants[color] || variants.neutral}`}>
-      <Icon className="w-3 h-3" /> {label}
-    </button>
+    <span className={`relative group inline-flex ${disabled ? "cursor-not-allowed" : ""}`}>
+      <button onClick={onClick} disabled={disabled} aria-label={title ? `${label} — ${title}` : undefined}
+        className={`inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg border bg-white transition-all duration-150 ${
+          disabled ? "text-neutral-300 border-neutral-200 pointer-events-none" : variants[color] || variants.neutral
+        }`}>
+        <Icon className="w-3 h-3" /> {label}
+      </button>
+      {title && (
+        <span className="pointer-events-none absolute z-[9999] bottom-full right-0 mb-2 w-56 rounded-xl bg-neutral-900 text-white text-[11px] font-normal leading-relaxed px-3 py-2.5 shadow-2xl text-left opacity-0 group-hover:opacity-100 scale-95 group-hover:scale-100 transition-all duration-150 origin-bottom whitespace-normal break-words">
+          {title}
+        </span>
+      )}
+    </span>
   );
 };
+
+// BB-104: B&C regular punches approve against a picked shift; with no shift on that date
+// there's nothing to pick, so the Schedule button is disabled instead of doing nothing.
+const NO_SHIFT_TOOLTIP = "No schedule assigned for this day. Assign a shift first, or use Approve Raw / Edit.";
+
+// BB-105: "Left X min early" is suspended — the server's earlyMinutes reads misleadingly
+// (e.g. "301.8min" with no schedule). Flip back to true once the server figure is fixed.
+const SHOW_LEFT_EARLY_TAG = false;
+
+// Records "Approve All Raw" would approve for one employee — shared by the bulk action
+// and its BB-104 no-schedule confirmation so both always count the same set.
+function collectBulkApprovable(emp, requiredAction) {
+  const isApprovable = (r) =>
+    !r.localStatus &&
+    r.actions?.includes(requiredAction) &&
+    !["conflict", "unscheduled"].includes(r.type);
+  const out = [];
+  emp.records.forEach((r) => {
+    if (r.type === "driver_group") r.segments.forEach((s) => { if (isApprovable(s)) out.push(s); });
+    else if (r.type === "punch_group") r.punches.forEach((p) => { if (isApprovable(p)) out.push(p); });
+    else if (isApprovable(r)) out.push(r);
+  });
+  return out;
+}
 
 /** Single timeline row inside an employee card */
 const TimelineRow = ({ rec, onApprove, onApproveOT, onApproveSchedule, onApproveRaw, onEdit, onExclude, onConflict, onReset, onSetPunchType }) => {
@@ -714,7 +749,7 @@ const TimelineRow = ({ rec, onApprove, onApproveOT, onApproveSchedule, onApprove
               <div className="flex items-center justify-end gap-1.5">
                 {rec.actions?.includes("approve")          && <ActionBtn color="green"   icon={Check}         label="Approve"      onClick={() => onApprove(rec.id)} />}
                 {rec.actions?.includes("approve-ot")       && <ActionBtn color="purple"  icon={Zap}           label="+ OT"         onClick={() => onApproveOT(rec.id)} />}
-                {rec.actions?.includes("approve-schedule") && <ActionBtn color="green"   icon={Check}         label="Schedule"     onClick={() => onApproveSchedule(rec)} />}
+                {rec.actions?.includes("approve-schedule") && <ActionBtn color="green"   icon={Check}         label="Schedule"     onClick={() => onApproveSchedule(rec)} disabled={rec.noShiftToPick} title={rec.noShiftToPick ? NO_SHIFT_TOOLTIP : undefined} />}
                 {rec.actions?.includes("approve-raw")      && <ActionBtn color="blue"    icon={Clock}         label="Raw"          onClick={() => onApproveRaw(rec.id)} />}
                 {rec.actions?.includes("honor-punch")      && <ActionBtn color="blue"    icon={Clock}         label="Honor Punch"  onClick={() => onConflict(rec.id, "punch")} />}
                 {rec.actions?.includes("honor-leave")      && <ActionBtn color="green"   icon={CalendarCheck} label="Honor Leave"  onClick={() => onConflict(rec.id, "leave")} />}
@@ -882,7 +917,7 @@ const PunchSubRow = ({ rec, onApprove, onApproveOT, onApproveSchedule, onApprove
               <div className="flex items-center justify-end gap-1.5">
                 {rec.actions?.includes("approve")          && <ActionBtn color="green"   icon={Check}         label="Approve"      onClick={() => onApprove(rec.id)} />}
                 {rec.actions?.includes("approve-ot")       && <ActionBtn color="purple"  icon={Zap}           label="+ OT"         onClick={() => onApproveOT(rec.id)} />}
-                {rec.actions?.includes("approve-schedule") && <ActionBtn color="green"   icon={Check}         label="Schedule"     onClick={() => onApproveSchedule(rec)} />}
+                {rec.actions?.includes("approve-schedule") && <ActionBtn color="green"   icon={Check}         label="Schedule"     onClick={() => onApproveSchedule(rec)} disabled={rec.noShiftToPick} title={rec.noShiftToPick ? NO_SHIFT_TOOLTIP : undefined} />}
                 {rec.actions?.includes("approve-raw")      && <ActionBtn color="blue"    icon={Clock}         label="Raw"          onClick={() => onApproveRaw(rec.id)} />}
                 {rec.actions?.includes("honor-punch")      && <ActionBtn color="blue"    icon={Clock}         label="Honor Punch"  onClick={() => onConflict(rec.id, "punch")} />}
                 {rec.actions?.includes("honor-leave")      && <ActionBtn color="green"   icon={CalendarCheck} label="Honor Leave"  onClick={() => onConflict(rec.id, "leave")} />}
@@ -1127,8 +1162,9 @@ const FixedHoursRow = ({ row, canEdit, onEdit, companyTimezone }) => {
 const OTBlockRow = ({ block, onOTBlock, localOTBlockStatus, threshold, isCutoffBasis }) => {
   const [expanded, setExpanded] = useState(false);
   const status    = localOTBlockStatus[block.id] || block.status;
-  const isFixedHours = block.isFixedHoursEmployee === true; // BB-089: SV blocks are not actionable
-  const isPending = status === "pending" && !isFixedHours;
+  // BB-089 rework: SV blocks hold off-day OT only (no threshold) and are approvable like any other
+  const isFixedHours = block.isFixedHoursEmployee === true;
+  const isPending = status === "pending";
   const bd        = block.breakdown;
   const hasBreakdown = isCutoffBasis && bd?.days?.length > 0;
 
@@ -1144,7 +1180,9 @@ const OTBlockRow = ({ block, onOTBlock, localOTBlockStatus, threshold, isCutoffB
         <td className="px-3 py-2.5">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs text-neutral-500 dark:text-neutral-400">
-              {isCutoffBasis
+              {isFixedHours
+                ? `Off-day OT · ${bd?.otHours ?? block.otHours}h on top of fixed hours`
+                : isCutoffBasis
                 ? `Period OT · ${bd?.totalHours ?? block.otHours}h total / ${bd?.threshold ?? threshold}h threshold`
                 : `Overtime · ${block.otHours}h over ${threshold}h daily threshold`
               }
@@ -1163,11 +1201,7 @@ const OTBlockRow = ({ block, onOTBlock, localOTBlockStatus, threshold, isCutoffB
                 <Check className="w-2.5 h-2.5" /> Approved
               </span>
             )}
-            {isFixedHours ? (
-              <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-blue-600 bg-blue-50 dark:bg-blue-900/20 dark:text-blue-400 px-1.5 py-0.5 rounded">
-                <Timer className="w-2.5 h-2.5" /> Not counted: fixed hours
-              </span>
-            ) : status === "excluded" && (
+            {status === "excluded" && (
               <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-neutral-500 bg-neutral-100 dark:bg-neutral-800 px-1.5 py-0.5 rounded">
                 <X className="w-2.5 h-2.5" /> Excluded
               </span>
@@ -1502,7 +1536,7 @@ const EmployeeCard = ({ emp, onApprove, onApproveOT, onApproveSchedule, onApprov
                 <div className="text-right">
                   <div className="text-[10px] text-neutral-400 font-semibold uppercase tracking-wide">Total Payable</div>
                   <div className="text-lg font-extrabold font-mono text-neutral-800 dark:text-neutral-200">{parseFloat(emp.totalHours).toFixed(2).replace(/\.?0+$/, "")}h</div>
-                  <div className="text-[10px] text-neutral-400">{parseFloat(emp.punchHours).toFixed(2).replace(/\.?0+$/, "")}h {emp.fixedHours ? "regular" : "punch"} · {parseFloat(emp.leaveHours).toFixed(2).replace(/\.?0+$/, "")}h leave</div>
+                  <div className="text-[10px] text-neutral-400">{parseFloat(emp.punchHours).toFixed(2).replace(/\.?0+$/, "")}h {emp.fixedHours ? "regular" : "punch"}{emp.fixedHours && emp.otHours > 0 ? ` · ${parseFloat(emp.otHours).toFixed(2).replace(/\.?0+$/, "")}h OT` : ""} · {parseFloat(emp.leaveHours).toFixed(2).replace(/\.?0+$/, "")}h leave</div>
                 </div>
               </div>
             </div>
@@ -1558,6 +1592,7 @@ export default function CutoffReview({ cutoffId }) {
   const [editedClockOut,  setEditedClockOut]  = useState("");
   const [editNotes,       setEditNotes]       = useState("");
   const [excludeModal,    setExcludeModal]    = useState(null); // { recId }
+  const [rawConfirm,      setRawConfirm]      = useState(null); // BB-104: { recId, … } single or { empId, total, unscheduled } bulk
   const [finalizeModal,   setFinalizeModal]   = useState(false);
   const [shiftPickerModal,setShiftPickerModal]= useState(null); // { recId, shifts, usedShiftIds }
   const [usedShifts,      setUsedShifts]      = useState({});   // { [recId]: shiftId } — tracks which shift was used per approval
@@ -2096,7 +2131,7 @@ export default function CutoffReview({ cutoffId }) {
     if (tl.isTooEarlyPunch) tags.push({ cls: "tooEarly", label: "Too Early" });
     if (isLate && !tl.isApproved)      tags.push({ cls: "late", label: `${calc.lateMinutes}min late` });
     if (withinGrace) tags.push({ cls: "snap", label: "Within grace — snaps to schedule" });
-    if (leftEarly && !tl.isApproved) {
+    if (SHOW_LEFT_EARLY_TAG && leftEarly && !tl.isApproved) {
       const earlyHours = (calc.earlyMinutes / 60).toFixed(1);
       const lines = [`Left ${earlyHours}h (${calc.earlyMinutes} min) before the scheduled shift end.`];
       if (shiftStartStr && shiftEndStr) {
@@ -2136,9 +2171,13 @@ export default function CutoffReview({ cutoffId }) {
       if (pt === "REGULAR" || pt === "TRAINING") actions.push("toggle-training");
     }
 
-    // BB-089: fixed-hours (SV) punches are excluded server-side and never actionable
-    const isFixedHours = approval.isFixedHoursEmployee === true;
+    // BB-089: fixed-hours (SV) punches on a scheduled day are covered by the flat hours —
+    // excluded server-side and never actionable. Off-day punches (rework) are pending
+    // like any other punch and paid as OT on top of the flat hours if approved.
+    const isOffDay     = approval.isFixedHoursEmployee === true && approval.isOffDay === true;
+    const isFixedHours = approval.isFixedHoursEmployee === true && !isOffDay;
     if (isFixedHours) actions.length = 0;
+    if (isOffDay) tags.push({ cls: "ot", label: "Off-day · OT", tooltip: "Fixed-hours employee working a day off. Paid as OT on top of the fixed hours if approved." });
 
     const payableHours = payroll.payableRegularHours || calc.payableHours || 0;
     const totalPayable = payroll.totalPayableHours   || payableHours;
@@ -2160,6 +2199,11 @@ export default function CutoffReview({ cutoffId }) {
       timeLogId:       tl.id,
       segmentType:     approval.segmentType ?? null,
       availableShifts: approval.availableShifts || [],
+      // BB-104: only B&C regular punches use the shift picker (DayCare and B&C segments don't)
+      noShiftToPick:   isBNC && approval.segmentType == null && !(approval.availableShifts || []).length,
+      // BB-104: regular punch with no schedule that day — Approve Raw asks first.
+      // B&C: no shift to pick; DayCare: no scheduled shift on the approval.
+      noSchedule:      approval.segmentType == null && (isBNC ? !(approval.availableShifts || []).length : !schedule),
       rawTimeIn:       tl.timeIn  || null,
       rawTimeOut:      tl.timeOut || null,
       originalTimeIn:  tl.originalTimeIn  || null,
@@ -2182,6 +2226,7 @@ export default function CutoffReview({ cutoffId }) {
       noScheduleRemark,
       punchType:   tl.punchType || "REGULAR",
       isFixedHours,
+      isOffDay,
       localStatus: approval.status === "approved" ? "approved" : approval.status === "excluded" ? "excluded" : null,
     };
   }
@@ -2331,7 +2376,7 @@ export default function CutoffReview({ cutoffId }) {
 
       const approved   = actionableFlat.filter((r) => r.localStatus === "approved" || r.localStatus === "resolved").length;
       const empOTBlocks     = otBlocks.filter((b) => b.userId === emp.id);
-      const pendingOTBlocks = empOTBlocks.filter((b) => !b.isFixedHoursEmployee && (localOTBlockStatus[b.id] || b.status) === "pending").length;
+      const pendingOTBlocks = empOTBlocks.filter((b) => (localOTBlockStatus[b.id] || b.status) === "pending").length;
       const pending    = actionableFlat.filter((r) => !r.localStatus).length + pendingOTBlocks;
       const punchHours = records.reduce((s, r) => {
         if (r.type === "leave") return s;
@@ -2339,15 +2384,21 @@ export default function CutoffReview({ cutoffId }) {
         return r.localStatus === "approved" ? s + (r.hours || 0) : s;
       }, 0);
       const leaveHours = records.filter((r) => r.type === "leave").reduce((s, r) => s + (r.payableHours ?? r.hours ?? 0), 0);
-      // BB-089: SV payable is the fixed row (already includes paid leave), not punches + leaves.
-      // The fixed row counts as one approved item.
+      // BB-089: SV payable is the fixed row (already includes paid leave) plus approved
+      // off-day OT blocks — not punches + leaves. OT is taken from the blocks, not the
+      // approved off-day punches, which carry the same hours. The fixed row counts as one
+      // approved item.
       const fixedHours = fixedHoursRows.find((f) => (f.userId || f.user?.id) === emp.id) || null;
       if (fixedHours) {
+        const otHours = empOTBlocks
+          .filter((b) => (localOTBlockStatus[b.id] || b.status) === "approved")
+          .reduce((s, b) => s + (Number(b.breakdown?.otHours ?? b.otHours) || 0), 0);
         return {
           ...emp, records, approved: approved + 1, pending, unsyncedCount,
-          totalHours: Number(fixedHours.hours) || 0,
+          totalHours: (Number(fixedHours.hours) || 0) + otHours,
           punchHours: Number(fixedHours.regularHours) || 0,
           leaveHours: Number(fixedHours.leaveHours) || 0,
+          otHours,
           otBlocks: empOTBlocks, fixedHours,
         };
       }
@@ -2682,21 +2733,7 @@ export default function CutoffReview({ cutoffId }) {
     if (!emp) return;
 
     const requiredAction = approvalMode === "schedule" ? "approve-schedule" : "approve-raw";
-    const isApprovable = (r) =>
-      !r.localStatus &&
-      r.actions?.includes(requiredAction) &&
-      !["conflict", "unscheduled"].includes(r.type);
-
-    const toApprove = []; // [{ recId, timeLogId }]
-    emp.records.forEach((r) => {
-      if (r.type === "driver_group") {
-        r.segments.forEach((s) => { if (isApprovable(s)) toApprove.push({ recId: s.id, timeLogId: s.timeLogId }); });
-      } else if (r.type === "punch_group") {
-        r.punches.forEach((p) => { if (isApprovable(p)) toApprove.push({ recId: p.id, timeLogId: p.timeLogId }); });
-      } else if (isApprovable(r)) {
-        toApprove.push({ recId: r.id, timeLogId: r.timeLogId });
-      }
-    });
+    const toApprove = collectBulkApprovable(emp, requiredAction).map((r) => ({ recId: r.id, timeLogId: r.timeLogId }));
 
     if (toApprove.length === 0) return;
 
@@ -2734,6 +2771,31 @@ export default function CutoffReview({ cutoffId }) {
   }, [token, cutoffId, mergedEmployees, isBNC, otBasis, refreshOTBlocks]);
 
   const doBulkApproveRaw      = useCallback((empId) => doBulkApprove(empId, "raw"),      [doBulkApprove]);
+
+  // BB-104: approving raw hours on a punch with no schedule that day asks first.
+  const requestApproveRaw = useCallback((recId) => {
+    const rec = findRecord(recId);
+    if (!rec?.noSchedule) { doApprove(recId, { approvalMode: "raw" }); return; }
+    const emp = mergedEmployees.find((e) => e.records.some((r) =>
+      r.id === recId || r.punches?.some((p) => p.id === recId) || r.segments?.some((s) => s.id === recId)));
+    setRawConfirm({ recId, employeeName: emp?.name || "This employee", date: rec.date, timeIn: rec.timeIn, timeOut: rec.timeOut });
+  }, [findRecord, doApprove, mergedEmployees]);
+
+  const requestBulkApproveRaw = useCallback((empId) => {
+    const emp = mergedEmployees.find((e) => e.id === empId);
+    if (!emp) return;
+    const recs = collectBulkApprovable(emp, "approve-raw");
+    const unscheduled = recs.filter((r) => r.noSchedule).length;
+    if (unscheduled === 0) { doBulkApproveRaw(empId); return; }
+    setRawConfirm({ empId, employeeName: emp.name, total: recs.length, unscheduled });
+  }, [mergedEmployees, doBulkApproveRaw]);
+
+  const confirmRawApproval = () => {
+    if (!rawConfirm) return;
+    if (rawConfirm.empId) doBulkApproveRaw(rawConfirm.empId);
+    else doApprove(rawConfirm.recId, { approvalMode: "raw" });
+    setRawConfirm(null);
+  };
   const doBulkApproveSchedule = useCallback((empId) => doBulkApprove(empId, "schedule"), [doBulkApprove]);
 
   const doOTBlock = useCallback(async (blockId, action) => {
@@ -2912,6 +2974,8 @@ export default function CutoffReview({ cutoffId }) {
 
   return (
     <div className="flex flex-col min-h-screen bg-neutral-50 dark:bg-neutral-950">
+      {/* BB-104: no Toaster was mounted on this route, so every toast here rendered nothing */}
+      <Toaster position="top-center" />
 
       {/* ── Sync overlay — blocks all interaction while sync + re-fetch is in flight ── */}
       {/* Portaled to document.body so `fixed inset-0` centers on the actual viewport
@@ -3020,7 +3084,7 @@ export default function CutoffReview({ cutoffId }) {
                 onApprove={(id) => doApprove(id)}
                 onApproveOT={(id) => doApprove(id, { withOT: true })}
                 onApproveSchedule={handleApproveSchedule}
-                onApproveRaw={(id) => doApprove(id, { approvalMode: "raw" })}
+                onApproveRaw={requestApproveRaw}
                 onEdit={(rec) => {
                   setEditModal({ rec });
                   setEditedClockIn(rec.rawTimeIn ? toCompanyTzInput(rec.rawTimeIn, companyTimezone) : "");
@@ -3029,7 +3093,7 @@ export default function CutoffReview({ cutoffId }) {
                 }}
                 onExclude={(id) => setExcludeModal({ recId: id })}
                 onConflict={doConflict}
-                onBulkApproveRaw={doBulkApproveRaw}
+                onBulkApproveRaw={requestBulkApproveRaw}
                 onBulkApproveSchedule={doBulkApproveSchedule}
                 cutoffStatus={cutoff?.status || "open"}
                 onEditFixedHours={openFixedHoursEdit}
@@ -3338,6 +3402,37 @@ export default function CutoffReview({ cutoffId }) {
           </div>
           <div className="flex justify-end pt-2">
             <Button variant="outline" onClick={() => setShiftPickerModal(null)}>Cancel</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── BB-104: Approve Raw with no schedule — confirmation ── */}
+      <Dialog open={!!rawConfirm} onOpenChange={(v) => !v && setRawConfirm(null)}>
+        <DialogContent className="w-[90vw] sm:max-w-[440px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-500" /> Approve raw hours without a schedule?
+            </DialogTitle>
+            <DialogDescription>
+              {rawConfirm?.empId
+                ? `${rawConfirm.unscheduled} of the ${rawConfirm.total} punches for ${rawConfirm.employeeName} have no shift assigned for their day. They'll be approved as recorded, with no schedule to snap to.`
+                : `${rawConfirm?.employeeName} has no shift assigned for this day. The punch will be approved as recorded, with no schedule to snap to.`}
+            </DialogDescription>
+          </DialogHeader>
+          {rawConfirm && !rawConfirm.empId && (
+            <div className="rounded-xl bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 px-4 py-3">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-neutral-400 mb-1.5">{rawConfirm.employeeName} · {rawConfirm.date}</p>
+              <p className="font-mono text-sm font-semibold text-neutral-800 dark:text-neutral-200">
+                {rawConfirm.timeIn} → {rawConfirm.timeOut}
+              </p>
+            </div>
+          )}
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setRawConfirm(null)}>Cancel</Button>
+            <Button onClick={confirmRawApproval} className="bg-blue-600 hover:bg-blue-700 text-white">
+              <Clock className="w-4 h-4 mr-1.5" />
+              {rawConfirm?.empId ? `Approve All ${rawConfirm.total} Raw` : "Approve Raw Hours"}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

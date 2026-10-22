@@ -1,6 +1,6 @@
 # Client Leave Contract — Phase 1, 2, 3, 4, 5 & Archive
 
-> What the client (web/mobile) needs to change to consume the Leave Module redo, phase by phase. See `docs/UPDATED_LEAVE_MODULE.md` for the full design/rationale. Update this doc as each phase ships.
+> What the client (web/mobile) needs to change to consume the Leave Module redo, phase by phase. See `docs/LEAVE_MODULE.md` for the full design/rationale. Update this doc as each phase ships.
 
 ---
 
@@ -197,10 +197,260 @@ Your own gap assessment (`DISCREPANCY_LEAVE_MODULE.md`, Phase 5) marked `GET /ap
 
 **Where it goes:** Settings side, attached to the Balance Matrix / `AdjustCreditsModal` area — that's where credits change, so that's where an admin needs to audit them. A cell/row drill-down calling `GET /leave-balances/transactions?userId=X&policyId=Y` (existing endpoint, already paginated/filterable by `policyId`/`type`).
 
-**Not** the Approver side (`EmployeesLeaveRequests.jsx`) — that already gets the specific transaction tied to whichever leave request is being reviewed, inline in the leave data (no separate ledger UI needed there). See `docs/UPDATED_LEAVE_MODULE.md` §14g for the full reasoning.
+**Not** the Approver side (`EmployeesLeaveRequests.jsx`) — that already gets the specific transaction tied to whichever leave request is being reviewed, inline in the leave data (no separate ledger UI needed there). See `docs/LEAVE_MODULE.md` §14g for the full reasoning.
+
+---
+
+## Decision audit trail — `escalatedBy` / `decidedBy` (post-Phase-5 addition)
+
+**Endpoints:** `GET /api/leaves` (own), `GET /api/leaves/pending`, `GET /api/leaves` list-for-approver — same paths, additive fields, nothing removed.
+
+`approverId`/`secondaryApproverId` (and their formatted `approver` object) record who a request was **assigned or escalated to** — not who actually acted, since Phase 4 lets any eligible admin/dept supervisor act regardless of who's named. Two new fields close that gap, each formatted the same way as the existing `approver` object (`{ id, email, username, role, name }` or `null`):
+
+- `escalatedBy` — the first-stage reviewer who chose to escalate rather than decide directly. `null` if the leave was ever decided in one step.
+- `decidedBy` — whoever made the final approve/reject call. Populated for every decided leave (paid, unpaid, or rejected) — this is the one to show as "Approved/Rejected by" instead of `approver`, since `approver` may no longer be accurate.
+
+**UI work:** anywhere the leave list/detail/history view shows "Approved by [approver's name]," switch that label to read from `decidedBy` once the leave is no longer pending. `approver`/`secondaryApproverId` remain useful for showing who a still-pending request is currently waiting on.
+
+---
+
+## Bug fix — Pay Type badge now has real data to read (`actualPaidHours` / `actualUnpaidHours`)
+
+**Endpoints:** same three leave-list endpoints as above, additive fields.
+
+Previously, `isPaid` reflected only the employee's submitted intent, never the real per-day outcome computed at approval (a request submitted as paid can come back partially or fully unpaid if the balance ran out — see Phase 4's preview/day-breakdown endpoints). If your Pay Type badge was reading `isPaid` directly, it was showing the wrong thing whenever proration changed the outcome — confirmed via a real approved leave that was fully unpaid at decision time but still showed "Paid Leave."
+
+Two new fields, populated only once a leave is decided (null while pending/rejected):
+- `actualPaidHours` — hours that ended up paid.
+- `actualUnpaidHours` — hours that ended up unpaid (whether by proration or deliberate unpaid intent).
+
+**UI work:** for `status === "approved"` leaves, derive the Pay Type badge from these two fields instead of `isPaid`:
+- `actualUnpaidHours > 0 && actualPaidHours === 0` → "Unpaid Leave"
+- `actualPaidHours > 0 && actualUnpaidHours === 0` → "Paid Leave"
+- both `> 0` → new "Partially Paid" state (table column, detail panel badge, and the employee-side pay pill)
+
+For `pending`/`pending_secondary`/`rejected` leaves, keep showing the submitted `isPaid` intent as-is — nothing's been applied yet, so the submitted intent is the accurate thing to show.
+
+This was backfilled server-side for already-approved leaves that already have day-breakdown data, so existing rows should show correctly without waiting for a re-decision.
+
+---
+
+## Bug fix — `requestedHours` / preview day-hours no longer 0h for unplotted shift-worker ranges
+
+**Endpoints:** every leave-list endpoint's `requestedHours` field, plus `GET /api/leaves/:id/preview` and `GET /api/leaves/:id/days` `hours` values — same shapes, no fields added or removed, values-only fix.
+
+Previously, a genuine shift worker requesting leave for dates where their schedule hadn't been plotted yet got `0` for every day in the range, both on the request-list total and in the approver's preview/day breakdown — confirmed real case: a Maternity Leave request that priced out at 0h entirely. Root cause was server-side only (a stale "is this person a shift worker at all" check ignored whether anything was actually scheduled in the requested range).
+
+**Fix:** unplotted days for shift workers now fall back to the company's default shift hours, same as salaried/unassigned employees already did. No UI work needed; this is a pure computation correction, values will simply be non-zero going forward where they previously weren't. **Superseded by BB-048 below**: this originally only covered a range with *zero* plotted shifts anywhere in it (a mixed range still showed 0h for the unscheduled days) — BB-048 removed that restriction, see further down.
+
+**Not corrected retroactively:** the one confirmed historical case will be rejected and resubmitted manually rather than backfilled, so don't expect already-approved leaves from before this fix to change.
+
+---
+
+## Leave Ledger — unified movement feed (post-Phase-5 addition)
+
+**Same endpoint, extended:** `GET /api/leave-balances/transactions` — this is the endpoint from §14g (Settings-side ledger drill-down). It now also carries lifecycle events, not just balance movements, and gains a company-wide mode. Nothing existing was removed.
+
+**`type` gains four new values**: `submitted`, `escalated`, `approved`, `rejected`, `cancelled` (the existing `accrual`/`deduction`/`adjustment` are unchanged). On these four, `hours`/`balanceBefore`/`balanceAfter` are `null` — there's no balance movement to report. **If your existing Balance Matrix drill-down assumed these fields are always numbers, add a null check** — a `null` should render as "—" or be omitted, not coerced to `0`.
+
+```json
+{
+  "id": "...",
+  "type": "cancelled",
+  "hours": null,
+  "balanceBefore": null,
+  "balanceAfter": null,
+  "leaveId": "...",
+  "note": null,
+  "createdAt": "2026-07-16T10:00:00.000Z",
+  "policy": { "id": "...", "leaveType": "Maternity Leave" },
+  "user": { "id": "...", "name": "Jane Doe" },
+  "performedBy": { "id": "...", "name": "Jane Doe" }
+}
+```
+
+A paid approval produces **two** rows at the same moment: the existing `deduction` row (balance movement) plus a new `approved` row (lifecycle marker, `note` carries the same paid/auto-unpaid breakdown text). A fully/deliberately-unpaid approval produces only the `approved` row (still no balance movement, per §6).
+
+**New query modes:**
+- **No `userId` passed, management caller** → company/department-wide feed (admins/superadmins see the whole company, supervisors see only their own department) — this is the mode a new "Leave Ledger" screen should use.
+- **`?userId=X&policyId=Y`** → unchanged, the existing single-employee Balance Matrix drill-down.
+- **New optional `?leaveId=X`** → every ledger row for one specific leave request (submitted → escalated → approved/rejected/cancelled), useful for a per-request detail timeline.
+
+**New `user` field** on every row — the leave requester (distinct from `performedBy`, who acted). Only meaningfully different from `performedBy` on the multi-employee feed; on the single-employee drill-down they were always implicitly the same person.
+
+**Not built:** history for leaves decided before this ships — the feed starts from whenever this is deployed forward, existing leaves won't have `submitted`/`approved`/etc. rows retroactively.
+
+**UI work:**
+- New Leave Ledger screen: call `GET /api/leave-balances/transactions` with no `userId`, render the combined chronological feed (`type`, `user`, `performedBy`, `note`, and `hours`/`balanceBefore`/`balanceAfter` when non-null).
+- Existing Balance Matrix drill-down: add the null-safety handling above; otherwise unchanged.
+
+---
+
+## Cancel Leave — requester self-cancel (pre-approval only)
+
+**New endpoint:** `PUT /api/leaves/:id/cancel` — no body required.
+
+Only the requester can call this, and only while their request is `pending` or `pending_secondary`. It sets `status: "cancelled"` — no balance/ledger side effects, since nothing is ever deducted before approval.
+
+**New `409`** — `"This leave request was already actioned by someone else."` Same meaning and same handling as the existing `409` on approve/reject: someone (an approver) acted on the request in the moment between the client loading it and the cancel button being pressed. Show the same friendly "already handled" state, not a generic error.
+
+**New `403`** — `"You can only cancel your own leave request."` Shouldn't be reachable if the Cancel action is only ever shown on the current user's own requests.
+
+**UI work:**
+- Add a "Cancel" action on the employee's own leave requests, shown only while `status` is `pending` or `pending_secondary`.
+- Handle the `409` the same way the approver UI already handles approve/reject conflicts.
+- Management users get a `LEAVE_REQUEST_CANCELLED` notification (same eligible-pool targeting as the existing `LEAVE_REQUEST_SUBMITTED` notification on submit) — no client work needed beyond however notifications are already rendered today.
+
+**Not built yet:** cancelling/reversing an **already-approved** leave (e.g. via punch-vs-leave conflict) — that's a separate, harder problem (real balance/ledger reversal) still paused pending real usage signal. This addition only covers withdrawing a request before a decision is made.
+
+---
+
+## Bug fix (BB-048) — "Affected schedules" preview now reflects the no-shift fallback, and it's now time-window-based
+
+**Endpoints:** `GET /api/leaves/affected-schedules` (response shape extended), `POST /api/leaves/submit` (request body gains two new optional fields).
+
+**The bug:** submitting a leave request for a date range with no plotted shifts at all showed "No scheduled shifts for the period" in the pre-submission preview — implying 0h — even though the request would actually be paid out using the existing default-hours fallback once approved (see the bug fix entry above). The preview simply never called the same computation the approval step uses, so the two could disagree. Confirmed real: a 2-day range with zero shifts (screenshots on file) showed nothing in the "Affected schedules" panel.
+
+**Fix, two parts:**
+1. `GET /api/leaves/affected-schedules` now includes a synthetic entry for each otherwise-eligible day (not a weekend/holiday) that has no matching shift, instead of omitting it. Each such entry has `userShiftId: null`, `shiftName: null`, `startTime: null`, `endTime: null`, and a new boolean **`isFallback: true`**. `scheduledHours` is populated on these entries — previously always `null`/absent for a no-shift day. Days with a real shift are completely unchanged (`isFallback: false`, same fields as before).
+2. The no-shift fallback value itself changed: it now uses the employee's entered daily time window (see below), capped at the company's Default Shift Hours, instead of always the flat default. **This applies to every no-shift day, including inside a mixed range** (some days scheduled, some not, within the same request) — confirmed and widened at your request after the initial ship, which had scoped it to fully-empty ranges only. There is no longer a distinction between "unplotted day" and "scheduled worker's day off" — any day without an actual plotted shift is now priced via this fallback.
+
+**New optional request fields — `fromTime` / `toTime`** (`HH:MM`, e.g. `"08:00"`/`"17:00"`), both-or-neither, `toTime` must be after `fromTime`. **One shared pair per request, not per day** — the same window is applied to every eligible day in a multi-day request (confirmed this is the intended design, not distinct times per day):
+- On `POST /api/leaves/submit` — persisted on the leave request, used at approval time.
+- On `GET /api/leaves/affected-schedules` as query params — used for the live preview before submission.
+
+If omitted, behavior falls back to the flat company default per day. **The time pickers already present in the "New leave request" form need to actually send these** — they weren't wired to the request body before this fix.
+
+**`400` validation to handle:** `"fromTime and toTime must both be provided in HH:MM format."` / `"toTime must be after fromTime."`
+
+**UI work:**
+- Send `fromTime`/`toTime` (from the existing time pickers) on both the affected-schedules preview call and the final submit call.
+- In the "Affected schedules" list, render `isFallback: true` entries distinctly from real shifts (e.g. no shift name — just the computed hours), so the employee can tell which days are using the entered time window vs. an actual scheduled shift.
+- No change needed for days that already have a real shift — same fields, same values as before (per your existing "we will not touch it" confirmation on that path).
+
+---
+
+## BB-054 — Per-shift leave selection, weekend exclusion, and BB-051's company-level auto-revert toggle
+
+**Endpoints:** `POST /api/leaves/submit` (two new optional fields), `GET /api/leaves/affected-schedules` (one new optional query param, one new response field), `GET /api/company-settings` and its `PATCH` (one new field).
+
+**Reason minimum length (15 vs 30 characters):** confirmed UI-only. No server-side length validation exists on `leaveReason` today (unvalidated, no length constraint in the schema) — the client-side change needed no server counterpart and nothing here was affected by it.
+
+### 1. Per-shift leave selection
+
+An employee with 2+ shifts on the same day (e.g. Driver AM and Driver PM) can now deselect specific shifts from a leave request — the leave applies only to the shifts left selected.
+
+- `POST /api/leaves/submit` gains optional `excludedShiftIds: string[]` — the `UserShift` ids the employee deselected. Distinct from the existing `affectedShiftIds` (which is unchanged, still just a display snapshot) — this is the field that's actually consumed by hours calculation. Ids not owned by the requesting user are silently dropped.
+- Deselecting a shift is **invisible everywhere else in the system** — the excluded `UserShift` shows as a completely normal scheduled shift, no marker, no approver-facing flag. It only changes how many hours the leave deducts.
+- A day where every shift is deselected correctly deducts **0h for that day** (not the full-day fallback default) — the day still "has a real shift," it's just not being taken as leave.
+- Punch-vs-leave conflict detection (cutoff review) is now shift-aware: punching in on a shift the employee explicitly excluded from the leave no longer flags as a conflict — it's treated as the normal work it is.
+
+### 2. Weekend exclusion checkbox
+
+- `POST /api/leaves/submit` and `GET /api/leaves/affected-schedules` both gain optional `includeWeekends: boolean`, **default `true`** (preserves today's behavior — no client change required to keep current results).
+- When `false`: an **unplotted** Saturday/Sunday in the range contributes 0h instead of the no-shift fallback. A weekend day with an **actual scheduled shift** is unaffected either way — the toggle never excludes real, worked hours.
+- `GET /api/leaves/affected-schedules` response: a fallback row zeroed out by this flag now carries `excludedByWeekend: true` (alongside `scheduledHours: 0`) — use this instead of computing day-of-week client-side, so the preview never has to reimplement server calendar logic.
+
+### 3. BB-051 — company-level "auto-revert on punch" setting
+
+`GET /api/company-settings` and its `PATCH` gain `leaveConflictAutoRevert: boolean`, **default `false`** (today's fully-manual flow, unchanged unless explicitly turned on).
+
+- This is a **trigger-only** setting — it does not change what happens on conflict, only who/what initiates it. The punch-wins mechanics (the whole `Leave` request gets cancelled, the real deducted hours are credited back to balance, a `cancelled` + `adjustment` ledger entry pair is written) are unchanged by this setting itself — BB-066 fixed those mechanics to credit the actual amount instead of a hardcoded flat 8h and to write a ledger entry, since this setting means the path can now fire without an admin in the loop.
+- When `true`, a detected punch-vs-leave conflict resolves automatically (in favor of the punch) instead of waiting for an admin's manual "Honor Punch" action in cutoff review.
+- **Practical effect for the cutoff review screen:** once a conflict auto-resolves, it will no longer appear as a pending `hasLeaveConflict: true` row needing action — it shows up already resolved (approval `status: "approved"`, associated leave `status: "cancelled"`). A read-only indicator of the setting (e.g. "Auto-revert: ON") is enough; no change needed to the existing "Honor Punch"/"Honor Leave" buttons, since auto-resolved conflicts won't reach that decision point at all.
+
+### UI work
+
+- "New leave request" form: per-shift checkboxes on days with 2+ shifts in the "Affected schedules" panel (send `excludedShiftIds` on submit); a weekend-inclusion checkbox (send `includeWeekends` on both the preview call and submit, default checked).
+- Company leave settings: new toggle for `leaveConflictAutoRevert`, same on/off pattern as the existing multi-approval toggle.
+- Cutoff review: optional read-only badge reflecting `leaveConflictAutoRevert` — no gating changes to existing conflict-resolution buttons.
+
+---
+
+## BB-098 — Leave credits: fiscal-year grants, regularization, expiration
+
+Company-wide. Two independent toggles, both **off** by default. Nothing changes for a company until an admin runs the setup.
+
+### 1. Company settings (`GET` / `PATCH /company-settings`)
+
+New fields, returned by both GET and PATCH:
+
+| Field | Type | Notes |
+|---|---|---|
+| `leaveGrantEnabled` | boolean | Toggle: automatic grants |
+| `leaveGrantMode` | `"yearly_lump"` \| `"monthly_accrual"` | Locked after setup |
+| `leaveGrantHours` | number | Hours per fiscal year (e.g. 40) |
+| `leaveYearStartMonth` | 1–12 | Fiscal year start month. Locked after setup |
+| `leaveYearStartDay` | 1–28 | Fiscal year start day. Locked after setup |
+| `leaveExpirationEnabled` | boolean | Toggle: expiration |
+| `leaveCreditLifetimeYears` | 1–10 | Fiscal years usable, counting the year granted |
+| `leaveExpiryReminderDays` | 0–365 | Days before expiration to notify the employee (0 = no reminder) |
+| `leaveRegularizationMonths` | 0–60 | Waiting period from hire date (0 = none) |
+| `leaveRegularizationGrant` | `"none"` \| `"catch_up"` \| `"prorated"` \| `"full"` | Yearly: `none`/`prorated`/`full`. Monthly: `none`/`catch_up` |
+| `leaveCreditsInitializedAt` | ISO string \| null | Read-only. Set once by setup/apply |
+
+PATCH rules (400 `{ error }` otherwise):
+- Either toggle can be turned **off** at any time.
+- `leaveGrantEnabled: true` is rejected until setup has been applied once.
+- `leaveExpirationEnabled: true` is rejected while it's off. Turning expiration on always goes through setup/apply, so the admin sees what expires first.
+- Fiscal year start and grant mode can't change after setup.
+
+### 2. Setup — preview, then apply (admin/superadmin)
+
+`POST /leave-balances/credit-setup/preview` (read-only) and `POST /leave-balances/credit-setup/apply` take the same body: any of the settings above plus `leaveGrantEnabled` / `leaveExpirationEnabled`. Missing fields fall back to the saved settings.
+
+Preview response `data`:
+```
+{
+  settings: { ...effective settings incl. both toggles },
+  initialized: boolean,
+  today: "YYYY-MM-DD",
+  currentFiscalYear: { fiscalYear, label, startsOn, endsOn },
+  rows: [{
+    userId, name, status, policyId, leaveType, isArchived,
+    balanceHours,
+    lots: [{ fiscalYear, label, hours, expiresOn, expiresImmediately }],  // newest first
+    expiringNowHours, balanceAfterHours
+  }],
+  totals: { activeEmployeesWithBalance, balanceHours, expiringNowHours, balanceAfterHours },   // active employees only
+  regularization: {
+    missingHireDate: [{ userId, name }],                       // skipped by grants until fixed
+    inWaitingPeriod: [{ userId, name, regularizationDate }]
+  }
+}
+```
+Before setup, `lots` uses the opening-balance rule: the balance is split into `leaveGrantHours` chunks, newest first (first chunk = current FY, next = previous FY, …). After setup, `lots` shows the real lots.
+
+Apply response `data`: `{ applied, settings }`. `applied` is `{ lotsCreatedFor, expiredHours }` the first time, or `{ expired: { lots, hours } }` on later applies with expiration on. 409 if two first-time applies race.
+
+### 3. Balance read-side
+
+`GET /leaves/balances` (per leave type), additive:
+- `expired`: total hours lost to expiration.
+- `credits` now = `available + used + expired`.
+- `creditLots`: `[{ fiscalYear, label, remainingHours, expiresOn }]`, oldest first. Empty before setup.
+- `nextExpiration`: `{ date, hours } | null`. Only when expiration is on.
+
+`GET /leave-balances/matrix`: each cell gains `expired`, and `credits` includes it.
+
+### 4. Ledger
+
+New `LeaveTransaction.type`: `"expired"`, with negative `hours` and `balanceBefore`/`balanceAfter` set. Automatic grants are `"accrual"` rows with notes such as "Annual grant — FY2026", "Monthly accrual — November 2026 (FY2026)" or "Regularization grant (prorated) — regularized 2026-11-03".
+
+### 5. Notification
+
+New `notificationCode`: `LEAVE_CREDITS_EXPIRING`. Sent to the employee once per fiscal-year lot when it enters the reminder window. Payload: `{ creditId, policyId, leaveType, fiscalYear, hours, expiresOn }`.
+
+### UI work
+
+- Company settings: Leave Credits section with both toggles and the fields above. Fiscal year start and grant mode become read-only once `leaveCreditsInitializedAt` is set. Only show the regularization options that are valid for the selected mode.
+- Turning a toggle on: call preview, show the per-employee table and the missing-hire-date list, then apply.
+- Balance views: fiscal-year breakdown (`creditLots`), an "X h expire on DATE" notice (`nextExpiration`), and the `expired` figure.
+- Ledger / matrix: label `expired` rows.
+- Notifications: handle `LEAVE_CREDITS_EXPIRING`.
 
 ---
 
 ## Not yet changed (still on old behavior)
 
-- Cancel Leave — doesn't exist yet, Phase 6. Also Phase 6's job: the punch-vs-leave "Leave Always Wins" → "Punch Wins" auto-exclusion rule, which is the one remaining case where `available` can still (rarely) disagree with a pure ledger reconstruction — see `docs/UPDATED_LEAVE_MODULE.md` §14e.
+- Cancelling/reversing an **already-approved** leave — still doesn't exist, remaining Phase 6 scope. Also Phase 6's job: the punch-vs-leave "Leave Always Wins" → "Punch Wins" auto-exclusion rule, which is the one remaining case where `available` can still (rarely) disagree with a pure ledger reconstruction — see `docs/LEAVE_MODULE.md` §14e. (Pre-approval requester self-cancel is now available — see the Cancel Leave section above.)

@@ -88,7 +88,7 @@ const settingsDocsContent = [
     groupId: "account",
     routeId: "company/leave-settings",
     title: "Leave Settings",
-    summary: "Leave types, accrual, approval routing and employee leave credits.",
+    summary: "Leave types, leave credits, approval routing and employee balances.",
     topics: [
       {
         title: "Leave types",
@@ -100,9 +100,18 @@ const settingsDocsContent = [
         tips: ["Archive a type instead of deleting it if it's already been used. History stays intact."],
       },
       {
-        title: "Leave accrual",
-        body: "Turn on Enable Leave Accrual to earn credits each period instead of all at once. Choose the month the accrual year resets, and optionally Credit New Employees for Elapsed Months so mid-year hires aren't penalized.",
-        tips: ["Balances are capped at the policy maximum. Carry-over runs automatically at year-end."],
+        title: "Leave credits",
+        steps: [
+          "In the Leave Credits section, set the grant mode (yearly lump sum or monthly accrual), hours per fiscal year, fiscal year start, credit lifetime, expiry reminder and regularization period.",
+          "Click Save Credit Settings to keep your changes without turning anything on.",
+          "Turn on Automatic Grants or Credit Expiration. A preview opens with each employee's fiscal-year credits, anything that would expire right away, and employees missing a hire date.",
+          "Review the preview and click Apply.",
+        ],
+        tips: [
+          "Fiscal year start and grant mode are locked once setup has been applied.",
+          "Employees without a hire date are skipped by grants until one is set.",
+          "Either toggle can be turned off at any time.",
+        ],
       },
       {
         title: "Two-step approval",
@@ -117,7 +126,7 @@ const settingsDocsContent = [
         steps: [
           "In Leave Credits Management, search for an employee to see their Credits, Used and Available hours per leave type.",
           "Click Adjust Credits, choose the employee and leave type, enter the new hours and a Reason (required, recorded on the leave ledger).",
-          "Click a balance's history icon to view the ledger of accruals, deductions and adjustments.",
+          "Click a balance's history icon to view the ledger of accruals, deductions, adjustments and expirations.",
         ],
       },
     ],
