@@ -1193,6 +1193,259 @@ function DepartmentCoffeeBreakPolicyCard({ departments, departmentCoffeeSettings
   );
 }
 
+// ── Department Fixed Hours Card (BB-089) ─────────────────────────────────────
+// Two switches must both be on: the department master switch (holds the hours) and each
+// employee's own switch. Everyone else in the department stays punch-based.
+// The hours input keeps a local draft and saves on blur, so departmentFixedHours only ever
+// holds server-confirmed values. Member lists are loaded here (per enabled department) and
+// re-fetched after every change so isOnFixedHours and the counts stay server-accurate.
+function DepartmentFixedHoursCard({ departments, departmentFixedHours, departmentLoading, updateDepartmentFixedHours, loading, api, token }) {
+  const [hoursDraft,     setHoursDraft]     = useState({}); // { [deptId]: string }
+  const [members,        setMembers]        = useState({}); // { [deptId]: member[] }
+  const [membersLoading, setMembersLoading] = useState({}); // { [deptId]: bool }
+  const [expanded,       setExpanded]       = useState({}); // { [deptId]: bool }
+  const [savingMembers,  setSavingMembers]  = useState({}); // { [`${deptId}:${userId|all}`]: bool }
+
+  const enabledIds = departments.filter((d) => departmentFixedHours[d.id]?.fixedHoursEnabled).map((d) => d.id);
+  const enabledKey = enabledIds.join(",");
+
+  // ── API: GET /api/departments/:id/fixed-hours-members ──────────────────────
+  const loadMembers = useCallback(async (deptId) => {
+    setMembersLoading((p) => ({ ...p, [deptId]: true }));
+    try {
+      const r = await fetch(`${api}/api/departments/${deptId}/fixed-hours-members`, { headers: { Authorization: `Bearer ${token}` } });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) setMembers((p) => ({ ...p, [deptId]: j.data?.members || [] }));
+      else toast.error(j.message || j.error || "Failed to load department employees");
+    } catch { toast.error("Network error loading department employees"); }
+    setMembersLoading((p) => ({ ...p, [deptId]: false }));
+  }, [api, token]);
+
+  // Load members for every enabled department not loaded yet — gives the counts without expanding
+  useEffect(() => {
+    enabledIds.forEach((id) => { if (!members[id] && !membersLoading[id]) loadMembers(id); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabledKey, loadMembers]);
+
+  // ── API: PUT /api/departments/:id/fixed-hours-members ──────────────────────
+  const setMembersEnabled = async (deptId, userIds, enabled, savingKey) => {
+    if (userIds.length === 0) return;
+    setSavingMembers((p) => ({ ...p, [savingKey]: true }));
+    try {
+      const r = await fetch(`${api}/api/departments/${deptId}/fixed-hours-members`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ userIds, enabled }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) toast.success(j.message || "Fixed hours updated");
+      else toast.error(j.message || j.error || "Failed to update employees");
+    } catch { toast.error("Network error"); }
+    await loadMembers(deptId);
+    setSavingMembers((p) => ({ ...p, [savingKey]: false }));
+  };
+
+  const commitHours = (deptId, saved) => {
+    const raw = hoursDraft[deptId];
+    setHoursDraft((p) => { const n = { ...p }; delete n[deptId]; return n; });
+    if (raw === undefined) return;
+    const v = Number(raw);
+    if (raw === "" || !Number.isFinite(v) || v <= 0 || v > 999) {
+      toast.error("Hours must be above 0 and at most 999");
+      return;
+    }
+    if (v === saved) return;
+    updateDepartmentFixedHours(deptId, { fixedHoursPerCutoff: v });
+  };
+
+  const onFixedCount = (deptId) => (members[deptId] || []).filter((m) => m.isOnFixedHours).length;
+  const totalOnFixed = enabledIds.reduce((n, id) => n + onFixedCount(id), 0);
+  const countsLoading = enabledIds.some((id) => !members[id]);
+
+  return (
+    <Card className="border-[1.5px] shadow-md overflow-hidden">
+      <CardStripe />
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2.5 text-[15px] font-extrabold">
+          <SectionIcon icon={Timer} color="blue" />
+          Department Fixed Hours
+        </CardTitle>
+        <p className="text-xs text-neutral-500 mt-0.5">Pay selected employees a flat number of hours per cutoff, regardless of clock-ins</p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <MiniStat label="Fixed-Hours Depts"          value={`${enabledIds.length}/${departments.length}`}   color="blue"  icon={Timer} />
+          <MiniStat label="Employees on Fixed Hours"   value={countsLoading ? "…" : totalOnFixed}           color="green" icon={Users} />
+        </div>
+
+        {loading ? (
+          <div className="space-y-3">{[1,2,3].map((i) => <Skeleton key={i} className="h-20" />)}</div>
+        ) : departments.length === 0 ? (
+          <div className="text-center py-10 text-neutral-400">
+            <Timer className="w-10 h-10 mx-auto mb-3 opacity-30" />
+            <p className="text-sm">No departments found.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {departments.map((dept) => {
+              const s = departmentFixedHours[dept.id] || { fixedHoursEnabled: false, fixedHoursPerCutoff: 80 };
+              const isToggleLoading = !!departmentLoading[`fixedhours_fixedHoursEnabled_${dept.id}`];
+              const isHoursLoading  = !!departmentLoading[`fixedhours_fixedHoursPerCutoff_${dept.id}`];
+              const list      = members[dept.id];
+              const isOpen    = !!expanded[dept.id];
+              const isBulking = !!savingMembers[`${dept.id}:all`];
+
+              return (
+                <div
+                  key={dept.id}
+                  className={`p-4 rounded-xl border-[1.5px] transition-all ${
+                    s.fixedHoursEnabled ? "bg-blue-50 border-blue-200" : "bg-neutral-50 border-neutral-200"
+                  }`}
+                >
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-9 h-9 rounded-full flex items-center justify-center ${s.fixedHoursEnabled ? "bg-blue-100" : "bg-neutral-100"}`}>
+                        <Timer className={`w-4 h-4 ${s.fixedHoursEnabled ? "text-blue-600" : "text-neutral-400"}`} />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-sm">{dept.name}</p>
+                        <p className="text-[11px] text-neutral-400 font-mono">{dept.id}</p>
+                      </div>
+                      {s.fixedHoursEnabled && list && (
+                        <span className="bg-blue-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                          {onFixedCount(dept.id)} on fixed hours
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-end gap-4 flex-wrap">
+                      <div>
+                        <label className="text-[11px] font-semibold text-neutral-600 mb-1 block">Fixed hours</label>
+                        <div className="flex items-center gap-2 h-9">
+                          <Toggle
+                            on={s.fixedHoursEnabled}
+                            loading={isToggleLoading}
+                            onChange={(v) => updateDepartmentFixedHours(dept.id, { fixedHoursEnabled: v })}
+                          />
+                          <span className={`text-xs font-semibold ${s.fixedHoursEnabled ? "text-blue-600" : "text-neutral-500"}`}>
+                            {isToggleLoading ? "Saving…" : s.fixedHoursEnabled ? "On" : "Off"}
+                          </span>
+                        </div>
+                      </div>
+                      {s.fixedHoursEnabled && (
+                        <div className="w-28">
+                          <label className="text-[11px] font-semibold flex items-center gap-1 mb-1 text-neutral-600">
+                            <Clock className="w-3 h-3 text-blue-500" /> Hours per cutoff
+                          </label>
+                          <Input
+                            type="number" min="0.01" max="999" step="0.5"
+                            value={hoursDraft[dept.id] ?? s.fixedHoursPerCutoff}
+                            disabled={isHoursLoading}
+                            className="h-9 text-sm font-mono"
+                            onChange={(e) => setHoursDraft((p) => ({ ...p, [dept.id]: e.target.value }))}
+                            onBlur={() => commitHours(dept.id, s.fixedHoursPerCutoff)}
+                            onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Employee list — only while the master switch is on (employee switches are kept server-side either way) */}
+                  {s.fixedHoursEnabled && (
+                    <div className="mt-3 pt-3 border-t border-blue-200">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setExpanded((p) => ({ ...p, [dept.id]: !p[dept.id] }))}
+                          className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700"
+                        >
+                          <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                          Manage employees{list ? ` (${list.length})` : ""}
+                        </button>
+                        {isOpen && list?.length > 0 && (
+                          <div className="flex items-center gap-2">
+                            <Button
+                              size="sm" variant="outline" className="h-7 text-xs"
+                              disabled={isBulking}
+                              onClick={() => setMembersEnabled(dept.id, list.filter((m) => !m.fixedHoursEnabled).map((m) => m.userId), true, `${dept.id}:all`)}
+                            >
+                              All on
+                            </Button>
+                            <Button
+                              size="sm" variant="outline" className="h-7 text-xs"
+                              disabled={isBulking}
+                              onClick={() => setMembersEnabled(dept.id, list.filter((m) => m.fixedHoursEnabled).map((m) => m.userId), false, `${dept.id}:all`)}
+                            >
+                              All off
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+
+                      {isOpen && (
+                        !list ? (
+                          <div className="space-y-2 mt-3">{[1,2].map((i) => <Skeleton key={i} className="h-10" />)}</div>
+                        ) : list.length === 0 ? (
+                          <p className="text-xs text-neutral-400 mt-3">No employees in this department.</p>
+                        ) : (
+                          <div className="mt-3 rounded-lg border border-blue-200 bg-white divide-y divide-neutral-100">
+                            {list.map((m) => {
+                              const rowSaving = !!savingMembers[`${dept.id}:${m.userId}`] || isBulking;
+                              const name = `${m.firstName || ""} ${m.lastName || ""}`.trim() || m.email;
+                              return (
+                                <div key={m.userId} className="flex items-center justify-between gap-3 px-3 py-2">
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <p className="text-sm font-medium truncate">{name}</p>
+                                      {m.fixedHoursEnabled && !m.isOnFixedHours && (
+                                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-500">inactive</span>
+                                      )}
+                                    </div>
+                                    {m.employeeId && <p className="text-[11px] text-neutral-400 font-mono">{m.employeeId}</p>}
+                                  </div>
+                                  <div className="flex items-center gap-2 flex-shrink-0">
+                                    <Toggle
+                                      on={!!m.fixedHoursEnabled}
+                                      loading={rowSaving}
+                                                onChange={(v) => setMembersEnabled(dept.id, [m.userId], v, `${dept.id}:${m.userId}`)}
+                                    />
+                                    <span className={`text-xs font-semibold w-20 ${m.fixedHoursEnabled ? "text-blue-600" : "text-neutral-500"}`}>
+                                      {m.fixedHoursEnabled ? "Fixed hours" : "Punch-based"}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex gap-3 items-start">
+          <Info className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-[12px] font-bold text-blue-900 mb-1">How Fixed Hours Work</p>
+            <ul className="text-[11px] text-blue-800 space-y-0.5">
+              <li>• Turn a department on, then pick which employees are on fixed hours. Everyone else stays punch-based</li>
+              <li>• Each selected employee gets the department's hours per cutoff (default 80), whatever their clock-ins are</li>
+              <li>• <strong>Paid leave is included:</strong> 8h of leave gives 72h regular + 8h leave = 80h. Leave balances are still used up as normal</li>
+              <li>• Punches are kept for reference but not counted for pay, never create OT, and never block Lock or Finalize</li>
+              <li>• Turning a department or an employee off only affects open cutoffs. Locked and processed cutoffs stay as they are</li>
+            </ul>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── Auto Clock-Out Card ───────────────────────────────────────────────────────
 function AutoClockOutCard({ loading, draft, setDraft }) {
   const [emailInput, setEmailInput] = useState("");
@@ -1483,6 +1736,7 @@ export default function ModernCompanyConfigurations() {
   const [departmentCoffeeSettings,    setDepartmentCoffeeSettings]    = useState({});
   const [departmentAutoLunchSettings, setDepartmentAutoLunchSettings] = useState({});
   const [departmentAutoBreakEntitlement, setDepartmentAutoBreakEntitlement] = useState({});
+  const [departmentFixedHours,        setDepartmentFixedHours]        = useState({});
   const [departmentLoading,       setDepartmentLoading]       = useState({});
   const [loadingDepartments,      setLoadingDepartments]      = useState(true);
   const [draft,                   setDraft]                   = useState(null);
@@ -1535,7 +1789,7 @@ export default function ModernCompanyConfigurations() {
       const j = await r.json();
       if (r.ok && j.data) {
         setDepartments(j.data);
-        const bs = {}, cs = {}, als = {}, abe = {};
+        const bs = {}, cs = {}, als = {}, abe = {}, fh = {};
         j.data.forEach((d) => {
           bs[d.id] = d.paidBreak || false;
           cs[d.id] = {
@@ -1557,11 +1811,16 @@ export default function ModernCompanyConfigurations() {
             autoBreakCoffeeMinutes:   d.autoBreakCoffeeMinutes   ?? 15,
             autoBreakCoffeeDeductible:d.autoBreakCoffeeDeductible|| false,
           };
+          fh[d.id] = {
+            fixedHoursEnabled:   d.fixedHoursEnabled   || false,
+            fixedHoursPerCutoff: d.fixedHoursPerCutoff ?? 80,
+          };
         });
         setDepartmentBreakSettings(bs);
         setDepartmentCoffeeSettings(cs);
         setDepartmentAutoLunchSettings(als);
         setDepartmentAutoBreakEntitlement(abe);
+        setDepartmentFixedHours(fh);
       } else toast.error(j.message || "Failed to load departments");
     } catch { toast.error("Network error loading departments"); }
     setLoadingDepartments(false);
@@ -1637,6 +1896,26 @@ export default function ModernCompanyConfigurations() {
     setDepartmentLoading((p) => ({ ...p, [loadingKey]: false }));
   };
 
+  // ── API: PUT /api/departments/update/:id (fixed hours — BB-089) ──────────
+  const updateDepartmentFixedHours = async (deptId, updates) => {
+    const firstKey = Object.keys(updates)[0];
+    const loadingKey = `fixedhours_${firstKey}_${deptId}`;
+    setDepartmentLoading((p) => ({ ...p, [loadingKey]: true }));
+    try {
+      const r = await fetch(`${API}/api/departments/update/${deptId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(updates),
+      });
+      const j = await r.json();
+      if (r.ok) {
+        setDepartmentFixedHours((p) => ({ ...p, [deptId]: { ...p[deptId], ...updates } }));
+        toast.success("Fixed hours settings updated");
+      } else toast.error(j.message || j.error || "Failed to update");
+    } catch { toast.error("Network error"); }
+    setDepartmentLoading((p) => ({ ...p, [loadingKey]: false }));
+  };
+
   // ── API: PATCH /api/company-settings ─────────────────────────────────────
   const saveSettings = async () => {
     setSavingSettings(true);
@@ -1684,6 +1963,7 @@ export default function ModernCompanyConfigurations() {
     { id: "ot-config",      label: "OT Configurations" },
     ...(isDayCare ? [{ id: "daycare", label: "DayCare Settings" }] : []),
     { id: "break-policy",   label: "Break Policy" },
+    { id: "fixed-hours",    label: "Fixed Hours" },
   ];
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -1793,6 +2073,18 @@ export default function ModernCompanyConfigurations() {
             departmentAutoBreakEntitlement={departmentAutoBreakEntitlement}
             setDepartmentAutoBreakEntitlement={setDepartmentAutoBreakEntitlement}
             updateDepartmentAutoBreakConfig={updateDepartmentAutoBreakConfig}
+          />
+        </div>
+      )}
+
+      {activeTab === "fixed-hours" && (
+        <div className="space-y-5">
+          <DepartmentFixedHoursCard
+            departments={departments} departmentFixedHours={departmentFixedHours}
+            departmentLoading={departmentLoading}
+            updateDepartmentFixedHours={updateDepartmentFixedHours}
+            loading={loadingDepartments}
+            api={API} token={token}
           />
         </div>
       )}

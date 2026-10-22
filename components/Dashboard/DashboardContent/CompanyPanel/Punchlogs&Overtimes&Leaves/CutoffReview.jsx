@@ -33,6 +33,7 @@ import {
   RefreshCw,
   RotateCcw,
   GraduationCap,
+  Plus,
   ShieldAlert,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -376,7 +377,7 @@ const PageHeader = ({ cutoff, status, onFinalize, finalizeReady, getDepartmentNa
 };
 
 /** Filter bar */
-const FilterBar = ({ tabs, activeTab, onTab, search, onSearch, chips, onChip }) => (
+const FilterBar = ({ tabs, activeTab, onTab, search, onSearch, chips, onChip, showTrainingDay, onTrainingDay }) => (
   <div className="bg-white dark:bg-neutral-900 border-b border-neutral-200 dark:border-neutral-800 px-6">
     {/* Tabs */}
     <div className="flex items-center gap-1 border-b border-neutral-100 dark:border-neutral-800">
@@ -423,6 +424,17 @@ const FilterBar = ({ tabs, activeTab, onTab, search, onSearch, chips, onChip }) 
           <c.icon className="w-3 h-3" /> {c.label}
         </button>
       ))}
+      {/* BB-095: whole-day Training designation across all employees */}
+      {showTrainingDay && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onTrainingDay}
+          className="ml-auto h-8 gap-1.5 text-xs font-semibold border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/30 hover:text-amber-700"
+        >
+          <Plus className="w-3.5 h-3.5" /> Add Training Day
+        </Button>
+      )}
     </div>
   </div>
 );
@@ -642,14 +654,17 @@ const TimelineRow = ({ rec, onApprove, onApproveOT, onApproveSchedule, onApprove
           <div>
             <div className="inline-flex items-center gap-0.5 justify-end">
               <span className={`font-mono text-sm font-extrabold
-                ${isLeaveRow && rec.payStatus === "partial" ? "text-amber-600" :
+                ${rec.isFixedHours ? "line-through text-neutral-400" :
+                  isLeaveRow && rec.payStatus === "partial" ? "text-amber-600" :
                   rec.type === "leave"    ? "text-emerald-600" :
                   rec.type === "conflict" ? "text-red-500"     :
                   rec.type === "rest"     ? "text-neutral-300" :
                   "text-neutral-800 dark:text-neutral-100"}`}>
                 {parseFloat(displayHours).toFixed(2).replace(/\.?0+$/, "")}h
               </span>
-              <InfoTooltip text={isLeaveRow
+              <InfoTooltip text={rec.isFixedHours
+                ? "Not counted for pay — this employee is on fixed hours for the cutoff."
+                : isLeaveRow
                 ? "Payable portion of this leave day. Unpaid leave hours are excluded from payroll."
                 : "Payable hours after snap rules and break deductions. This goes to payroll on approval."} />
             </div>
@@ -674,7 +689,9 @@ const TimelineRow = ({ rec, onApprove, onApproveOT, onApproveSchedule, onApprove
           <>
             {isLocked && (
               <div className="flex items-center justify-end gap-2">
-                {rec.localStatus === "excluded"
+                {rec.isFixedHours
+                  ? <FixedHoursNotCounted />
+                  : rec.localStatus === "excluded"
                   ? <>
                       <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-neutral-100 text-neutral-400 border border-neutral-200"><XCircle className="w-3 h-3" /> Excluded</span>
                       <ActionBtn color="neutral" icon={RotateCcw} label="Reset" onClick={(e) => { e.stopPropagation(); onReset(rec.id); }} />
@@ -810,13 +827,16 @@ const PunchSubRow = ({ rec, onApprove, onApproveOT, onApproveSchedule, onApprove
           <div>
             <div className="inline-flex items-center gap-0.5 justify-end">
               <span className={`font-mono text-sm font-extrabold
-                ${rec.type === "leave"    ? "text-emerald-600" :
+                ${rec.isFixedHours          ? "line-through text-neutral-400" :
+                  rec.type === "leave"    ? "text-emerald-600" :
                   rec.type === "conflict" ? "text-red-500"     :
                   rec.type === "rest"     ? "text-neutral-300" :
                   "text-neutral-800 dark:text-neutral-100"}`}>
                 {parseFloat(rec.hours).toFixed(2).replace(/\.?0+$/, "")}h
               </span>
-              <InfoTooltip text="Payable hours after snap rules and break deductions. This goes to payroll on approval." />
+              <InfoTooltip text={rec.isFixedHours
+                ? "Not counted for pay — this employee is on fixed hours for the cutoff."
+                : "Payable hours after snap rules and break deductions. This goes to payroll on approval."} />
             </div>
             {rec.scheduledHours > 0 && (
               <div className="text-[10px] text-neutral-400 mt-0.5 tabular-nums">
@@ -837,7 +857,9 @@ const PunchSubRow = ({ rec, onApprove, onApproveOT, onApproveSchedule, onApprove
           <>
             {isLocked && (
               <div className="flex items-center justify-end gap-2">
-                {rec.localStatus === "excluded"
+                {rec.isFixedHours
+                  ? <FixedHoursNotCounted />
+                  : rec.localStatus === "excluded"
                   ? <>
                       <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-neutral-100 text-neutral-400 border border-neutral-200"><XCircle className="w-3 h-3" /> Excluded</span>
                       <ActionBtn color="neutral" icon={RotateCcw} label="Reset" onClick={(e) => { e.stopPropagation(); onReset(rec.id); }} />
@@ -923,7 +945,7 @@ const DriverSegmentRow = ({ seg, onApprove, onApproveOT, onApproveSchedule, onAp
         {seg.isApproving ? (
           <Skeleton className="h-5 w-12 ml-auto rounded" />
         ) : seg.hours > 0 ? (
-          <span className="font-mono text-sm font-extrabold text-neutral-800 dark:text-neutral-100">
+          <span className={`font-mono text-sm font-extrabold ${seg.isFixedHours ? "line-through text-neutral-400" : "text-neutral-800 dark:text-neutral-100"}`}>
             {parseFloat(seg.hours).toFixed(2).replace(/\.?0+$/, "")}h
           </span>
         ) : (
@@ -937,7 +959,9 @@ const DriverSegmentRow = ({ seg, onApprove, onApproveOT, onApproveSchedule, onAp
           </div>
         ) : isLocked ? (
           <div className="flex items-center justify-end gap-2">
-            {seg.localStatus === "excluded"
+            {seg.isFixedHours
+              ? <FixedHoursNotCounted />
+              : seg.localStatus === "excluded"
               ? <>
                   <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-neutral-100 text-neutral-400 border border-neutral-200"><XCircle className="w-3 h-3" /> Excluded</span>
                   <ActionBtn color="neutral" icon={RotateCcw} label="Reset" onClick={() => onReset(seg.id)} />
@@ -1045,11 +1069,66 @@ const PunchGroupRow = ({ group, onApprove, onApproveOT, onApproveSchedule, onApp
   </>
 );
 
+/** BB-089 — SV punch/segment label. The server excludes these (fixed-hours department), so
+ *  they're shown for reference only, with no Reset (reset would push them back to pending). */
+const FixedHoursNotCounted = () => (
+  <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-600 border border-blue-200">
+    <Timer className="w-3 h-3" /> Not counted: fixed hours
+  </span>
+);
+
+/** BB-089 — fixed-hours (SV) row: flat hours for the cutoff, already approved server-side.
+ *  Editable only while the cutoff is open (the PATCH returns 400 once locked/processed). */
+const FixedHoursRow = ({ row, canEdit, onEdit, companyTimezone }) => {
+  const fmt     = (n) => parseFloat(n || 0).toFixed(2).replace(/\.?0+$/, "");
+  const hours   = Number(row.hours) || 0;
+  const leave   = Number(row.leaveHours) || 0;
+  const regular = Number(row.regularHours) || 0;
+  const editor  = row.editedBy
+    ? `${row.editedBy.profile?.firstName || ""} ${row.editedBy.profile?.lastName || ""}`.trim() || "an admin"
+    : null;
+
+  return (
+    <tr className="bg-blue-50/40 dark:bg-blue-900/10 border-b border-blue-100 dark:border-blue-800/30">
+      <td className="px-3 py-2.5 w-24">
+        <span className="font-mono text-[10px] font-bold text-neutral-400 uppercase tracking-wide">Cutoff</span>
+      </td>
+      <td className="px-3 py-2.5">
+        <span className="inline-flex items-center gap-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-[10px] font-bold px-1.5 py-0.5 rounded">
+          <Timer className="w-2.5 h-2.5" /> Fixed
+        </span>
+      </td>
+      <td className="px-3 py-2.5">
+        <div className="text-xs text-neutral-700 dark:text-neutral-300">
+          <strong>Fixed hours: {hours.toFixed(2)}h</strong>
+          {leave > 0 && <span className="text-neutral-500"> · {fmt(regular)} regular + {fmt(leave)} leave</span>}
+        </div>
+        {editor && (
+          <div className="text-[11px] text-neutral-400 mt-0.5">
+            Edited by {editor}{row.editedAt ? ` on ${formatDateTime(row.editedAt, companyTimezone || "UTC")}` : ""}
+          </div>
+        )}
+        {row.notes && <div className="text-[11px] text-neutral-400 italic mt-0.5">{row.notes}</div>}
+      </td>
+      <td className="px-3 py-2.5">
+        <span className="font-mono text-sm font-bold text-neutral-800 dark:text-neutral-200">{fmt(hours)}h</span>
+      </td>
+      <td className="px-3 py-2.5 w-72">
+        <div className="flex items-center justify-end gap-2">
+          <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-200"><Check className="w-3 h-3" /> Approved</span>
+          {canEdit && <ActionBtn color="neutral" icon={Pencil} label="Edit" onClick={(e) => { e.stopPropagation(); onEdit(row); }} />}
+        </div>
+      </td>
+    </tr>
+  );
+};
+
 /** OT block row — rendered after the last punch row for a given date (B&C), or as a period summary (DayCare) */
 const OTBlockRow = ({ block, onOTBlock, localOTBlockStatus, threshold, isCutoffBasis }) => {
   const [expanded, setExpanded] = useState(false);
   const status    = localOTBlockStatus[block.id] || block.status;
-  const isPending = status === "pending";
+  const isFixedHours = block.isFixedHoursEmployee === true; // BB-089: SV blocks are not actionable
+  const isPending = status === "pending" && !isFixedHours;
   const bd        = block.breakdown;
   const hasBreakdown = isCutoffBasis && bd?.days?.length > 0;
 
@@ -1084,7 +1163,11 @@ const OTBlockRow = ({ block, onOTBlock, localOTBlockStatus, threshold, isCutoffB
                 <Check className="w-2.5 h-2.5" /> Approved
               </span>
             )}
-            {status === "excluded" && (
+            {isFixedHours ? (
+              <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-blue-600 bg-blue-50 dark:bg-blue-900/20 dark:text-blue-400 px-1.5 py-0.5 rounded">
+                <Timer className="w-2.5 h-2.5" /> Not counted: fixed hours
+              </span>
+            ) : status === "excluded" && (
               <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-neutral-500 bg-neutral-100 dark:bg-neutral-800 px-1.5 py-0.5 rounded">
                 <X className="w-2.5 h-2.5" /> Excluded
               </span>
@@ -1152,7 +1235,7 @@ const OTBlockRow = ({ block, onOTBlock, localOTBlockStatus, threshold, isCutoffB
 };
 
 /** Employee card */
-const EmployeeCard = ({ emp, onApprove, onApproveOT, onApproveSchedule, onApproveRaw, onEdit, onExclude, onConflict, onBulkApproveRaw, onBulkApproveSchedule, onOTBlock, localOTBlockStatus, companyTimezone, dailyOtThresholdHours, cutoffOtThresholdHours, otBasis, onReset, onSetPunchType, trainingDates, onTrainingDay, refreshingOT }) => {
+const EmployeeCard = ({ emp, onApprove, onApproveOT, onApproveSchedule, onApproveRaw, onEdit, onExclude, onConflict, onBulkApproveRaw, onBulkApproveSchedule, onOTBlock, localOTBlockStatus, companyTimezone, dailyOtThresholdHours, cutoffOtThresholdHours, otBasis, onReset, onSetPunchType, trainingDates, refreshingOT, cutoffStatus, onEditFixedHours }) => {
   const [expanded, setExpanded] = useState(false);
   const isCutoffBasis = otBasis === "cutoff";
 
@@ -1224,6 +1307,7 @@ const EmployeeCard = ({ emp, onApprove, onApproveOT, onApproveSchedule, onApprov
           {hasConflict  && <Badge className="bg-red-100    text-red-600    border-red-200    text-[10px] gap-1"><GitMerge className="w-2.5 h-2.5" /> Conflict</Badge>}
           {hasFlag && !hasConflict && <Badge className="bg-amber-100  text-amber-600  border-amber-200  text-[10px] gap-1"><AlertTriangle className="w-2.5 h-2.5" /> Flagged</Badge>}
           {emp.unsyncedCount > 0 && <Badge className="bg-amber-100 text-amber-600 border-amber-200 text-[10px] gap-1"><AlertCircle className="w-2.5 h-2.5" /> {emp.unsyncedCount} unsynced</Badge>}
+          {emp.fixedHours && <Badge className="bg-blue-100 text-blue-600 border-blue-200 text-[10px] gap-1"><Timer className="w-2.5 h-2.5" /> Fixed hours</Badge>}
           {emp.hasOT    && <Badge className="bg-purple-100 text-purple-600 border-purple-200 text-[10px] gap-1"><Zap className="w-2.5 h-2.5" /> OT</Badge>}
           {allDone      && <Badge className="bg-green-100  text-green-600  border-green-200  text-[10px] gap-1"><CheckCircle2 className="w-2.5 h-2.5" /> Done</Badge>}
           {/* Shown while the server is computing OT blocks after an approval — only for cutoff-basis companies where an OT block may still be incoming */}
@@ -1293,6 +1377,14 @@ const EmployeeCard = ({ emp, onApprove, onApproveOT, onApproveSchedule, onApprov
                   </tr>
                 </thead>
                 <tbody>
+                  {emp.fixedHours && (
+                    <FixedHoursRow
+                      row={emp.fixedHours}
+                      canEdit={cutoffStatus === "open"}
+                      onEdit={onEditFixedHours}
+                      companyTimezone={companyTimezone}
+                    />
+                  )}
                   {emp.records.map((rec, idx) => {
                     const recDate  = rec.date || rec.punches?.[0]?.date || rec.segments?.[0]?.date;
                     const prevDate = idx > 0
@@ -1410,7 +1502,7 @@ const EmployeeCard = ({ emp, onApprove, onApproveOT, onApproveSchedule, onApprov
                 <div className="text-right">
                   <div className="text-[10px] text-neutral-400 font-semibold uppercase tracking-wide">Total Payable</div>
                   <div className="text-lg font-extrabold font-mono text-neutral-800 dark:text-neutral-200">{parseFloat(emp.totalHours).toFixed(2).replace(/\.?0+$/, "")}h</div>
-                  <div className="text-[10px] text-neutral-400">{parseFloat(emp.punchHours).toFixed(2).replace(/\.?0+$/, "")}h punch · {parseFloat(emp.leaveHours).toFixed(2).replace(/\.?0+$/, "")}h leave</div>
+                  <div className="text-[10px] text-neutral-400">{parseFloat(emp.punchHours).toFixed(2).replace(/\.?0+$/, "")}h {emp.fixedHours ? "regular" : "punch"} · {parseFloat(emp.leaveHours).toFixed(2).replace(/\.?0+$/, "")}h leave</div>
                 </div>
               </div>
             </div>
@@ -1440,6 +1532,7 @@ export default function CutoffReview({ cutoffId }) {
   const [otBlocks,               setOTBlocks]               = useState([]);
   const [dailyOtThresholdHours,  setDailyOtThresholdHours]  = useState(8);
   const [cutoffOtThresholdHours, setCutoffOtThresholdHours] = useState(null);
+  const [fixedHoursRows,         setFixedHoursRows]         = useState([]); // BB-089: GET /approvals `fixedHours`
   // BB-051: read-only — once on, an auto-resolved conflict never surfaces here as a
   // pending hasLeaveConflict row (it comes back already approved/cancelled), so this
   // is purely informational, not a gate on the Honor Punch/Honor Leave buttons below.
@@ -1471,6 +1564,12 @@ export default function CutoffReview({ cutoffId }) {
   const [isSaving,        setIsSaving]        = useState(false);
   const [excludeReason,   setExcludeReason]   = useState("");
   const [excludeNote,     setExcludeNote]     = useState("");
+  const [fixedHoursModal, setFixedHoursModal] = useState(null); // BB-089: fixedHours row being edited
+  const [fixedHoursInput, setFixedHoursInput] = useState("");
+  const [fixedHoursNotes, setFixedHoursNotes] = useState("");
+  const [trainingDayModal,  setTrainingDayModal]  = useState(false); // BB-095: whole-day Training dialog
+  const [trainingDayDate,   setTrainingDayDate]   = useState("");
+  const [trainingDaySaving, setTrainingDaySaving] = useState(null);  // "TRAINING" | "REGULAR" while in flight
 
   // ── Filters ──
   const [activeTab,    setActiveTab]    = useState("all");
@@ -1533,6 +1632,7 @@ export default function CutoffReview({ cutoffId }) {
       setLeaveConflictAutoRevert(settingsData.data?.leaveConflictAutoRevert === true);
       setOtBasis(approvalsData.otBasis || null);
       setOTBlocks(approvalsData.otBlocks || []);
+      setFixedHoursRows(approvalsData.fixedHours || []);
       setDailyOtThresholdHours(approvalsData.dailyOtThresholdHours ?? 8);
       setCutoffOtThresholdHours(approvalsData.cutoffOtThresholdHours ?? null);
 
@@ -1647,6 +1747,26 @@ export default function CutoffReview({ cutoffId }) {
         });
       });
 
+      // BB-089: fixed-hours (SV) employees get a card even with no punches or leaves
+      (approvalsData.fixedHours || []).forEach((fh) => {
+        const user   = fh.user;
+        const userId = fh.userId || user?.id;
+        if (!userId || empMap[userId]) return;
+        const initials = ((user?.profile?.firstName?.[0] || "") + (user?.profile?.lastName?.[0] || "") || user?.username?.[0] || "?").toUpperCase();
+        empMap[userId] = {
+          id:       userId,
+          name:     `${user?.profile?.firstName || ""} ${user?.profile?.lastName || user?.username || ""}`.trim(),
+          email:    user?.email || "",
+          initials,
+          color:    COLORS[colorIdx++ % COLORS.length],
+          records:  [],
+          hasOT:    false,
+          hasBulkRaw: false,
+          hasBulkSchedule: false,
+          isDriver: driverMapRef.current[userId] === true,
+        };
+      });
+
       // Identify timelog IDs already represented by an approval record
       const syncedTimeLogIds = new Set(
         (approvalsData.data || []).map((a) => a.timeLog?.id).filter(Boolean)
@@ -1744,6 +1864,7 @@ export default function CutoffReview({ cutoffId }) {
       const rawLogsData   = rawLogsRes.ok ? await rawLogsRes.json() : { data: [] };
 
       setOTBlocks(approvalsData.otBlocks || []);
+      setFixedHoursRows(approvalsData.fixedHours || []);
       setDailyOtThresholdHours(approvalsData.dailyOtThresholdHours ?? 8);
       setCutoffOtThresholdHours(approvalsData.cutoffOtThresholdHours ?? null);
 
@@ -1827,6 +1948,26 @@ export default function CutoffReview({ cutoffId }) {
           localStatus:    null,
           pendingLeave:   null,
         });
+      });
+
+      // BB-089: fixed-hours (SV) employees get a card even with no punches or leaves
+      (approvalsData.fixedHours || []).forEach((fh) => {
+        const user   = fh.user;
+        const userId = fh.userId || user?.id;
+        if (!userId || empMap[userId]) return;
+        const initials = ((user?.profile?.firstName?.[0] || "") + (user?.profile?.lastName?.[0] || "") || user?.username?.[0] || "?").toUpperCase();
+        empMap[userId] = {
+          id:       userId,
+          name:     `${user?.profile?.firstName || ""} ${user?.profile?.lastName || user?.username || ""}`.trim(),
+          email:    user?.email || "",
+          initials,
+          color:    COLORS[colorIdx++ % COLORS.length],
+          records:  [],
+          hasOT:    false,
+          hasBulkRaw: false,
+          hasBulkSchedule: false,
+          isDriver: driverMapRef.current[userId] === true,
+        };
       });
 
       const syncedTimeLogIds = new Set((approvalsData.data || []).map((a) => a.timeLog?.id).filter(Boolean));
@@ -1995,6 +2136,10 @@ export default function CutoffReview({ cutoffId }) {
       if (pt === "REGULAR" || pt === "TRAINING") actions.push("toggle-training");
     }
 
+    // BB-089: fixed-hours (SV) punches are excluded server-side and never actionable
+    const isFixedHours = approval.isFixedHoursEmployee === true;
+    if (isFixedHours) actions.length = 0;
+
     const payableHours = payroll.payableRegularHours || calc.payableHours || 0;
     const totalPayable = payroll.totalPayableHours   || payableHours;
 
@@ -2036,6 +2181,7 @@ export default function CutoffReview({ cutoffId }) {
       pendingLeave:      approval.pendingLeave || null,
       noScheduleRemark,
       punchType:   tl.punchType || "REGULAR",
+      isFixedHours,
       localStatus: approval.status === "approved" ? "approved" : approval.status === "excluded" ? "excluded" : null,
     };
   }
@@ -2158,11 +2304,11 @@ export default function CutoffReview({ cutoffId }) {
       const records = emp.records.map((r) => {
         if (r.type === "driver_group") {
           const segments = r.segments.map((s) => patchTimes({ ...s, localStatus: effectiveStatus(s.id, s.localStatus) }));
-          return { ...r, segments, hours: segments.reduce((sum, s) => (s.localStatus === "approved" || s.localStatus === "resolved") ? sum + (s.hours || 0) : sum, 0), isApproving: segments.some((s) => s.isApproving) };
+          return { ...r, segments, hours: segments.reduce((sum, s) => !s.isFixedHours && (s.localStatus === "approved" || s.localStatus === "resolved") ? sum + (s.hours || 0) : sum, 0), isApproving: segments.some((s) => s.isApproving) };
         }
         if (r.type === "punch_group") {
           const punches = r.punches.map((p) => patchTimes({ ...p, localStatus: effectiveStatus(p.id, p.localStatus) }));
-          return { ...r, punches, hours: punches.reduce((sum, p) => (p.localStatus === "approved" || p.localStatus === "resolved") ? sum + (p.hours || 0) : sum, 0) };
+          return { ...r, punches, hours: punches.reduce((sum, p) => !p.isFixedHours && (p.localStatus === "approved" || p.localStatus === "resolved") ? sum + (p.hours || 0) : sum, 0) };
         }
         return patchTimes({ ...r, localStatus: effectiveStatus(r.id, r.localStatus) });
       });
@@ -2185,7 +2331,7 @@ export default function CutoffReview({ cutoffId }) {
 
       const approved   = actionableFlat.filter((r) => r.localStatus === "approved" || r.localStatus === "resolved").length;
       const empOTBlocks     = otBlocks.filter((b) => b.userId === emp.id);
-      const pendingOTBlocks = empOTBlocks.filter((b) => (localOTBlockStatus[b.id] || b.status) === "pending").length;
+      const pendingOTBlocks = empOTBlocks.filter((b) => !b.isFixedHoursEmployee && (localOTBlockStatus[b.id] || b.status) === "pending").length;
       const pending    = actionableFlat.filter((r) => !r.localStatus).length + pendingOTBlocks;
       const punchHours = records.reduce((s, r) => {
         if (r.type === "leave") return s;
@@ -2193,9 +2339,21 @@ export default function CutoffReview({ cutoffId }) {
         return r.localStatus === "approved" ? s + (r.hours || 0) : s;
       }, 0);
       const leaveHours = records.filter((r) => r.type === "leave").reduce((s, r) => s + (r.payableHours ?? r.hours ?? 0), 0);
-      return { ...emp, records, approved, pending, unsyncedCount, totalHours: punchHours + leaveHours, punchHours, leaveHours, otBlocks: empOTBlocks };
+      // BB-089: SV payable is the fixed row (already includes paid leave), not punches + leaves.
+      // The fixed row counts as one approved item.
+      const fixedHours = fixedHoursRows.find((f) => (f.userId || f.user?.id) === emp.id) || null;
+      if (fixedHours) {
+        return {
+          ...emp, records, approved: approved + 1, pending, unsyncedCount,
+          totalHours: Number(fixedHours.hours) || 0,
+          punchHours: Number(fixedHours.regularHours) || 0,
+          leaveHours: Number(fixedHours.leaveHours) || 0,
+          otBlocks: empOTBlocks, fixedHours,
+        };
+      }
+      return { ...emp, records, approved, pending, unsyncedCount, totalHours: punchHours + leaveHours, punchHours, leaveHours, otBlocks: empOTBlocks, fixedHours: null };
     });
-  }, [employees, localStatus, localApprovedTimes, approvingIds, resetIds, otBlocks, localOTBlockStatus, localPunchType]);
+  }, [employees, localStatus, localApprovedTimes, approvingIds, resetIds, otBlocks, localOTBlockStatus, localPunchType, fixedHoursRows]);
 
   // Dates that have at least one TRAINING punch across all employees — used to show the
   // Training Day badge/toggle on date sub-headers in non-driver employee cards.
@@ -2212,6 +2370,39 @@ export default function CutoffReview({ cutoffId }) {
     }
     return s;
   }, [mergedEmployees]);
+
+  // BB-095: punches eligible for whole-day Training designation, grouped by date across ALL
+  // employees (unfiltered). Server only accepts pending REGULAR/TRAINING punches, so anything
+  // approved/excluded or mid-approval is skipped here rather than sent and rejected.
+  const trainingDayPunchesByDate = useMemo(() => {
+    const byDate = new Map();
+    const add = (empId, p) => {
+      if (!p.date || p.date === "—") return;
+      if (!p.actions?.includes("toggle-training") || p.localStatus || p.isApproving) return;
+      if (!byDate.has(p.date)) byDate.set(p.date, { date: p.date, punches: [], employeeIds: new Set() });
+      const entry = byDate.get(p.date);
+      entry.punches.push(p);
+      entry.employeeIds.add(empId);
+    };
+    for (const emp of mergedEmployees) {
+      for (const r of emp.records) {
+        if (r.type === "punch_group") r.punches.forEach((p) => add(emp.id, p));
+        else add(emp.id, r);
+      }
+    }
+    return byDate;
+  }, [mergedEmployees]);
+
+  // Sorted chronologically by earliest raw timeIn — the `date` key is a display label ("Oct 7").
+  const trainingDayCandidates = useMemo(() =>
+    [...trainingDayPunchesByDate.values()].map((e) => ({
+      date:            e.date,
+      sortKey:         Math.min(...e.punches.map((p) => (p.rawTimeIn ? new Date(p.rawTimeIn).getTime() : Infinity))),
+      employeeCount:   e.employeeIds.size,
+      regularPending:  e.punches.filter((p) => p.punchType !== "TRAINING").length,
+      trainingPending: e.punches.filter((p) => p.punchType === "TRAINING").length,
+    })).sort((a, b) => a.sortKey - b.sortKey),
+  [trainingDayPunchesByDate]);
 
   // Global stats
   const globalStats = useMemo(() => {
@@ -2246,8 +2437,8 @@ export default function CutoffReview({ cutoffId }) {
       if (activeTab === "flagged"  && !emp.records.some((r) => isRecordFlagged(r, { includeConflict: true }))) return false;
       if (activeTab === "approved" && emp.pending > 0) return false;
       if (activeTab === "excluded" && !emp.records.some((r) => {
-        if (r.type === "punch_group") return r.punches.some((p) => p.localStatus === "excluded");
-        return r.localStatus === "excluded";
+        if (r.type === "punch_group") return r.punches.some((p) => p.localStatus === "excluded" && !p.isFixedHours);
+        return r.localStatus === "excluded" && !r.isFixedHours;
       })) return false;
       // Search
       if (search && !emp.name.toLowerCase().includes(search.toLowerCase()) && !emp.email.toLowerCase().includes(search.toLowerCase())) return false;
@@ -2280,8 +2471,8 @@ export default function CutoffReview({ cutoffId }) {
     { id: "flagged",  label: "Flagged",  count: mergedEmployees.filter((e) => e.records.some((r) => isRecordFlagged(r, { includeConflict: true }))).length },
     { id: "approved", label: "Approved", count: mergedEmployees.filter((e) => e.pending === 0 && e.approved > 0).length },
     { id: "excluded", label: "Excluded", count: mergedEmployees.filter((e) => e.records.some((r) => {
-      if (r.type === "punch_group") return r.punches.some((p) => p.localStatus === "excluded");
-      return r.localStatus === "excluded";
+      if (r.type === "punch_group") return r.punches.some((p) => p.localStatus === "excluded" && !p.isFixedHours);
+      return r.localStatus === "excluded" && !r.isFixedHours;
     })).length },
   ], [mergedEmployees]);
 
@@ -2448,6 +2639,44 @@ export default function CutoffReview({ cutoffId }) {
     }
   }, [token, cutoffId, excludeModal, excludeReason, excludeNote, findRecord, refreshApprovals, isBNC, otBasis, refreshOTBlocks]);
 
+  // BB-089: PATCH /cutoff-periods/:id/fixed-hours/:fixedHoursId — open cutoffs only
+  const openFixedHoursEdit = useCallback((row) => {
+    setFixedHoursModal(row);
+    setFixedHoursInput(row.hours != null ? String(row.hours) : "");
+    setFixedHoursNotes(row.notes || "");
+  }, []);
+
+  const confirmFixedHoursEdit = useCallback(async () => {
+    if (!fixedHoursModal) return;
+    const hours = Number(fixedHoursInput);
+    if (fixedHoursInput.trim() === "" || !Number.isFinite(hours) || hours < 0 || hours > 999) {
+      toast.error("Hours must be between 0 and 999");
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const body = { hours };
+      if (fixedHoursNotes.trim()) body.notes = fixedHoursNotes.trim();
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/cutoff-periods/${cutoffId}/fixed-hours/${fixedHoursModal.id}`,
+        {
+          method: "PATCH",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || "Failed to update fixed hours");
+      setFixedHoursRows((rows) => rows.map((r) => (r.id === fixedHoursModal.id ? { ...r, ...data.data } : r)));
+      toast.success(data.message || "Fixed hours updated");
+      setFixedHoursModal(null);
+    } catch (err) {
+      toast.error(err.message || "Failed to update fixed hours");
+    } finally {
+      setIsSaving(false);
+    }
+  }, [token, cutoffId, fixedHoursModal, fixedHoursInput, fixedHoursNotes]);
+
   const doBulkApprove = useCallback(async (empId, approvalMode) => {
     const emp = mergedEmployees.find((e) => e.id === empId);
     if (!emp) return;
@@ -2582,26 +2811,19 @@ export default function CutoffReview({ cutoffId }) {
     }
   }, [token, cutoffId, findRecord, localPunchType, refreshApprovals]);
 
+  // BB-095: whole-day Training designation across all employees.
+  // Returns { ok, failed } so the Training Day dialog knows whether to close.
   const doSetPunchTypeForDate = useCallback(async (date, targetType) => {
-    // Collect all eligible records for this date across ALL employees
-    const targets = [];
-    for (const emp of mergedEmployees) {
-      for (const r of emp.records) {
-        if (r.type === "punch_group") {
-          r.punches.forEach((p) => {
-            if (p.date === date && p.actions?.includes("toggle-training")) targets.push(p);
-          });
-        } else if (r.date === date && r.actions?.includes("toggle-training")) {
-          targets.push(r);
-        }
-      }
-    }
+    // Only pending punches not already at the target type — the server rejects anything else
+    const targets = (trainingDayPunchesByDate.get(date)?.punches ?? [])
+      .filter((p) => (targetType === "TRAINING") !== (p.punchType === "TRAINING"));
     if (targets.length === 0) {
       toast.info("No eligible punches on this date to update");
-      return;
+      return { ok: 0, failed: 0 };
     }
 
-    // Optimistic update
+    // Optimistic update — remember previous overrides so failed ones can be restored individually
+    const prevOverrides = Object.fromEntries(targets.map((r) => [r.id, localPunchType[r.id]]));
     setLocalPunchType((s) => {
       const n = { ...s };
       targets.forEach((r) => { n[r.id] = targetType; });
@@ -2622,27 +2844,35 @@ export default function CutoffReview({ cutoffId }) {
       )
     );
 
-    const failed = results.filter((r) => r.status === "rejected").length;
+    // Successful PATCHes are already persisted server-side — roll back only the ones that failed
+    const failedIds = targets.filter((_, i) => results[i].status === "rejected").map((r) => r.id);
+    const failed = failedIds.length;
+    const ok     = targets.length - failed;
     if (failed > 0) {
-      // Roll back all on any failure
       setLocalPunchType((s) => {
         const n = { ...s };
-        targets.forEach((r) => { delete n[r.id]; });
+        failedIds.forEach((id) => {
+          if (prevOverrides[id] != null) n[id] = prevOverrides[id]; else delete n[id];
+        });
         return n;
       });
-      toast.error(`${failed} of ${targets.length} update(s) failed — no changes saved`);
-    } else {
-      toast.success(
-        targetType === "TRAINING"
-          ? `${targets.length} punch(es) on ${date} marked as Training`
-          : `${targets.length} punch(es) on ${date} reset to Regular`
-      );
-      const anyExcluded = targetType === "TRAINING" && results.some(
-        (r) => r.status === "fulfilled" && (r.value?.data?.excludedSegmentCount ?? 0) > 0
-      );
-      if (anyExcluded) await refreshApprovals(targets[0]?.id);
     }
-  }, [token, cutoffId, mergedEmployees, refreshApprovals]);
+
+    const label   = targetType === "TRAINING" ? "marked as Training" : "reset to Regular";
+    const punches = (n) => `${n} ${n === 1 ? "punch" : "punches"}`;
+    if (ok === 0)        toast.error(`Failed to update ${punches(failed)} on ${date} — no changes saved`);
+    else if (failed > 0) toast.warning(`${ok} of ${punches(targets.length)} on ${date} ${label} — ${failed} failed`);
+    else                 toast.success(`${punches(ok)} on ${date} ${label}`);
+
+    // Refresh when the server auto-excluded DA segments, or when a partial failure may have
+    // left local state out of sync with the server
+    const anyExcluded = targetType === "TRAINING" && results.some(
+      (r) => r.status === "fulfilled" && (r.value?.data?.excludedSegmentCount ?? 0) > 0
+    );
+    if (anyExcluded || (failed > 0 && ok > 0)) await refreshApprovals(targets[0]?.id);
+
+    return { ok, failed };
+  }, [token, cutoffId, trainingDayPunchesByDate, localPunchType, refreshApprovals]);
 
   const confirmFinalize = useCallback(async () => {
     setIsSaving(true);
@@ -2762,6 +2992,8 @@ export default function CutoffReview({ cutoffId }) {
         onSearch={setSearch}
         chips={chips}
         onChip={(id) => setChips((c) => c.map((chip) => chip.id === id ? { ...chip, active: !chip.active } : chip))}
+        showTrainingDay={(cutoff?.status || "open") === "open" && trainingDayCandidates.length > 0}
+        onTrainingDay={() => { setTrainingDayDate(trainingDayCandidates[0]?.date ?? ""); setTrainingDayModal(true); }}
       />
 
       {/* Employee Cards */}
@@ -2799,6 +3031,8 @@ export default function CutoffReview({ cutoffId }) {
                 onConflict={doConflict}
                 onBulkApproveRaw={doBulkApproveRaw}
                 onBulkApproveSchedule={doBulkApproveSchedule}
+                cutoffStatus={cutoff?.status || "open"}
+                onEditFixedHours={openFixedHoursEdit}
                 onOTBlock={doOTBlock}
                 localOTBlockStatus={localOTBlockStatus}
                 companyTimezone={companyTimezone}
@@ -2808,7 +3042,6 @@ export default function CutoffReview({ cutoffId }) {
                 onReset={doReset}
                 onSetPunchType={doSetPunchType}
                 trainingDates={trainingDates}
-                onTrainingDay={doSetPunchTypeForDate}
                 refreshingOT={refreshingOT}
               />
             </motion.div>
@@ -2924,6 +3157,130 @@ export default function CutoffReview({ cutoffId }) {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ── Fixed Hours Edit Modal (BB-089) ── */}
+      <Dialog open={!!fixedHoursModal} onOpenChange={(v) => !v && !isSaving && setFixedHoursModal(null)}>
+        <DialogContent className="w-[90vw] sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Timer className="w-4 h-4 text-blue-500" /> Edit Fixed Hours
+            </DialogTitle>
+            <DialogDescription>
+              Set this employee's hours for this cutoff. Paid leave is included in this total.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-bold uppercase tracking-wide text-neutral-500">Hours *</Label>
+              <Input
+                type="number" min="0" max="999" step="0.5"
+                className="font-mono"
+                value={fixedHoursInput}
+                onChange={(e) => setFixedHoursInput(e.target.value)}
+              />
+              <p className="text-[11px] text-neutral-400">Between 0 and 999.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-bold uppercase tracking-wide text-neutral-500">Notes (optional)</Label>
+              <Input
+                placeholder="e.g. Hired mid-cutoff"
+                value={fixedHoursNotes}
+                onChange={(e) => setFixedHoursNotes(e.target.value)}
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setFixedHoursModal(null)} disabled={isSaving}>Cancel</Button>
+              <Button
+                className="gap-2 bg-blue-500 hover:bg-blue-600 text-white"
+                onClick={confirmFixedHoursEdit}
+                disabled={isSaving || fixedHoursInput.trim() === ""}
+              >
+                {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                Save
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Training Day Modal (BB-095) — whole-day Training designation across all employees ── */}
+      {(() => {
+        const sel = trainingDayCandidates.find((c) => c.date === trainingDayDate) || null;
+        const run = async (targetType) => {
+          setTrainingDaySaving(targetType);
+          const res = await doSetPunchTypeForDate(trainingDayDate, targetType);
+          setTrainingDaySaving(null);
+          if (res && res.failed === 0 && res.ok > 0) setTrainingDayModal(false);
+        };
+        return (
+          <Dialog open={trainingDayModal} onOpenChange={(v) => !v && !trainingDaySaving && setTrainingDayModal(false)}>
+            <DialogContent className="w-[90vw] sm:max-w-[500px] grid-cols-[minmax(0,1fr)]">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <GraduationCap className="w-4 h-4 text-amber-500" /> Training Day
+                </DialogTitle>
+                <DialogDescription>
+                  Apply the Training punch type to every employee who punched on a date. Only pending punches are updated.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="min-w-0 space-y-4 pt-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-bold uppercase tracking-wide text-neutral-500">Date *</Label>
+                  <Select value={trainingDayDate} onValueChange={setTrainingDayDate} disabled={!!trainingDaySaving}>
+                    <SelectTrigger><SelectValue placeholder="Select a date..." /></SelectTrigger>
+                    <SelectContent>
+                      {trainingDayCandidates.map((c) => (
+                        <SelectItem key={c.date} value={c.date}>
+                          <span className="flex items-center gap-2">
+                            {c.date}
+                            {trainingDates.has(c.date) && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-600 dark:text-amber-400">
+                                <GraduationCap className="w-2.5 h-2.5" /> Training Day
+                              </span>
+                            )}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {sel && (
+                  <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 px-3 py-2.5 text-xs text-neutral-600 dark:text-neutral-300 space-y-1">
+                    <p><span className="font-semibold">{sel.employeeCount}</span> {sel.employeeCount === 1 ? "employee" : "employees"} with pending punches on {sel.date}</p>
+                    <p>
+                      <span className="font-semibold">{sel.regularPending}</span> Regular ·{" "}
+                      <span className={`font-semibold ${sel.trainingPending > 0 ? "text-amber-600 dark:text-amber-400" : ""}`}>{sel.trainingPending}</span> Training
+                    </p>
+                    <p className="text-[11px] text-neutral-400">
+                      Marking as Training also auto-excludes pending driver/aide segments for those employees on that day.
+                    </p>
+                  </div>
+                )}
+                <div className="flex flex-wrap justify-end gap-2 pt-2">
+                  <Button variant="outline" onClick={() => setTrainingDayModal(false)} disabled={!!trainingDaySaving}>Cancel</Button>
+                  <Button
+                    variant="outline"
+                    className="gap-2"
+                    onClick={() => run("REGULAR")}
+                    disabled={!!trainingDaySaving || !sel || sel.trainingPending === 0}
+                  >
+                    {trainingDaySaving === "REGULAR" ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+                    Revert to Regular{sel?.trainingPending ? ` (${sel.trainingPending})` : ""}
+                  </Button>
+                  <Button
+                    className="gap-2 bg-amber-500 hover:bg-amber-600 text-white"
+                    onClick={() => run("TRAINING")}
+                    disabled={!!trainingDaySaving || !sel || sel.regularPending === 0}
+                  >
+                    {trainingDaySaving === "TRAINING" ? <Loader2 className="w-4 h-4 animate-spin" /> : <GraduationCap className="w-4 h-4" />}
+                    Mark as Training{sel?.regularPending ? ` (${sel.regularPending})` : ""}
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
 
       {/* ── Shift Picker Modal (B&C — Approve Schedule) ── */}
       <Dialog open={!!shiftPickerModal} onOpenChange={() => setShiftPickerModal(null)}>
