@@ -255,7 +255,7 @@ function TaxColumnInfo({ taxRates = DEFAULT_TAX_RATES }) {
             </li>
             <li>Medicare: {formatPercent(medicareRate)} of gross</li>
             <li>CA SDI: {formatPercent(sdiRate)} of gross</li>
-            <li>CalSavers: 5% of gross if enabled on the employee profile</li>
+            <li>CalSavers: 8% of gross if enabled on the employee profile</li>
             <li>Plus any additional federal/state amounts on the employee profile</li>
           </ul>
           <p className="text-gray-300 text-[11px]">
