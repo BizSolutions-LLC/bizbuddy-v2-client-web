@@ -411,7 +411,7 @@ const Reports = () => {
     }
     const existing = disbursementByRunId[payrollRunId];
     if (existing) {
-      router.push(`/dashboard/employee/disbursement?batchId=${existing.id}`);
+      router.push(`/dashboard/employee/disbursement/${existing.id}`);
       return;
     }
     setCreatingDisbursementId(payrollRunId);
@@ -419,7 +419,7 @@ const Reports = () => {
       const created = await createDisbursementFromPayrollRun(API_URL, token, payrollRunId);
       toast.success('Disbursement batch created from finalized payroll.');
       setDisbursementByRunId((prev) => ({ ...prev, [payrollRunId]: created }));
-      router.push(`/dashboard/employee/disbursement?batchId=${created.id}`);
+      router.push(`/dashboard/employee/disbursement/${created.id}`);
     } catch (error) {
       toast.error(error.message || 'Failed to create disbursement batch');
     } finally {
@@ -854,7 +854,7 @@ const Reports = () => {
                               type="button"
                               onClick={(event) => {
                                 event.stopPropagation();
-                                router.push(`/dashboard/employee/disbursement?batchId=${disbursementByRunId[report.id].id}`);
+                                router.push(`/dashboard/employee/disbursement/${disbursementByRunId[report.id].id}`);
                               }}
                               className="px-2 py-1 text-xs font-semibold text-orange-700 border border-orange-300 rounded hover:bg-orange-50"
                             >

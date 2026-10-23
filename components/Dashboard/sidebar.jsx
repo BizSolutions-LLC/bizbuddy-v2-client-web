@@ -68,7 +68,10 @@ function getPayrollItems(role) {
   return {
     id: "payroll",
     label: "Payroll",
-    children: [{ id: "employee/payslip", label: "My Payslip" }],
+    children: [
+      { id: "employee/disbursement/my-payout-account", label: "Payout account" },
+      { id: "employee/payslip", label: "My Payslip" },
+    ],
   };
 }
 
@@ -142,6 +145,7 @@ const FREE_ALLOWED = new Set([
   "employee/payslip",
   "employee/payroll",
   "employee/disbursement",
+  "employee/disbursement/my-payout-account",
   "company/punch-logs",
   "company/contest-requests",
   "company/deletion",
@@ -364,7 +368,9 @@ function CollapsibleNavItem({ item, currentPath, onNavigate, expanded, onToggle,
           >
             {item.children.map((c, i) => {
               const route  = `/dashboard/${c.id}`;
-              const active = currentPath === route;
+              const active = c.id === "employee/disbursement"
+                ? currentPath === route || currentPath.startsWith(`${route}/`)
+                : currentPath === route;
 
               // ✅ Pull notification info from the unified map
               const notifyEntry = c.notifyKey ? notifyMap[c.notifyKey] : null;
