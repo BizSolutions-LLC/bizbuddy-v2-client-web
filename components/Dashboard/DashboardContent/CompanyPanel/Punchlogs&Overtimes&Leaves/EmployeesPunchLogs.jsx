@@ -74,6 +74,13 @@ const DRIVER_AIDE_AM_HOURS      = 1.25;   // fixed always
 const DRIVER_AIDE_REGULAR_HOURS = 5.5;    // fixed always
 const DRIVER_AIDE_PM_HOURS      = 1.25;   // base for complete punch
 
+// ── BB-105: suspended flags ────────────────────────────────────────────────────
+// "Too Early" and G-6 auto clock-out read inaccurately, so they're hidden for now (display
+// only). The auto clock-out switch covers all four places: name icon, row highlight,
+// row-details warning and Edit dialog note. Flip back to true once the data is reliable.
+const SHOW_TOO_EARLY_FLAG      = false;
+const SHOW_AUTO_CLOCKOUT_FLAG  = false;
+
 // ── Utility helpers ────────────────────────────────────────────────────────────
 const MAX_DEV_CHARS = 12;
 const truncate = (s = "", L = MAX_DEV_CHARS) => (s.length > L ? s.slice(0, L) + "…" : s);
@@ -1000,7 +1007,7 @@ function enrichTimelogs(rawData, { companyTimezone, isDayCare, otBasis, locMap, 
       isDailyBasis: otBasis === "daily",
       otBasis,
       isMissingClockOut,
-      isAutoClockOut: t.autoClockOut === true,
+      isAutoClockOut: SHOW_AUTO_CLOCKOUT_FLAG && t.autoClockOut === true,
       cutoffApproval: t.cutoffApproval ?? null,
       dayCutoffStatus: t.dayCutoffStatus ?? null,
     };
@@ -2763,7 +2770,7 @@ export default function EmployeesPunchLogs() {
                               <TableCell key="dateTimeIn" className="text-center">
                                 <div className="flex flex-col items-center gap-1">
                                   <DualTimeDisplay datetime={t.dayApprovedClockIn ?? t.timeIn} userTz={userTimezone} companyTz={companyTimezone} />
-                                  {t.isTooEarlyPunch && (
+                                  {SHOW_TOO_EARLY_FLAG && t.isTooEarlyPunch && (
                                     <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
                                       Too Early
                                     </span>
