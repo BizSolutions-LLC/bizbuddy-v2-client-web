@@ -5,7 +5,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import {
-  AlertCircle, Archive, ArchiveRestore, Award, Calendar, Check, ChevronDown, CreditCard, Edit3, FileText, Info, Loader2,
+  AlertCircle, Archive, ArchiveRestore, Award, Calendar, Check, ChevronDown, CreditCard, Download, Edit3, FileText, Info, Loader2,
   Plus, RefreshCw, Save, Settings, ShieldAlert, Timer, Trash2, TrendingUp, User, Users,
 } from "lucide-react";
 import { toast, Toaster } from "sonner";
@@ -25,6 +25,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Label } from "@/components/ui/label";
 import { normalizeLeaveMatrixRow } from "@/lib/leaveBalanceUtils";
 import MultiSelect from "@/components/common/MultiSelect";
+import LeaveReportDialog from "./LeaveReportDialog";
 
 // ── Icon color map ────────────────────────────────────────────────────────────
 const ICON_COLOR = {
@@ -49,7 +50,7 @@ function SectionIcon({ icon: Icon, color = "orange" }) {
   );
 }
 
-// ── Leave Accrual Card ───────────────────────────────────────────────────────
+// ── Month options (fiscal year start) ────────────────────────────────────────
 
 const MONTH_OPTIONS = [
   { value: 1,  label: "January" },
@@ -66,114 +67,513 @@ const MONTH_OPTIONS = [
   { value: 12, label: "December" },
 ];
 
-function LeaveAccrualCard({ loading, draft, setDraft }) {
-  const enabled  = draft?.accrualEnabled      ?? false;
-  const month    = draft?.leaveYearStartMonth ?? 1;
-  const catchUp  = draft?.newEmployeeCatchUp  ?? false;
+// ── Leave Credits Card (BB-098) ──────────────────────────────────────────────
+// Fiscal-year grants, regularization and expiration — docs/CLIENT_LEAVE_CONTRACT.md
+// BB-098. Replaces the old Leave Accrual card, whose fields the server never read.
+//
+// This card saves its own fields and is kept out of the page-level Save on purpose:
+// the server validates the leave credit fields as one set, and a toggle sent from
+// stale form state would quietly turn the feature off. A toggle is only ever sent
+// when the admin flips it, and turning one on always goes through preview → apply.
+
+const LEAVE_CREDIT_FIELDS = [
+  "leaveGrantMode", "leaveGrantHours", "leaveYearStartMonth", "leaveYearStartDay",
+  "leaveCreditLifetimeYears", "leaveExpiryReminderDays", "leaveRegularizationMonths", "leaveRegularizationGrant",
+];
+
+// Everything BB-098 owns — stripped from the page-level settings PATCH.
+const LEAVE_CREDIT_KEYS = [...LEAVE_CREDIT_FIELDS, "leaveGrantEnabled", "leaveExpirationEnabled", "leaveCreditsInitializedAt"];
+
+const LEAVE_CREDIT_NUMERIC = new Set([
+  "leaveGrantHours", "leaveYearStartMonth", "leaveYearStartDay",
+  "leaveCreditLifetimeYears", "leaveExpiryReminderDays", "leaveRegularizationMonths",
+]);
+
+const GRANT_MODE_OPTIONS = [
+  { value: "yearly_lump",     label: "Yearly lump sum" },
+  { value: "monthly_accrual", label: "Monthly accrual" },
+];
+
+// Valid regularization rules differ per grant mode — the server rejects any other pairing.
+const REGULARIZATION_OPTIONS = {
+  yearly_lump: [
+    { value: "none",     label: "None — first grant at the next fiscal year" },
+    { value: "prorated", label: "Prorated — months left in the fiscal year" },
+    { value: "full",     label: "Full — the whole yearly grant" },
+  ],
+  monthly_accrual: [
+    { value: "none",     label: "None — start accruing after regularization" },
+    { value: "catch_up", label: "Catch up — credit the waiting-period months" },
+  ],
+};
+
+// "YYYY-MM-DD" → "Mar 1, 2027" without a UTC shift.
+function formatYmd(ymd) {
+  if (!ymd) return "—";
+  const [y, m, d] = String(ymd).slice(0, 10).split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function creditFormFrom(settings) {
+  const form = {};
+  LEAVE_CREDIT_FIELDS.forEach((k) => { form[k] = settings?.[k] != null ? String(settings[k]) : ""; });
+  if (!form.leaveGrantMode) form.leaveGrantMode = "yearly_lump";
+  if (!form.leaveRegularizationGrant) form.leaveRegularizationGrant = "none";
+  return form;
+}
+
+function creditBodyFrom(form) {
+  const body = {};
+  LEAVE_CREDIT_FIELDS.forEach((k) => { body[k] = LEAVE_CREDIT_NUMERIC.has(k) ? Number(form[k]) : form[k]; });
+  return body;
+}
+
+function CreditToggle({ checked, disabled, onClick }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`relative inline-flex h-6 w-11 flex-shrink-0 ml-4 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-2 disabled:opacity-50 ${
+        checked ? "bg-green-500" : "bg-neutral-300 dark:bg-neutral-600"
+      }`}
+    >
+      <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+        checked ? "translate-x-6" : "translate-x-1"
+      }`} />
+    </button>
+  );
+}
+
+// Preview (read-only) → Apply. Same body goes to both endpoints.
+function LeaveCreditSetupDialog({ open, onClose, token, API, body, onApplied }) {
+  const [preview,  setPreview]  = useState(null);
+  const [loading,  setLoading]  = useState(false);
+  const [error,    setError]    = useState(null);
+  const [applying, setApplying] = useState(false);
+
+  useEffect(() => {
+    if (!open || !body || !token) return;
+    setPreview(null); setError(null); setLoading(true);
+    fetch(`${API}/api/leave-balances/credit-setup/preview`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    })
+      .then(async (r) => {
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.message || j.error || "Failed to build the preview");
+        setPreview(j.data);
+      })
+      .catch((e) => setError(e.message || "Failed to build the preview"))
+      .finally(() => setLoading(false));
+  }, [open, body, token, API]);
+
+  const apply = async () => {
+    setApplying(true);
+    try {
+      const r = await fetch(`${API}/api/leave-balances/credit-setup/apply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
+      const j = await r.json();
+      if (r.status === 409) {
+        toast.info("Leave credit setup was already applied by someone else. Settings have been refreshed.");
+        onApplied(null);
+        onClose();
+        return;
+      }
+      if (!r.ok) { toast.error(j.message || j.error || "Failed to apply leave credit setup"); return; }
+      const applied = j.data?.applied || {};
+      if (applied.lotsCreatedFor != null) {
+        toast.success(`Leave credits set up for ${applied.lotsCreatedFor} balance${applied.lotsCreatedFor === 1 ? "" : "s"}${applied.expiredHours ? ` — ${applied.expiredHours}h expired` : ""}.`);
+      } else if (applied.expired) {
+        toast.success(`Leave credit settings applied — ${applied.expired.hours || 0}h expired.`);
+      } else {
+        toast.success("Leave credit settings applied.");
+      }
+      onApplied(j.data?.settings || null);
+      onClose();
+    } catch { toast.error("Network error applying leave credit setup"); }
+    finally { setApplying(false); }
+  };
+
+  const totals = preview?.totals;
+  const missing = preview?.regularization?.missingHireDate || [];
+  const waiting = preview?.regularization?.inWaitingPeriod || [];
+
+  // One column per fiscal year present in any row's lots, newest first.
+  const lotYears = useMemo(() => {
+    const byYear = new Map();
+    for (const row of preview?.rows || []) {
+      for (const l of row.lots) if (!byYear.has(l.fiscalYear)) byYear.set(l.fiscalYear, l.label);
+    }
+    return [...byYear].sort((a, b) => b[0] - a[0]).map(([fiscalYear, label]) => ({ fiscalYear, label }));
+  }, [preview]);
 
   return (
-    <Card className="border-[1.5px] shadow-md overflow-hidden">
-      <CardStripe />
-      <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2.5 text-[15px] font-extrabold">
-          <SectionIcon icon={Calendar} color="green" />
-          Leave Accrual
-        </CardTitle>
-        <p className="text-xs text-neutral-500 mt-0.5">
-          Automatically accumulate leave credits for employees over time based on a yearly cycle.
-        </p>
-      </CardHeader>
-      <CardContent className="space-y-5">
+    <Dialog open={open} onOpenChange={(v) => !v && !applying && onClose()}>
+      <DialogContent className="sm:max-w-4xl overflow-hidden">
+        <div className="h-[3px] bg-orange-500 -mt-6 mb-4 -mx-6" />
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <span className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center">
+              <Award className="w-4 h-4 text-orange-600" />
+            </span>
+            Review Leave Credit Setup
+          </DialogTitle>
+          <DialogDescription>
+            Nothing changes until you click Apply. Check what each employee keeps and what expires first.
+          </DialogDescription>
+        </DialogHeader>
+
         {loading ? (
-          <Skeleton className="h-24 w-full" />
-        ) : (
-          <>
-            {/* Enable toggle */}
-            <div className="flex items-center justify-between p-4 rounded-xl border-2 border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900">
-              <div>
-                <p className="text-sm font-semibold">Enable Leave Accrual</p>
-                <p className="text-xs text-neutral-500 mt-0.5">
-                  When on, employees earn leave credits automatically each accrual period.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setDraft((o) => ({ ...o, accrualEnabled: !enabled }))}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-2 ${
-                  enabled ? "bg-green-500" : "bg-neutral-300 dark:bg-neutral-600"
-                }`}
-              >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-                  enabled ? "translate-x-6" : "translate-x-1"
-                }`} />
-              </button>
-            </div>
+          <div className="py-12 flex items-center justify-center">
+            <Loader2 className="w-5 h-5 animate-spin text-orange-500" />
+          </div>
+        ) : error ? (
+          <div className="flex items-start gap-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl p-4">
+            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" /> {error}
+          </div>
+        ) : preview ? (
+          <div className="space-y-4 max-h-[65vh] overflow-y-auto pr-1">
+            <p className="text-xs text-neutral-500">
+              Current fiscal year: <span className="font-semibold text-neutral-700 dark:text-neutral-200">{preview.currentFiscalYear?.label}</span>
+              {" "}({formatYmd(preview.currentFiscalYear?.startsOn)} – {formatYmd(preview.currentFiscalYear?.endsOn)})
+              {!preview.initialized && " · Existing balances are split into fiscal-year lots, newest first."}
+            </p>
 
-            {/* Fields — only shown when enabled */}
-            {enabled && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 pl-1">
-                {/* Year start month */}
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-semibold flex items-center gap-1.5">
-                    <Calendar className="w-3.5 h-3.5 text-orange-500" />
-                    Accrual Year Start Month
-                  </Label>
-                  <Select
-                    value={String(month)}
-                    onValueChange={(v) => setDraft((o) => ({ ...o, leaveYearStartMonth: Number(v) }))}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Select month" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {MONTH_OPTIONS.map((m) => (
-                        <SelectItem key={m.value} value={String(m.value)}>{m.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-neutral-400">The month each accrual year resets (e.g. January = Jan 1).</p>
-                </div>
-
-                {/* Catch-up toggle */}
-                <div className="flex items-start justify-between p-4 rounded-xl border-2 border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 h-fit">
-                  <div>
-                    <p className="text-sm font-semibold">Credit New Employees for Elapsed Months</p>
-                    <p className="text-xs text-neutral-500 mt-0.5">
-                      When on, new employees are credited for all months already passed in the current leave year instead of starting from zero.
-                    </p>
+            {totals && (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                {[
+                  { label: "Employees With Balance", value: totals.activeEmployeesWithBalance,  color: "text-blue-600",   bg: "bg-blue-50 border-blue-200" },
+                  { label: "Current Balance",        value: `${totals.balanceHours}h`,          color: "text-green-600",  bg: "bg-green-50 border-green-200" },
+                  { label: "Expiring Now",           value: `${totals.expiringNowHours}h`,      color: "text-red-600",    bg: "bg-red-50 border-red-200" },
+                  { label: "Balance After",          value: `${totals.balanceAfterHours}h`,     color: "text-orange-600", bg: "bg-orange-50 border-orange-200" },
+                ].map(({ label, value, color, bg }) => (
+                  <div key={label} className={`rounded-xl border-[1.5px] p-3 ${bg}`}>
+                    <p className={`text-[10px] font-bold uppercase tracking-wide ${color}`}>{label}</p>
+                    <p className={`text-xl font-extrabold font-mono ${color}`}>{value}</p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setDraft((o) => ({ ...o, newEmployeeCatchUp: !catchUp }))}
-                    className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full ml-4 transition-colors focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-2 ${
-                      catchUp ? "bg-green-500" : "bg-neutral-300 dark:bg-neutral-600"
-                    }`}
-                  >
-                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-                      catchUp ? "translate-x-6" : "translate-x-1"
-                    }`} />
-                  </button>
+                ))}
+              </div>
+            )}
+            <p className="text-[11px] text-neutral-400 -mt-2">Totals count active employees only.</p>
+
+            {missing.length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3 items-start">
+                <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-[12px] font-bold text-amber-900 mb-1">
+                    {missing.length} employee{missing.length === 1 ? " has" : "s have"} no hire date
+                  </p>
+                  <p className="text-[11px] text-amber-700 mb-1.5">Grants skip them until a hire date is set on their profile.</p>
+                  <p className="text-[11px] text-amber-800">{missing.map((m) => m.name).join(", ")}</p>
                 </div>
               </div>
             )}
 
-            {/* Info callout */}
-            <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex gap-3 items-start">
-              <Info className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-[12px] font-bold text-green-900 mb-1.5">How Leave Accrual Works</p>
-                <ul className="text-[11px] text-green-700 space-y-0.5">
-                  <li>• Credits are earned incrementally each period rather than granted all at once</li>
-                  <li>• The accrual year resets on the first day of the selected start month</li>
-                  <li>• Catch-up accrual ensures mid-year hires are not penalized for joining late</li>
-                  <li>• Balances are now capped at policy maximums — carry-over executes automatically at year-end</li>
+            {waiting.length > 0 && (
+              <div className="bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700 rounded-xl p-4">
+                <p className="text-[12px] font-bold mb-1.5">In regularization waiting period ({waiting.length})</p>
+                <ul className="text-[11px] text-neutral-500 space-y-0.5">
+                  {waiting.map((w) => (
+                    <li key={w.userId}>• {w.name} — regularizes {formatYmd(w.regularizationDate)}</li>
+                  ))}
                 </ul>
               </div>
-            </div>
-          </>
-        )}
-      </CardContent>
-    </Card>
+            )}
+
+            {preview.rows?.length === 0 ? (
+              <p className="text-sm text-neutral-400 text-center py-6">No employee has a leave balance yet.</p>
+            ) : (
+              <div className="border rounded-md overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-neutral-50 dark:bg-neutral-800/60 sticky top-0">
+                      <th className="text-left  px-3 py-2 text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">Employee</th>
+                      <th className="text-left  px-3 py-2 text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">Leave Type</th>
+                      <th className="text-right px-3 py-2 text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">Balance</th>
+                      {lotYears.map((y) => (
+                        <th key={y.fiscalYear} className="text-right px-3 py-2 text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">{y.label}</th>
+                      ))}
+                      <th className="text-right px-3 py-2 text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">Expiring Now</th>
+                      <th className="text-right px-3 py-2 text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">After</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.rows.map((row) => (
+                      <tr key={`${row.userId}:${row.policyId}`} className="border-t border-neutral-100 dark:border-neutral-800 align-top">
+                        <td className="px-3 py-2 text-xs">
+                          <span className="font-semibold text-neutral-700 dark:text-neutral-200">{row.name}</span>
+                          {row.status !== "active" && <span className="ml-1.5 text-[10px] text-neutral-400">({row.status})</span>}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-neutral-600 dark:text-neutral-300">
+                          {row.leaveType}
+                          {row.isArchived && <span className="ml-1.5 text-[10px] text-neutral-400">(archived)</span>}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono text-xs">{row.balanceHours}h</td>
+                        {lotYears.map((y) => {
+                          const l = row.lots.find((lot) => lot.fiscalYear === y.fiscalYear);
+                          if (!l) return <td key={y.fiscalYear} className="px-3 py-2 text-right text-xs text-neutral-300">—</td>;
+                          return (
+                            <td
+                              key={y.fiscalYear}
+                              title={`Expires ${formatYmd(l.expiresOn)}`}
+                              className={`px-3 py-2 text-right font-mono text-xs ${
+                                l.expiresImmediately ? "text-red-600 line-through" : "text-neutral-600 dark:text-neutral-300"
+                              }`}
+                            >
+                              {l.hours}h
+                            </td>
+                          );
+                        })}
+                        <td className={`px-3 py-2 text-right font-mono text-xs ${row.expiringNowHours > 0 ? "text-red-600 font-semibold" : "text-neutral-400"}`}>
+                          {row.expiringNowHours > 0 ? `-${row.expiringNowHours}h` : "—"}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono text-xs font-semibold">{row.balanceAfterHours}h</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        ) : null}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={applying}>Cancel</Button>
+          <Button
+            onClick={apply}
+            disabled={loading || applying || !preview}
+            className="bg-orange-500 hover:bg-orange-600 text-white"
+          >
+            {applying ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Check className="w-4 h-4 mr-2" />}
+            Apply
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function LeaveCreditsSettingsCard({ loading, settings, token, API, onSettingsChange, onApplied }) {
+  const [form,        setForm]        = useState(() => creditFormFrom(settings));
+  const [saving,      setSaving]      = useState(false);
+  const [togglingKey, setTogglingKey] = useState(null);
+  const [setupBody,   setSetupBody]   = useState(null);
+
+  // Re-sync only when the saved credit fields change — edits in the other cards
+  // also replace `settings`, and shouldn't wipe unsaved edits here.
+  const savedKey = JSON.stringify(creditFormFrom(settings));
+  useEffect(() => { setForm(JSON.parse(savedKey)); }, [savedKey]);
+
+  const grantOn       = settings?.leaveGrantEnabled      ?? false;
+  const expirationOn  = settings?.leaveExpirationEnabled ?? false;
+  const initializedAt = settings?.leaveCreditsInitializedAt || null;
+  const locked        = Boolean(initializedAt);
+
+  const dirty = JSON.stringify(form) !== savedKey;
+
+  const setField = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  // The valid regularization rules depend on the mode, so reset it on a mode change.
+  const setMode = (mode) => setForm((f) => ({ ...f, leaveGrantMode: mode, leaveRegularizationGrant: "none" }));
+
+  // PATCH only the leave credit fields — never the toggles.
+  const saveFields = async () => {
+    setSaving(true);
+    try {
+      const body = creditBodyFrom(form);
+      const r = await fetch(`${API}/api/company-settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
+      const j = await r.json();
+      if (!r.ok) { toast.error(j.error || j.message || "Failed to save leave credit settings"); return; }
+      onSettingsChange(body);
+      toast.success("Leave credit settings saved");
+    } catch { toast.error("Network error saving leave credit settings"); }
+    finally { setSaving(false); }
+  };
+
+  const flipToggle = async (key, current) => {
+    if (!current) {
+      // Turning on: preview with the form as it stands (unsaved edits included), then apply.
+      setSetupBody({
+        ...creditBodyFrom(form),
+        leaveGrantEnabled: grantOn,
+        leaveExpirationEnabled: expirationOn,
+        [key]: true,
+      });
+      return;
+    }
+    // Turning off is always allowed — send only this one toggle.
+    setTogglingKey(key);
+    try {
+      const r = await fetch(`${API}/api/company-settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ [key]: false }),
+      });
+      const j = await r.json();
+      if (!r.ok) { toast.error(j.error || j.message || "Failed to update leave credit settings"); return; }
+      onSettingsChange({ [key]: false });
+      toast.success(key === "leaveGrantEnabled" ? "Automatic grants turned off" : "Expiration turned off");
+    } catch { toast.error("Network error updating leave credit settings"); }
+    finally { setTogglingKey(null); }
+  };
+
+  const regOptions = REGULARIZATION_OPTIONS[form.leaveGrantMode] || [];
+
+  return (
+    <>
+      <LeaveCreditSetupDialog
+        open={Boolean(setupBody)}
+        onClose={() => setSetupBody(null)}
+        token={token}
+        API={API}
+        body={setupBody}
+        onApplied={onApplied}
+      />
+      <Card className="border-[1.5px] shadow-md overflow-hidden">
+        <CardStripe />
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <CardTitle className="flex items-center gap-2.5 text-[15px] font-extrabold">
+              <SectionIcon icon={Calendar} color="green" />
+              Leave Credits
+            </CardTitle>
+            {!loading && (
+              <span className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${
+                locked ? "bg-green-50 text-green-700 border-green-200" : "bg-neutral-50 text-neutral-500 border-neutral-200"
+              }`}>
+                {locked ? `Set up ${new Date(initializedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : "Not set up yet"}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-neutral-500 mt-0.5">
+            Grant leave credits each fiscal year, hold them through a regularization period, and expire unused credits.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          {loading ? (
+            <Skeleton className="h-24 w-full" />
+          ) : (
+            <>
+              {/* Toggles */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {[
+                  { key: "leaveGrantEnabled",      on: grantOn,      title: "Automatic Grants",  desc: "Credit employees every fiscal year (or month) without manual adjustments." },
+                  { key: "leaveExpirationEnabled", on: expirationOn, title: "Credit Expiration", desc: "Expire unused credits after their lifetime and remind employees beforehand." },
+                ].map(({ key, on, title, desc }) => (
+                  <div key={key} className="flex items-start justify-between p-4 rounded-xl border-2 border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900">
+                    <div>
+                      <p className="text-sm font-semibold">{title}</p>
+                      <p className="text-xs text-neutral-500 mt-0.5">{desc}</p>
+                    </div>
+                    {togglingKey === key ? (
+                      <Loader2 className="w-5 h-5 animate-spin text-orange-500 ml-4" />
+                    ) : (
+                      <CreditToggle checked={on} disabled={Boolean(togglingKey)} onClick={() => flipToggle(key, on)} />
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Fields */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 pl-1">
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-semibold">Grant Mode</Label>
+                  <Select value={form.leaveGrantMode} onValueChange={setMode} disabled={locked}>
+                    <SelectTrigger className="w-full"><SelectValue placeholder="Select mode" /></SelectTrigger>
+                    <SelectContent>
+                      {GRANT_MODE_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-neutral-400">All at the fiscal year start, or 1/12 each month.</p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-semibold">Hours per Fiscal Year</Label>
+                  <Input type="number" min={0} step="0.5" value={form.leaveGrantHours} onChange={(e) => setField("leaveGrantHours", e.target.value)} />
+                  <p className="text-xs text-neutral-400">Total granted per employee per leave type each fiscal year.</p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-semibold">Fiscal Year Start</Label>
+                  <div className="flex gap-2">
+                    <Select value={form.leaveYearStartMonth} onValueChange={(v) => setField("leaveYearStartMonth", v)} disabled={locked}>
+                      <SelectTrigger className="w-full"><SelectValue placeholder="Month" /></SelectTrigger>
+                      <SelectContent>
+                        {MONTH_OPTIONS.map((m) => <SelectItem key={m.value} value={String(m.value)}>{m.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      type="number" min={1} max={28} className="w-24"
+                      value={form.leaveYearStartDay} disabled={locked}
+                      onChange={(e) => setField("leaveYearStartDay", e.target.value)}
+                    />
+                  </div>
+                  <p className="text-xs text-neutral-400">Month and day (1–28) each fiscal year begins.</p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-semibold">Credit Lifetime (Fiscal Years)</Label>
+                  <Input type="number" min={1} max={10} value={form.leaveCreditLifetimeYears} onChange={(e) => setField("leaveCreditLifetimeYears", e.target.value)} />
+                  <p className="text-xs text-neutral-400">How many fiscal years credits stay usable, counting the year granted.</p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-semibold">Expiry Reminder (Days Before)</Label>
+                  <Input type="number" min={0} max={365} value={form.leaveExpiryReminderDays} onChange={(e) => setField("leaveExpiryReminderDays", e.target.value)} />
+                  <p className="text-xs text-neutral-400">Notify the employee this many days before credits expire. 0 = no reminder.</p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-semibold">Regularization Period (Months)</Label>
+                  <Input type="number" min={0} max={60} value={form.leaveRegularizationMonths} onChange={(e) => setField("leaveRegularizationMonths", e.target.value)} />
+                  <p className="text-xs text-neutral-400">Waiting period from hire date before grants start. 0 = none.</p>
+                </div>
+
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label className="text-sm font-semibold">Grant on Regularization</Label>
+                  <Select value={form.leaveRegularizationGrant} onValueChange={(v) => setField("leaveRegularizationGrant", v)}>
+                    <SelectTrigger className="w-full"><SelectValue placeholder="Select rule" /></SelectTrigger>
+                    <SelectContent>
+                      {regOptions.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-neutral-400">What an employee receives on the day their waiting period ends.</p>
+                </div>
+              </div>
+
+              <div className="flex justify-end">
+                <Button onClick={saveFields} disabled={!dirty || saving} className="bg-orange-500 hover:bg-orange-600 text-white text-sm">
+                  {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+                  Save Credit Settings
+                </Button>
+              </div>
+
+              {/* Info callout */}
+              <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex gap-3 items-start">
+                <Info className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-[12px] font-bold text-green-900 mb-1.5">How Leave Credits Work</p>
+                  <ul className="text-[11px] text-green-700 space-y-0.5">
+                    <li>• Turning a toggle on opens a preview of every employee&apos;s fiscal-year credits — nothing changes until you apply</li>
+                    <li>• Credits are used oldest first; each fiscal year&apos;s credits expire together when expiration is on</li>
+                    <li>• Fiscal year start and grant mode are locked once setup has been applied</li>
+                    <li>• Either toggle can be turned off at any time</li>
+                  </ul>
+                </div>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+    </>
   );
 }
 
@@ -1054,7 +1454,7 @@ function LeaveLedgerDrilldownModal({ open, onClose, token, API, userId, policyId
             </span>
             {leaveType} Ledger
           </DialogTitle>
-          <DialogDescription>{employeeName} — every credit, deduction, and adjustment for this leave type.</DialogDescription>
+          <DialogDescription>{employeeName} — every credit, deduction, adjustment, and expiration for this leave type.</DialogDescription>
         </DialogHeader>
 
         {loading ? (
@@ -1081,8 +1481,10 @@ function LeaveLedgerDrilldownModal({ open, onClose, token, API, userId, policyId
                     accrual:    { label: "Accrual",    bg: "bg-green-50",  clr: "text-green-700" },
                     deduction:  { label: "Deduction",  bg: "bg-red-50",    clr: "text-red-700" },
                     adjustment: { label: "Adjustment", bg: "bg-purple-50", clr: "text-purple-700" },
+                    expired:    { label: "Expired",    bg: "bg-amber-50",  clr: "text-amber-700" },
                   }[t.type] || { label: t.type || "—", bg: "bg-neutral-50", clr: "text-neutral-500" };
-                  const hours = Number(t.hours ?? 0);
+                  // Lifecycle rows (submitted/approved/…) carry no balance movement — hours is null.
+                  const hours = t.hours != null ? Number(t.hours) : null;
                   return (
                     <tr key={t.id} className="border-t border-neutral-100 dark:border-neutral-800">
                       <td className="px-3 py-2 text-xs text-neutral-500 whitespace-nowrap">
@@ -1091,8 +1493,8 @@ function LeaveLedgerDrilldownModal({ open, onClose, token, API, userId, policyId
                       <td className="px-3 py-2">
                         <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${typeCfg.bg} ${typeCfg.clr}`}>{typeCfg.label}</span>
                       </td>
-                      <td className={`px-3 py-2 text-right font-mono text-xs font-semibold ${hours < 0 ? "text-red-600" : "text-green-600"}`}>
-                        {hours > 0 ? "+" : ""}{hours}h
+                      <td className={`px-3 py-2 text-right font-mono text-xs font-semibold ${hours == null ? "text-neutral-300" : hours < 0 ? "text-red-600" : "text-green-600"}`}>
+                        {hours == null ? "—" : `${hours > 0 ? "+" : ""}${hours}h`}
                       </td>
                       <td className="px-3 py-2 text-right font-mono text-xs text-neutral-500">
                         {t.balanceAfter != null ? `${t.balanceAfter}h` : "—"}
@@ -1133,6 +1535,18 @@ function LeaveCreditsAccordionCard({ token, API, matrix, leaveTypes, policies, l
     () => Object.fromEntries(policies.map((p) => [p.leaveType, p.id])),
     [policies]
   );
+
+  // One column per fiscal year across the whole matrix, newest first, so every
+  // employee's table lines up. Empty before setup — there are no lots yet.
+  const lotYears = useMemo(() => {
+    const byYear = new Map();
+    for (const row of matrix) {
+      for (const t of leaveTypes) {
+        for (const l of row.balances[t]?.creditLots || []) if (!byYear.has(l.fiscalYear)) byYear.set(l.fiscalYear, l.label);
+      }
+    }
+    return [...byYear].sort((a, b) => b[0] - a[0]).map(([fiscalYear, label]) => ({ fiscalYear, label }));
+  }, [matrix, leaveTypes]);
 
   const filtered = search
     ? matrix.filter((r) =>
@@ -1204,6 +1618,7 @@ function LeaveCreditsAccordionCard({ token, API, matrix, leaveTypes, policies, l
             {filtered.map((row) => {
               const isOpen       = expandedIds.has(row.userId);
               const totalCredits = leaveTypes.reduce((s, t) => s + (row.balances[t]?.credits || 0), 0);
+              const totalAvail   = leaveTypes.reduce((s, t) => s + (row.balances[t]?.available || 0), 0);
               const depletedCount = leaveTypes.filter((t) => {
                 const b = row.balances[t];
                 return b && b.credits > 0 && b.available === 0;
@@ -1232,7 +1647,7 @@ function LeaveCreditsAccordionCard({ token, API, matrix, leaveTypes, policies, l
                         </span>
                       )}
                       <span className="text-sm text-neutral-400 font-medium">
-                        {totalCredits === 0 ? "No credits allocated" : `${totalCredits.toLocaleString()} total credits`}
+                        {totalCredits === 0 ? "No credits allocated" : `${totalAvail.toLocaleString()} available`}
                       </span>
                       <ChevronDown className={`w-4 h-4 text-neutral-400 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`} />
                     </div>
@@ -1245,8 +1660,13 @@ function LeaveCreditsAccordionCard({ token, API, matrix, leaveTypes, policies, l
                         <thead>
                           <tr className="bg-neutral-50 dark:bg-neutral-800/60">
                             <th className="text-left   px-4 py-2.5 text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">Leave Type</th>
-                            <th className="text-right  px-4 py-2.5 text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">Credits</th>
+                            {lotYears.length === 0 ? (
+                              <th className="text-right  px-4 py-2.5 text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">Credits</th>
+                            ) : lotYears.map((y) => (
+                              <th key={y.fiscalYear} className="text-right  px-4 py-2.5 text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">{y.label}</th>
+                            ))}
                             <th className="text-right  px-4 py-2.5 text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">Used</th>
+                            <th className="text-right  px-4 py-2.5 text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">Expired</th>
                             <th className="text-right  px-4 py-2.5 text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">Avail</th>
                             <th className="text-right  px-4 py-2.5 text-[11px] font-semibold text-neutral-400 uppercase tracking-wider w-36">Balance</th>
                           </tr>
@@ -1256,6 +1676,7 @@ function LeaveCreditsAccordionCard({ token, API, matrix, leaveTypes, policies, l
                             const cell    = row.balances[t];
                             const credits = cell?.credits   || 0;
                             const used    = cell?.used      || 0;
+                            const expired = cell?.expired   || 0;
                             const avail   = cell?.available || 0;
 
                             const notAllocated = credits === 0;
@@ -1281,11 +1702,27 @@ function LeaveCreditsAccordionCard({ token, API, matrix, leaveTypes, policies, l
                                 className={`border-t border-neutral-100 dark:border-neutral-800 hover:bg-neutral-50/60 dark:hover:bg-neutral-800/30 transition-colors ${policyId ? "cursor-pointer" : ""}`}
                               >
                                 <td className="px-4 py-3 text-sm text-neutral-700 dark:text-neutral-200">{t}</td>
-                                <td className="px-4 py-3 text-right font-mono text-sm text-neutral-500">
-                                  {notAllocated ? <span className="text-neutral-300">—</span> : credits}
-                                </td>
+                                {lotYears.length === 0 ? (
+                                  <td className="px-4 py-3 text-right font-mono text-sm text-neutral-500">
+                                    {notAllocated ? <span className="text-neutral-300">—</span> : credits}
+                                  </td>
+                                ) : lotYears.map((y) => {
+                                  const lot = cell?.creditLots.find((l) => l.fiscalYear === y.fiscalYear);
+                                  return (
+                                    <td
+                                      key={y.fiscalYear}
+                                      title={lot ? `Expires ${formatYmd(lot.expiresOn)}` : undefined}
+                                      className="px-4 py-3 text-right font-mono text-sm text-neutral-500"
+                                    >
+                                      {lot ? lot.remainingHours : <span className="text-neutral-300">—</span>}
+                                    </td>
+                                  );
+                                })}
                                 <td className="px-4 py-3 text-right font-mono text-sm text-neutral-500">
                                   {notAllocated ? <span className="text-neutral-300">—</span> : used}
+                                </td>
+                                <td className={`px-4 py-3 text-right font-mono text-sm ${expired > 0 ? "text-amber-600" : "text-neutral-500"}`}>
+                                  {notAllocated || expired === 0 ? <span className="text-neutral-300">—</span> : expired}
                                 </td>
                                 <td className={`px-4 py-3 text-right font-mono text-sm ${notAllocated ? "" : availClass}`}>
                                   {notAllocated ? <span className="text-neutral-300">—</span> : avail}
@@ -1304,6 +1741,20 @@ function LeaveCreditsAccordionCard({ token, API, matrix, leaveTypes, policies, l
                                       <span className={`text-xs font-semibold font-mono w-9 text-right tabular-nums ${pctColor}`}>
                                         {pct}%
                                       </span>
+                                      {policyId && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setDrilldown({ open: true, userId: row.userId, policyId, employeeName: row.fullName, leaveType: t });
+                                          }}
+                                          title="View history"
+                                          aria-label={`View ${t} history for ${row.fullName}`}
+                                          className="text-neutral-400 hover:text-orange-600 transition-colors"
+                                        >
+                                          <Info className="w-3.5 h-3.5" />
+                                        </button>
+                                      )}
                                     </div>
                                   )}
                                 </td>
@@ -1345,6 +1796,7 @@ export default function LeaveSettings() {
   const [loadingSettings,  setLoadingSettings]  = useState(true);
   const [savingSettings,   setSavingSettings]   = useState(false);
   const [refreshing,       setRefreshing]       = useState(false);
+  const [reportOpen,       setReportOpen]       = useState(false); // BB-098 leave reports
 
   // ── Stats ────────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
@@ -1397,17 +1849,20 @@ export default function LeaveSettings() {
   };
 
   // ── API: PATCH /api/company-settings ─────────────────────────────────────
+  // Leave credit fields/toggles are left out — LeaveCreditsSettingsCard saves its
+  // own, so a toggle here can never be sent from stale form state.
   const saveSettings = async () => {
     setSavingSettings(true);
     try {
+      const body = Object.fromEntries(Object.entries(draft || {}).filter(([k]) => !LEAVE_CREDIT_KEYS.includes(k)));
       const r = await fetch(`${API}/api/company-settings`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify(draft),
+        body: JSON.stringify(body),
       });
       const j = await r.json();
       if (r.ok) toast.success("Settings saved successfully!");
-      else toast.error(j.message || "Failed to save settings");
+      else toast.error(j.error || j.message || "Failed to save settings");
     } catch { toast.error("Network error saving settings"); }
     setSavingSettings(false);
   };
@@ -1427,6 +1882,15 @@ export default function LeaveSettings() {
   return (
     <div className="p-4 sm:p-6 space-y-5 max-w-6xl mx-auto">
       <Toaster position="top-center" />
+      <LeaveReportDialog
+        open={reportOpen}
+        onOpenChange={setReportOpen}
+        token={token}
+        API={API}
+        role={role}
+        policies={policies}
+        matrix={matrix}
+      />
 
       {/* Page header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -1437,11 +1901,14 @@ export default function LeaveSettings() {
             </div>
             Leave Settings
           </h1>
-          <p className="text-sm text-neutral-500 mt-1">Manage leave types, accrual, approval routing, and employee credits</p>
+          <p className="text-sm text-neutral-500 mt-1">Manage leave types, leave credits, approval routing, and employee balances</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <Button variant="outline" onClick={refreshData} disabled={refreshing} className="border-orange-200 text-orange-600 hover:bg-orange-50">
             <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? "animate-spin" : ""}`} /> Refresh
+          </Button>
+          <Button variant="outline" onClick={() => setReportOpen(true)} disabled={loadingMatrix} className="border-orange-200 text-orange-600 hover:bg-orange-50">
+            <Download className="w-4 h-4 mr-2" /> Generate Report
           </Button>
           <Button onClick={saveSettings} disabled={savingSettings || loadingSettings} className="bg-orange-500 hover:bg-orange-600 text-white">
             {savingSettings ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
@@ -1469,7 +1936,15 @@ export default function LeaveSettings() {
       </div>
 
       {/* Sections */}
-      <LeaveAccrualCard loading={loadingSettings} draft={draft} setDraft={setDraft} />
+      <LeaveCreditsSettingsCard
+        loading={loadingSettings} settings={draft} token={token} API={API}
+        onSettingsChange={(patch) => setDraft((o) => ({ ...o, ...patch }))}
+        onApplied={(fresh) => {
+          if (fresh) setDraft((o) => ({ ...o, ...fresh }));
+          else loadSettings();
+          loadData();
+        }}
+      />
       <LeaveApprovalCard loading={loadingSettings} draft={draft} setDraft={setDraft} />
       <LeaveConflictCard loading={loadingSettings} draft={draft} setDraft={setDraft} />
       <LeaveTypesCard API={API} token={token} policies={policies} reload={loadData} />

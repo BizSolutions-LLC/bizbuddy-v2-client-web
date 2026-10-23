@@ -21,6 +21,8 @@ const NOTIFICATION_CONFIG = {
   LEAVE_REQUEST_SUBMITTED:   { title: 'New Leave Request',        emoji: '📋' },
   LEAVE_REQUEST_APPROVED:    { title: 'Leave Approved',           emoji: '✅' },
   LEAVE_REQUEST_REJECTED:    { title: 'Leave Rejected',           emoji: '❌' },
+  LEAVE_REQUEST_CANCELLED:   { title: 'Leave Request Cancelled',  emoji: '🚫' },
+  LEAVE_CREDITS_EXPIRING:    { title: 'Leave Credits Expiring',   emoji: '⏳' },
 
   // ── Overtime Requests ─────────────────────────────────────────
   OVERTIME_REQUEST_SUBMITTED: { title: 'New Overtime Request',    emoji: '⏱️' },
@@ -152,7 +154,7 @@ function NotificationPanel({ notifications, onMarkAsRead, onRemove, onMarkAllAsR
   const handleNavigate = (notification) => {
     if (!notification.seen) onMarkAsRead(notification.id);
     onClose();
-    router.push(getNotificationRoute(notification.notificationCode));
+    router.push(getNotificationRoute(notification.notificationCode, notification.payload));
   };
 
   return (

@@ -450,12 +450,17 @@ const companyDocsContent = [
         ],
       },
       {
-        title: "Uploading a weekly schedule",
+        title: "Uploading a schedule",
         steps: [
-          "Click Upload Weekly Schedule.",
-          "Say whether the schedule includes overnight shifts, pick the week start date, and Download CSV Template.",
-          "Fill in the template and drag it back in (.csv, up to 5MB).",
-          "Review the preview. Rows marked Conflict overlap an existing shift. Then confirm.",
+          "Click Upload Schedule.",
+          "Choose how you'll mark it: Existing shifts (pick the shifts this upload uses) or Time blocks (30-min, and say whether it includes overnight shifts).",
+          "Pick a start and end date (up to 14 days) and the target employees, then Download CSV Template. It comes pre-filled with one row per employee per date.",
+          "Mark \"1\" under each shift (or time block) the employee works. Leave a row blank for a day off. Drag the file back in (.csv, up to 5MB).",
+          "Review the preview. Clean entries are created. For entries that overlap an existing assignment, choose Reject or Replace. Then confirm.",
+        ],
+        tips: [
+          "Upload with the same mode, shifts and dates you used for the template. Don't rename or reorder its columns.",
+          "Replace removes the existing assignment and notifies the employee. It isn't allowed once the employee has punched that day or the date is in a locked cutoff.",
         ],
       },
     ],

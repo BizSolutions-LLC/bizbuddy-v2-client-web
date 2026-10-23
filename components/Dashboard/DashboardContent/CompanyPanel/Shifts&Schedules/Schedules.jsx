@@ -497,10 +497,10 @@ export default function ModernCompanySchedules() {
                   <TooltipTrigger asChild>
                     <Button variant="outline" onClick={() => setUploadScheduleModalOpen(true)} className="gap-2">
                       <Upload className="h-4 w-4" />
-                      Upload Weekly Schedule
+                      Upload Schedule
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Upload Weekly Schedule</TooltipContent>
+                  <TooltipContent>Upload a schedule for up to 14 days from a CSV template</TooltipContent>
                 </Tooltip>
                 <Button
                   onClick={() => setShowCreateModal(true)}
@@ -1252,6 +1252,9 @@ export default function ModernCompanySchedules() {
           open={uploadScheduleModalOpen}
           onOpenChange={setUploadScheduleModalOpen}
           onImportComplete={fetchAll}
+          shifts={shifts}
+          employees={employees}
+          departments={departments}
         />
       </div>
     </TooltipProvider>

@@ -62,6 +62,13 @@ const fmtDate = (dateStr) =>
     day: "numeric",
   });
 
+const fmtFullDate = (dateStr) =>
+  toLocalDate(dateStr).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+
 const fmtSubmitted = (isoStr) =>
   new Date(isoStr).toLocaleDateString("en-US", {
     weekday: "short",
@@ -158,6 +165,8 @@ export default function EmployeeLeaveRequests() {
   const [modalOpen,        setModalOpen]        = useState(false);
   const [policies,         setPolicies]         = useState([]);
   const [loadingPolicies,  setLoadingPolicies]  = useState(false);
+  // BB-098 — per-policy { expired, creditLots, nextExpiration } from GET /leaves/balances
+  const [creditDetails,    setCreditDetails]    = useState({});
   const [leaveType,        setLeaveType]        = useState("");
   const [approverId,       setApproverId]       = useState("");
   const [reason,           setReason]           = useState("");
@@ -444,10 +453,25 @@ export default function EmployeeLeaveRequests() {
     if (!token) return;
     setLoadingPolicies(true);
     try {
-      const res  = await fetch(`${API_URL}/api/leaves/policies`, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+      // Fiscal-year lots/expiration only live on /leaves/balances, not /leaves/policies —
+      // fetched alongside, and a failure there just hides those details.
+      const [res, balRes] = await Promise.all([
+        fetch(`${API_URL}/api/leaves/policies`, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }),
+        fetch(`${API_URL}/api/leaves/balances`, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }).catch(() => null),
+      ]);
       const data = await res.json();
       if (!res.ok) throw new Error(data.message ?? "Failed to fetch policies");
       setPolicies(Array.isArray(data.data) ? data.data : []);
+      const balData = balRes?.ok ? await balRes.json().catch(() => null) : null;
+      const details = {};
+      (Array.isArray(balData?.data) ? balData.data : []).forEach((b) => {
+        details[b.policyId] = {
+          expired:        Number(b.expired || 0),
+          creditLots:     Array.isArray(b.creditLots) ? b.creditLots : [],
+          nextExpiration: b.nextExpiration || null,
+        };
+      });
+      setCreditDetails(details);
     } catch {
       toast.error("Failed to load leave policies");
     } finally {
@@ -668,16 +692,42 @@ export default function EmployeeLeaveRequests() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2" style={{ padding: "12px 16px" }}>
             {policies.map((p, i) => {
               const Icon = LEAVE_ICONS[p.leaveType] ?? Calendar;
+              const credit = creditDetails[p.id];
+              // nextExpiration is only sent while expiration is on (and lots exist).
+              const expirationOn = Boolean(credit?.nextExpiration);
               return (
-                <div key={i} style={{ background: "#fafaf9", border: "0.5px solid #e5e5e5", borderRadius: 8, padding: "10px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <Icon size={15} color="#f97316" />
-                    <span style={{ fontSize: 12, fontWeight: 500 }}>{p.leaveType}</span>
+                <div key={i} style={{ background: "#fafaf9", border: "0.5px solid #e5e5e5", borderRadius: 8, padding: "10px 12px" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <Icon size={15} color="#f97316" />
+                      <span style={{ fontSize: 12, fontWeight: 500 }}>{p.leaveType}</span>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: 18, fontWeight: 500, color: "#f97316", lineHeight: 1 }}>{Number(p.balanceHours) || 0}h</div>
+                      <div style={{ fontSize: 11, color: "#bbb", marginTop: 1 }}>available</div>
+                    </div>
                   </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: 18, fontWeight: 500, color: "#f97316", lineHeight: 1 }}>{Number(p.balanceHours) || 0}h</div>
-                    <div style={{ fontSize: 11, color: "#bbb", marginTop: 1 }}>available</div>
-                  </div>
+                  {credit?.nextExpiration && (
+                    <div style={{ marginTop: 8, fontSize: 11, fontWeight: 500, color: "#b45309", background: "#fffbeb", border: "0.5px solid #fde68a", borderRadius: 6, padding: "4px 8px" }}>
+                      {credit.nextExpiration.hours}h expire on {fmtFullDate(credit.nextExpiration.date)}
+                    </div>
+                  )}
+                  {credit?.creditLots.length > 0 && (
+                    <div style={{ marginTop: 8, borderTop: "0.5px solid #e5e5e5", paddingTop: 6 }}>
+                      {credit.creditLots.map((lot) => (
+                        <div key={lot.fiscalYear} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#888", lineHeight: 1.7 }}>
+                          <span>{lot.label}</span>
+                          <span>
+                            {lot.remainingHours}h
+                            {expirationOn && <span style={{ color: "#bbb" }}> · until {fmtFullDate(lot.expiresOn)}</span>}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {credit?.expired > 0 && (
+                    <div style={{ marginTop: 4, fontSize: 11, color: "#bbb" }}>{credit.expired}h expired to date</div>
+                  )}
                 </div>
               );
             })}

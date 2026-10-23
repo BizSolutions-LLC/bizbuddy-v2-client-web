@@ -1,7 +1,8 @@
 // Company Panel — Employee Leave Requests
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import {
   Calendar,
   CheckCircle2,
@@ -109,6 +110,9 @@ const DetailRow = ({ label, value, valueClassName = "" }) => (
 
 export default function SupervisorLeaveRequests() {
   const { token } = useAuthStore();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [leaves, setLeaves] = useState([]);
   const [loading, setLoading] = useState(false);
   const [generatingPdf, setGeneratingPdf] = useState(false);
@@ -468,6 +472,25 @@ export default function SupervisorLeaveRequests() {
     fetchApprovers();
   }, [fetchLeaves, fetchLeaveMatrix, fetchCompanySettings, fetchApprovers]);
 
+  // ?leaveId=X deep link (LEAVE_REQUEST_CANCELLED notification) — opens that
+  // request's details once the list has loaded, then drops the param so a
+  // refresh doesn't reopen it.
+  const deepLinkLeaveId = searchParams.get("leaveId");
+  const deepLinkHandled = useRef(false);
+  useEffect(() => {
+    if (!deepLinkLeaveId || deepLinkHandled.current || loading || leaves.length === 0) return;
+    deepLinkHandled.current = true;
+    const target = leaves.find((l) => l.id === deepLinkLeaveId);
+    if (target) {
+      setTableActiveTab(target.status);
+      setTablePage(1);
+      setDetailDialog({ open: true, request: target });
+    } else {
+      toast.info("That leave request is no longer in your list.");
+    }
+    router.replace(pathname);
+  }, [deepLinkLeaveId, leaves, loading, router, pathname]);
+
   // Company-wide cutoff periods (no departmentId filter — this is an admin view across
   // every department) feed the Date Range filter's quick-select-by-pay-period dropdown.
   useEffect(() => {
@@ -647,6 +670,7 @@ export default function SupervisorLeaveRequests() {
                   <div className="flex items-center gap-2">
                     <span className="text-muted-foreground">{bal.credits}h total</span>
                     <span className="text-amber-600">{bal.used}h used</span>
+                    {bal.expired > 0 && <span className="text-muted-foreground">{bal.expired}h expired</span>}
                     <span className={`font-bold ${bal.available > 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
                       {bal.available}h left
                     </span>

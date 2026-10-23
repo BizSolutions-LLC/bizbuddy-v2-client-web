@@ -291,7 +291,7 @@ export default function NotificationsPage() {
   // Navigate to the page a notification relates to
   const handleNavigate = (notification) => {
     if (!notification.seen) handleMarkAsRead(notification.id);
-    router.push(getNotificationRoute(notification.notificationCode));
+    router.push(getNotificationRoute(notification.notificationCode, notification.payload));
   };
 
   // Delete notification
