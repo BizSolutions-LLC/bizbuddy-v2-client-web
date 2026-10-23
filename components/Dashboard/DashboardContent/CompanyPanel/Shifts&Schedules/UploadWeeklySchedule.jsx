@@ -421,6 +421,7 @@ export default function UploadWeeklySchedule({ open, onOpenChange, onImportCompl
                   className="w-full"
                   searchable
                   sortable
+                  fullWidthContent
                 />
                 <p className="text-xs text-muted-foreground">Pick only the shifts this schedule uses — each one becomes a column.</p>
               </div>
