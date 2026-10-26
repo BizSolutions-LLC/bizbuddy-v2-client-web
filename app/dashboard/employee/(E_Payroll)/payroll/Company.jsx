@@ -7,6 +7,7 @@ import { Info } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import ModalPortal from "@/components/ui/modal-portal";
+import { DEFAULT_ETT_RATE, DEFAULT_SUI_RATE } from "@/lib/payrollCompute";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
 
@@ -413,8 +414,34 @@ const Company = () => {
   const [futaToggleSaving, setFutaToggleSaving] = useState(false);
   const [showFutaEnableModal, setShowFutaEnableModal] = useState(false);
 
-  const [suiEnabled, setSuiEnabled] = useState(false);
-  const [ettEnabled, setEttEnabled] = useState(false);
+  const [suiConfig, setSuiConfig] = useState({ enabled: false, rate: DEFAULT_SUI_RATE });
+  const [suiRateDraft, setSuiRateDraft] = useState(String(DEFAULT_SUI_RATE));
+  const [suiRateSaving, setSuiRateSaving] = useState(false);
+  const [suiToggleSaving, setSuiToggleSaving] = useState(false);
+  const [ettConfig, setEttConfig] = useState({ enabled: false, rate: DEFAULT_ETT_RATE });
+  const [ettRateDraft, setEttRateDraft] = useState(String(DEFAULT_ETT_RATE));
+  const [ettRateSaving, setEttRateSaving] = useState(false);
+  const [ettToggleSaving, setEttToggleSaving] = useState(false);
+
+  const applyCaEmployerSettings = (data = {}) => {
+    if (data.suiEnabled != null || data.suiRate != null) {
+      setSuiConfig((prev) => {
+        const rate = data.suiRate != null ? data.suiRate : (prev.rate ?? DEFAULT_SUI_RATE);
+        const enabled = data.suiEnabled == null ? prev.enabled : Boolean(data.suiEnabled);
+        return { enabled, rate };
+      });
+      if (data.suiRate != null) setSuiRateDraft(String(data.suiRate));
+    }
+
+    if (data.ettEnabled != null || data.ettRate != null) {
+      setEttConfig((prev) => {
+        const rate = data.ettRate != null ? data.ettRate : (prev.rate ?? DEFAULT_ETT_RATE);
+        const enabled = data.ettEnabled == null ? prev.enabled : Boolean(data.ettEnabled);
+        return { enabled, rate };
+      });
+      if (data.ettRate != null) setEttRateDraft(String(data.ettRate));
+    }
+  };
 
   const applyFutaSettings = ({ futaEnabled, futaRate }) => {
     const rate = futaRate ?? DEFAULT_FUTA_RATE;
@@ -432,6 +459,7 @@ const Company = () => {
 
     if (result.success && result.data) {
       applyFutaSettings(result.data);
+      applyCaEmployerSettings(result.data);
     }
   };
 
@@ -445,8 +473,11 @@ const Company = () => {
     const result = await response.json();
     if (!response.ok) throw new Error(result.message || "Failed to update deduction settings");
 
-    if (result.success && result.data) {
+    if (result.success && result.data && (result.data.futaEnabled != null || result.data.futaRate != null)) {
       applyFutaSettings(result.data);
+    }
+    if (result.success) {
+      applyCaEmployerSettings({ ...payload, ...(result.data || {}) });
     }
 
     return result.data;
@@ -954,6 +985,56 @@ const Company = () => {
     }
   };
 
+  const suiRateDirty = suiConfig.enabled && parseFloat(suiRateDraft) !== parseFloat(String(suiConfig.rate));
+  const ettRateDirty = ettConfig.enabled && parseFloat(ettRateDraft) !== parseFloat(String(ettConfig.rate));
+
+  const handleCaEmployerToggle = async (tax) => {
+    const isSui = tax === "sui";
+    const config = isSui ? suiConfig : ettConfig;
+    const defaultRate = isSui ? DEFAULT_SUI_RATE : DEFAULT_ETT_RATE;
+    const nextEnabled = !config.enabled;
+    const rate = config.rate > 0 ? config.rate : defaultRate;
+    const setSaving = isSui ? setSuiToggleSaving : setEttToggleSaving;
+    const label = isSui ? "SUI" : "ETT";
+
+    try {
+      setSaving(true);
+      await updateDeductionSettings(
+        nextEnabled
+          ? { [`${tax}Enabled`]: true, [`${tax}Rate`]: rate }
+          : { [`${tax}Enabled`]: false }
+      );
+      toast.success(`${label} tracking ${nextEnabled ? "enabled" : "disabled"}`);
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveCaEmployerRate = async (tax) => {
+    const isSui = tax === "sui";
+    const draft = isSui ? suiRateDraft : ettRateDraft;
+    const parsed = parseFloat(draft);
+    if (Number.isNaN(parsed) || parsed < 0 || parsed > 100) {
+      toast.error("Enter a valid rate between 0 and 100");
+      return;
+    }
+
+    const setSaving = isSui ? setSuiRateSaving : setEttRateSaving;
+    const label = isSui ? "SUI" : "ETT";
+
+    try {
+      setSaving(true);
+      await updateDeductionSettings({ [`${tax}Rate`]: parsed });
+      toast.success(`${label} rate saved`);
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="p-6 flex justify-center items-center min-h-screen">
@@ -1428,50 +1509,136 @@ const Company = () => {
           </div>
 
           <div className="p-4 sm:p-6 space-y-5">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <p className="text-sm font-medium text-gray-800">Enable SUI tracking</p>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  California State Unemployment Insurance (employer only)
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSuiEnabled((prev) => !prev)}
-                aria-pressed={suiEnabled}
-                className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
-                  suiEnabled ? "bg-teal-600" : "bg-gray-300"
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    suiEnabled ? "translate-x-6" : "translate-x-1"
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium text-gray-800">Enable SUI tracking</p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    California State Unemployment Insurance — employer cost, not withheld from net pay
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleCaEmployerToggle("sui")}
+                  disabled={suiToggleSaving}
+                  aria-pressed={suiConfig.enabled}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${
+                    suiConfig.enabled ? "bg-teal-600" : "bg-gray-300"
                   }`}
-                />
-              </button>
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      suiConfig.enabled ? "translate-x-6" : "translate-x-1"
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {suiConfig.enabled && (
+                <div className="rounded-lg border border-yellow-200 bg-yellow-50/60 p-4 space-y-3">
+                  <label className="block text-sm font-medium text-gray-700">SUI rate (%)</label>
+                  <div className="flex items-center gap-2 max-w-sm">
+                    <div className="relative flex-1 min-w-0">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        value={suiRateDraft}
+                        onChange={(e) => setSuiRateDraft(e.target.value)}
+                        className="w-full px-3 py-2 pr-8 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">%</span>
+                    </div>
+                    {suiRateDirty && (
+                      <button
+                        type="button"
+                        onClick={() => handleSaveCaEmployerRate("sui")}
+                        disabled={suiRateSaving}
+                        className="flex-shrink-0 px-4 py-2 bg-teal-600 text-white text-sm font-medium rounded-md hover:bg-teal-700 transition-colors disabled:opacity-50"
+                      >
+                        {suiRateSaving ? "Saving..." : "Save rate"}
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    Default is {DEFAULT_SUI_RATE}%. Applied to taxable wages up to $7,000 per employee per calendar year.
+                    This amount is employer cost and does not reduce net pay.
+                  </p>
+                </div>
+              )}
+
+              {!suiConfig.enabled && (
+                <p className="text-xs text-gray-400 italic">
+                  SUI is disabled. Turn on tracking to include it in employer payroll cost.
+                </p>
+              )}
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <p className="text-sm font-medium text-gray-800">Enable ETT tracking</p>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  Employment Training Tax — 0.1% on the first $7,000 (employer only)
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setEttEnabled((prev) => !prev)}
-                aria-pressed={ettEnabled}
-                className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
-                  ettEnabled ? "bg-teal-600" : "bg-gray-300"
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    ettEnabled ? "translate-x-6" : "translate-x-1"
+            <div className="space-y-4 border-t border-gray-100 pt-5">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium text-gray-800">Enable ETT tracking</p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Employment Training Tax — employer cost, not withheld from net pay
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleCaEmployerToggle("ett")}
+                  disabled={ettToggleSaving}
+                  aria-pressed={ettConfig.enabled}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${
+                    ettConfig.enabled ? "bg-teal-600" : "bg-gray-300"
                   }`}
-                />
-              </button>
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      ettConfig.enabled ? "translate-x-6" : "translate-x-1"
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {ettConfig.enabled && (
+                <div className="rounded-lg border border-yellow-200 bg-yellow-50/60 p-4 space-y-3">
+                  <label className="block text-sm font-medium text-gray-700">ETT rate (%)</label>
+                  <div className="flex items-center gap-2 max-w-sm">
+                    <div className="relative flex-1 min-w-0">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        value={ettRateDraft}
+                        onChange={(e) => setEttRateDraft(e.target.value)}
+                        className="w-full px-3 py-2 pr-8 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">%</span>
+                    </div>
+                    {ettRateDirty && (
+                      <button
+                        type="button"
+                        onClick={() => handleSaveCaEmployerRate("ett")}
+                        disabled={ettRateSaving}
+                        className="flex-shrink-0 px-4 py-2 bg-teal-600 text-white text-sm font-medium rounded-md hover:bg-teal-700 transition-colors disabled:opacity-50"
+                      >
+                        {ettRateSaving ? "Saving..." : "Save rate"}
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    Default is {DEFAULT_ETT_RATE}%. Applied to taxable wages up to $7,000 per employee per calendar year.
+                    This amount is employer cost and does not reduce net pay.
+                  </p>
+                </div>
+              )}
+
+              {!ettConfig.enabled && (
+                <p className="text-xs text-gray-400 italic">
+                  ETT is disabled. Turn on tracking to include it in employer payroll cost.
+                </p>
+              )}
             </div>
           </div>
         </div>

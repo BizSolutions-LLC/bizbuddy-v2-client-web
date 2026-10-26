@@ -14,7 +14,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 const Payroll = () => {
   const { token } = useAuthStore();
-  const [activeTab, setActiveTab] = useState('create-paycheck');
+  const [activeTab, setActiveTab] = useState('employee-sheet');
   const [saving, setSaving] = useState(false);
   const [unviewedCount, setUnviewedCount] = useState(0);
   const [suggestedCheckNumber, setSuggestedCheckNumber] = useState('');
@@ -2575,7 +2575,6 @@ const Payroll = () => {
   // ==================== TAB NAVIGATION ====================
 
   const tabs = [
-    { id: 'create-paycheck', label: 'Create Paycheck' },
     { id: 'employee-sheet', label: 'Employee Sheet', beta: true },
     { id: 'reports', label: 'Reports', beta: true, badge: unviewedCount },
     { id: 'employee', label: 'Employee' },
@@ -2598,7 +2597,7 @@ const Payroll = () => {
       case 'check-printing':
         return <CheckSettings />;
       default:
-        return renderCreatePaycheckTab();
+        return <EmployeeSheet />;
     }
   };
 

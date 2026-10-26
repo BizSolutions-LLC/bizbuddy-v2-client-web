@@ -513,16 +513,19 @@ const LiveCheckPreview = ({ positions, mockData }) => {
       </div>
 
       {/* Payee Address */}
-      <div
-        className="absolute"
-        style={{
-          left: `${positions.payeeAddress.x * scale}px`,
-          top: `${positions.payeeAddress.y * scale}px`,
-          fontSize: `${(positions.payeeAddress.fontSize || 9) * scale}px`,
-        }}
-      >
-        {mockData.payeeAddress}
-      </div>
+      {positions.payeeAddress && (
+        <div
+          className="absolute"
+          style={{
+            left: `${positions.payeeAddress.x * scale}px`,
+            top: `${positions.payeeAddress.y * scale}px`,
+            fontSize: `${(positions.payeeAddress.fontSize || 9) * scale}px`,
+            maxWidth: `${300 * scale}px`,
+          }}
+        >
+          {mockData.payeeAddress}
+        </div>
+      )}
 
       {/* Position Indicators (Red Dots) */}
       {Object.entries(positions).map(([key, pos]) => (
