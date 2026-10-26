@@ -7,16 +7,16 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { fetchMyPayoutAccount } from "@/lib/disbursementApi";
-import { AutomaticTransferNotice, DisbursementFrame, StatusBadge, useDisbursementSession } from "./disbursementUi";
-import { BankFields, bankIsComplete, EMPTY_BANK } from "./payoutAccountFields";
+import { fetchMyPayoutAccount, saveMyPayoutAccount } from "@/lib/disbursementApi";
+import { DisbursementFrame, StatusBadge, useDisbursementSession } from "./disbursementUi";
+import { BankFields, bankIsComplete, bankPayload, EMPTY_BANK } from "./payoutAccountFields";
 
 export default function MyPayoutAccount() {
   const session = useDisbursementSession({ allowEmployee: true });
   const { token, apiUrl, ready, role } = session;
   const [account, setAccount] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [automaticNoticeOpen, setAutomaticNoticeOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -55,12 +55,27 @@ export default function MyPayoutAccount() {
   const bankLinked = Boolean(account?.bankLinked);
   const provider = account?.provider;
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!bankLinked && !bankIsComplete(bank)) {
       toast.error("Enter the account holder, routing number, and account number.");
       return;
     }
-    setAutomaticNoticeOpen(true);
+    setSaving(true);
+    try {
+      const saved = await saveMyPayoutAccount(apiUrl, token, {
+        email: email.trim(),
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        bank: bankLinked ? undefined : bankPayload({ ...bank, holderType: "individual" }),
+      });
+      setBank({ ...EMPTY_BANK, holderType: "individual" });
+      setAccount(saved);
+      toast.success(saved?.status === "verified" ? "Payout account verified." : "Payout account saved.");
+    } catch (error) {
+      toast.error(error.message || "Failed to save your payout account");
+    } finally {
+      setSaving(false);
+    }
   };
 
   let body = null;
@@ -119,9 +134,10 @@ export default function MyPayoutAccount() {
           )}
           <Button
             onClick={handleSave}
-            disabled={!firstName.trim() || !lastName.trim() || !email.trim()}
+            disabled={saving || !firstName.trim() || !lastName.trim() || !email.trim()}
             className="bg-orange-500 hover:bg-orange-600 text-white"
           >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Save payout account
           </Button>
         </CardContent>
@@ -132,7 +148,6 @@ export default function MyPayoutAccount() {
   return (
     <>
       <Toaster />
-      <AutomaticTransferNotice open={automaticNoticeOpen} onOpenChange={setAutomaticNoticeOpen} />
       <DisbursementFrame
         title="Payout account"
         description="Connect the bank account that should receive your pay."

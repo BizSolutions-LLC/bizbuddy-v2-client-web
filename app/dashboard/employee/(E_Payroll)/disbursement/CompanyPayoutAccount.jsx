@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast, Toaster } from "sonner";
 import { ArrowLeft, Loader2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -16,9 +17,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { fetchCompanyPayoutAccount } from "@/lib/disbursementApi";
-import { AutomaticTransferNotice, DisbursementFrame, StatusBadge, useDisbursementSession } from "./disbursementUi";
-import { BankFields, bankIsComplete, EMPTY_BANK, MOOV_BUSINESS_TYPES } from "./payoutAccountFields";
+import {
+  fetchCompanyPayoutAccount,
+  saveCompanyPayoutAccount,
+  updateCompanyTaxService,
+  verifyCompanyBank,
+} from "@/lib/disbursementApi";
+import { DisbursementFrame, useDisbursementSession } from "./disbursementUi";
+import { BankFields, bankIsComplete, bankPayload, EMPTY_BANK, MOOV_BUSINESS_TYPES } from "./payoutAccountFields";
 
 function FundingProviderIcon({ provider }) {
   if (provider === "stripe") {
@@ -53,6 +59,7 @@ export default function CompanyPayoutAccount() {
   const { token, apiUrl, canView, canCreate, profile } = session;
   const [account, setAccount] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [legalName, setLegalName] = useState("");
   const [email, setEmail] = useState("");
   const [businessType, setBusinessType] = useState("llc");
@@ -60,7 +67,6 @@ export default function CompanyPayoutAccount() {
   const [verificationCode, setVerificationCode] = useState("");
   const [taxEnabled, setTaxEnabled] = useState(false);
   const [chosenProvider, setChosenProvider] = useState("moov");
-  const [automaticNoticeOpen, setAutomaticNoticeOpen] = useState(false);
 
   const loadAccount = useCallback(async () => {
     if (!token || !canView) return;
@@ -94,31 +100,71 @@ export default function CompanyPayoutAccount() {
   const bankLinked = Boolean(account?.bankLinked);
   const needsVerification = isMoov && bankLinked && account?.status && account.status !== "verified";
 
-  const handleSave = () => {
+  const clearBank = () => setBank({ ...EMPTY_BANK, holderType: "business" });
+
+  const handleSave = async () => {
     if (!canCreate) return;
     if (!bankLinked && !bankIsComplete(bank)) {
       toast.error("Enter the account holder, routing number, and account number.");
       return;
     }
-    setAutomaticNoticeOpen(true);
+    setSaving(true);
+    try {
+      const saved = await saveCompanyPayoutAccount(apiUrl, token, {
+        provider,
+        email: email.trim(),
+        legalName: legalName.trim(),
+        businessType: isMoov ? businessType : undefined,
+        bank: bankLinked ? undefined : bankPayload(bank),
+      });
+      clearBank();
+      setAccount(saved);
+      setTaxEnabled(Boolean(saved?.taxService));
+      toast.success(saved?.status === "verified" ? "Company payout account verified." : "Company payout account saved.");
+    } catch (error) {
+      toast.error(error.message || "Failed to save the company payout account");
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleVerify = () => {
+  const handleVerify = async () => {
     if (!verificationCode.trim()) {
       toast.error("Enter the bank verification code.");
       return;
     }
-    setAutomaticNoticeOpen(true);
+    setSaving(true);
+    try {
+      const saved = await verifyCompanyBank(apiUrl, token, verificationCode.trim());
+      setVerificationCode("");
+      setAccount(saved);
+      toast.success("Bank verification submitted.");
+    } catch (error) {
+      toast.error(error.message || "Failed to verify the company bank");
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleTax = () => {
-    setAutomaticNoticeOpen(true);
+  const handleTax = async (checked) => {
+    const next = Boolean(checked);
+    setTaxEnabled(next);
+    setSaving(true);
+    try {
+      const saved = await updateCompanyTaxService(apiUrl, token, next);
+      setAccount(saved);
+      setTaxEnabled(Boolean(saved?.taxService));
+    } catch (error) {
+      setTaxEnabled(!next);
+      toast.error(error.message || "Failed to update tax service");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <>
       <Toaster />
-      <AutomaticTransferNotice open={automaticNoticeOpen} onOpenChange={setAutomaticNoticeOpen} />
       <DisbursementFrame
         title="Company payout account"
         description="The company bank account funds payroll. Employees do not use this account to receive pay."
@@ -160,7 +206,20 @@ export default function CompanyPayoutAccount() {
               ) : null}
             </div>
             <div className="flex flex-wrap items-center gap-2 text-sm">
-              {account?.status ? <StatusBadge status={account.status === "verified" ? "PAID" : "READY_FOR_REVIEW"} labels={{ PAID: "Verified", READY_FOR_REVIEW: account.status }} /> : <span className="text-muted-foreground">Not set up</span>}
+              {account?.status ? (
+                <Badge
+                  variant="outline"
+                  className={
+                    account.status === "verified"
+                      ? "border-green-300 bg-green-100 px-3 py-1 text-sm font-semibold uppercase tracking-wide text-green-800"
+                      : "border-amber-500 bg-amber-100 px-3 py-1 text-sm font-semibold uppercase tracking-wide text-amber-950 shadow-sm"
+                  }
+                >
+                  {account.status}
+                </Badge>
+              ) : (
+                <span className="text-muted-foreground">Not set up</span>
+              )}
             </div>
             <Card>
               <CardHeader>
@@ -205,7 +264,8 @@ export default function CompanyPayoutAccount() {
                     <p className="text-xs text-muted-foreground">Bank numbers are sent once to set up the account and are not kept in this form after a successful save.</p>
                   </>
                 )}
-                <Button onClick={handleSave} disabled={!legalName.trim() || !email.trim()} className="bg-orange-500 hover:bg-orange-600 text-white">
+                <Button onClick={handleSave} disabled={saving || !legalName.trim() || !email.trim()} className="bg-orange-500 hover:bg-orange-600 text-white">
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                   Save payout account
                 </Button>
               </CardContent>
@@ -219,9 +279,6 @@ export default function CompanyPayoutAccount() {
                   <p className="text-sm text-muted-foreground">
                     Moov confirms the company bank with a code from two small deposits. That code is on the company bank statement. BizBuddy does not create it.
                   </p>
-                  <p className="text-sm text-muted-foreground">
-                    In the local sandbox, saving the account submits Moov’s test code. The status stays pending until Moov enables the funding account.
-                  </p>
                   <div className="max-w-xs space-y-1">
                     <Label htmlFor="verification-code">Bank statement code</Label>
                     <Input
@@ -232,7 +289,7 @@ export default function CompanyPayoutAccount() {
                       placeholder="Only if Moov sent deposits"
                     />
                   </div>
-                  <Button onClick={handleVerify} disabled={!verificationCode.trim()} variant="outline">Submit code</Button>
+                  <Button onClick={handleVerify} disabled={saving || !verificationCode.trim()} variant="outline">Submit code</Button>
                 </CardContent>
               </Card>
             )}
@@ -242,7 +299,7 @@ export default function CompanyPayoutAccount() {
                   <CardTitle className="text-base">Tax service</CardTitle>
                 </CardHeader>
                 <CardContent className="flex items-center gap-2">
-                  <Checkbox id="tax-service" checked={taxEnabled} onCheckedChange={handleTax} />
+                  <Checkbox id="tax-service" checked={taxEnabled} onCheckedChange={handleTax} disabled={saving} />
                   <Label htmlFor="tax-service">Enable tax service for this company</Label>
                 </CardContent>
               </Card>

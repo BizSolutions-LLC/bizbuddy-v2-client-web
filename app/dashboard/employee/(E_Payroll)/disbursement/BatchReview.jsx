@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast, Toaster } from "sonner";
-import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, Ban, Banknote, Check, CircleAlert, FileImage, Landmark, Loader2, Send } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowLeftRight, ArrowUp, ArrowUpDown, Ban, Banknote, Check, CircleAlert, FileImage, Landmark, Loader2, Send } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -54,6 +55,16 @@ function accountLabel(recipient) {
   return "Needs a bank account";
 }
 
+function payoutWasUpdated(recipient) {
+  return recipient?.payoutDelivery !== "manual" && Boolean(recipient?.payoutAccountLinked);
+}
+
+function isMissingPayoutIssue(issue) {
+  if (issue?.code === "MISSING_PAYOUT_SETUP") return true;
+  const message = String(issue?.message || "").toLowerCase();
+  return message.includes("payout") && (message.includes("configured") || message.includes("not connected") || message.includes("no payout"));
+}
+
 function paymentLabel(recipient) {
   if (recipient.status === "PAID") {
     return PAYMENT_METHOD_LABELS[recipient.paymentMethod] || recipient.paymentMethod || "Sent";
@@ -70,6 +81,7 @@ function recipientSortValue(recipient, key) {
     case "account":
       return accountLabel(recipient);
     case "status":
+      if (payoutWasUpdated(recipient) && !["PAID", "BLOCKED"].includes(recipient.status)) return "Automated transfer ready";
       return RECIPIENT_STATUS_LABELS[recipient.status] || recipient.status || "";
     case "payment":
       return paymentLabel(recipient);
@@ -189,6 +201,10 @@ export default function BatchReview({ batchId }) {
   const manualUnpaidRecipients = recipients.filter(
     (recipient) => recipient.payoutDelivery === "manual" && recipient.status !== "PAID" && recipient.status !== "BLOCKED"
   );
+  const visibleBatchWarnings = (detail?.warningIssues || []).filter((issue) => {
+    const recipient = recipients.find((row) => row.employeeId === issue.employeeId);
+    return !(recipient && payoutWasUpdated(recipient) && isMissingPayoutIssue(issue));
+  });
   const paidRecipientCount = recipients.filter((recipient) => recipient.status === "PAID").length;
   const canRecordPayment = Boolean(canMarkPaid && detail?.status === "READY_FOR_DISBURSEMENT" && !isApprover);
   const sendReady = detail?.status === "READY_FOR_DISBURSEMENT";
@@ -233,14 +249,14 @@ export default function BatchReview({ batchId }) {
   };
 
   const handleDelivery = async (recipient, delivery) => {
-    if (delivery === "automatic") {
-      setAutomaticNoticeOpen(true);
-      return;
-    }
     setActionLoading(true);
     try {
       await updateEmployeePayoutDelivery(apiUrl, token, recipient.employeeId, delivery);
-      toast.success(`${recipient.employeeName} will be paid by check, cash, or other.`);
+      toast.success(
+        delivery === "manual"
+          ? `${recipient.employeeName} will be paid by check, cash, or other.`
+          : `${recipient.employeeName} will be paid by bank payout.`
+      );
       await loadDetail();
     } catch (error) {
       toast.error(error.message || "Failed to update how this employee is paid");
@@ -253,10 +269,10 @@ export default function BatchReview({ batchId }) {
     <>
       <Toaster />
       <DisbursementFrame
-        title={detail ? formatDisbursementPeriod(detail.payrollRun) : "Disbursement batch"}
+        title="Review disbursement"
         description={
           detail
-            ? `${detail.recipientCount} employee${detail.recipientCount === 1 ? "" : "s"} · ${formatDisbursementCurrency(detail.totalAmount, detail.currency)}`
+            ? `${formatDisbursementPeriod(detail.payrollRun)} · ${detail.recipientCount} employee${detail.recipientCount === 1 ? "" : "s"} · ${formatDisbursementCurrency(detail.totalAmount, detail.currency)}`
             : "Review who gets paid by bank and who was paid outside payroll."
         }
         actions={
@@ -366,17 +382,19 @@ export default function BatchReview({ batchId }) {
               </Alert>
             )}
 
-            {(detail.warningIssues || []).length > 0 && (
+            {visibleBatchWarnings.length > 0 && (
               <Alert className="border-amber-200 bg-amber-50 text-amber-900">
                 <AlertTriangle className="h-4 w-4" />
                 <AlertTitle>Warnings</AlertTitle>
                 <AlertDescription>
-                  {(detail.warningIssues || []).length} warning{(detail.warningIssues || []).length === 1 ? "" : "s"} found. Warnings do not block approval by themselves.
+                  {visibleBatchWarnings.length} warning{visibleBatchWarnings.length === 1 ? "" : "s"} found. Warnings do not block approval by themselves.
                 </AlertDescription>
               </Alert>
             )}
 
-            <Card>
+            <div className="space-y-3">
+              <h2 className="text-lg font-semibold tracking-tight text-foreground">Employee payouts</h2>
+              <Card>
               <CardHeader>
                 <CardTitle className="text-base">Recipients</CardTitle>
                 <Input
@@ -392,7 +410,7 @@ export default function BatchReview({ batchId }) {
                     <TableRow>
                       <SortableHead label="Employee" column="employee" sort={recipientSort} onSort={toggleRecipientSort} />
                       <SortableHead label="Amount" column="amount" sort={recipientSort} onSort={toggleRecipientSort} align="right" />
-                      <SortableHead label="Account" column="account" sort={recipientSort} onSort={toggleRecipientSort} />
+                      <SortableHead label="Account" column="account" sort={recipientSort} onSort={toggleRecipientSort} align="center" />
                       <SortableHead label="Status" column="status" sort={recipientSort} onSort={toggleRecipientSort} align="center" />
                       <SortableHead label="Payment" column="payment" sort={recipientSort} onSort={toggleRecipientSort} />
                     </TableRow>
@@ -406,6 +424,9 @@ export default function BatchReview({ batchId }) {
                       sortedRecipients.map((recipient) => {
                         const warnings = (recipient.issues || []).filter((issue) => issue.severity === "WARNING");
                         const blockers = (recipient.issues || []).filter((issue) => issue.severity === "BLOCKING");
+                        const payoutReady = payoutWasUpdated(recipient);
+                        const visibleWarnings = payoutReady ? warnings.filter((issue) => !isMissingPayoutIssue(issue)) : warnings;
+                        const showAutomatedReady = payoutReady && !["PAID", "BLOCKED"].includes(recipient.status);
                         return (
                           <TableRow key={recipient.id}>
                             <TableCell className="text-left">
@@ -414,15 +435,29 @@ export default function BatchReview({ batchId }) {
                             </TableCell>
                             <TableCell className="text-right font-medium">{formatDisbursementCurrency(recipient.amount, recipient.currency)}</TableCell>
                             <TableCell>
-                              {accountLabel(recipient)}
+                              {recipient.payoutDelivery !== "manual" && recipient.payoutAccountLinked ? (
+                                <span className="inline-flex items-center gap-1.5 text-green-700">
+                                  <Check className="h-4 w-4" />
+                                  Bank connected
+                                </span>
+                              ) : (
+                                accountLabel(recipient)
+                              )}
                             </TableCell>
                             <TableCell>
                               <div className="flex flex-col items-center gap-1">
-                                <StatusBadge status={recipient.status} labels={RECIPIENT_STATUS_LABELS} />
+                                {showAutomatedReady ? (
+                                  <Badge variant="outline" className="border-blue-300 bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-800">
+                                    <ArrowLeftRight className="mr-1 h-3.5 w-3.5" />
+                                    Automated transfer ready
+                                  </Badge>
+                                ) : (
+                                  <StatusBadge status={recipient.status} labels={RECIPIENT_STATUS_LABELS} />
+                                )}
                                 {blockers.map((issue) => (
                                   <span key={`${recipient.id}-${issue.code}`} className="text-[11px] text-red-700">{issue.message}</span>
                                 ))}
-                                {warnings.map((issue) => (
+                                {visibleWarnings.map((issue) => (
                                   <span key={`${recipient.id}-${issue.code}`} className="text-[11px] text-amber-700">{issue.message}</span>
                                 ))}
                               </div>
@@ -499,6 +534,7 @@ export default function BatchReview({ batchId }) {
                 </Table>
               </CardContent>
             </Card>
+            </div>
 
             <div className="grid gap-4 lg:grid-cols-2">
               <Card>

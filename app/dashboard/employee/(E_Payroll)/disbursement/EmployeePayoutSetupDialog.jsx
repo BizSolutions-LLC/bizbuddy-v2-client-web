@@ -14,9 +14,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { fetchEmployeePayoutAccount } from "@/lib/disbursementApi";
-import { AutomaticTransferNotice } from "./disbursementUi";
-import { BankFields, bankIsComplete, EMPTY_BANK } from "./payoutAccountFields";
+import { fetchEmployeePayoutAccount, saveEmployeePayoutAccount } from "@/lib/disbursementApi";
+import { BankFields, bankIsComplete, bankPayload, EMPTY_BANK } from "./payoutAccountFields";
 
 function splitName(name) {
   const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
@@ -32,10 +31,11 @@ export default function EmployeePayoutSetupDialog({
   recipient,
   apiUrl,
   token,
+  onSaved,
 }) {
   const [account, setAccount] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [automaticNoticeOpen, setAutomaticNoticeOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -72,17 +72,30 @@ export default function EmployeePayoutSetupDialog({
   const bankLinked = Boolean(account?.bankLinked);
   const providerLabel = provider === "stripe" ? "Stripe" : provider === "moov" ? "Moov" : null;
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!bankLinked && !bankIsComplete(bank)) {
       toast.error("Enter the account holder, routing number, and account number.");
       return;
     }
-    setAutomaticNoticeOpen(true);
+    setSaving(true);
+    try {
+      await saveEmployeePayoutAccount(apiUrl, token, recipient.employeeId, {
+        email: email.trim(),
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        bank: bankLinked ? undefined : bankPayload({ ...bank, holderType: "individual" }),
+      });
+      toast.success(`Payout account saved for ${recipient.employeeName}.`);
+      onOpenChange(false);
+      await onSaved?.();
+    } catch (error) {
+      toast.error(error.message || "Failed to save the payout account");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <>
-    <AutomaticTransferNotice open={automaticNoticeOpen} onOpenChange={setAutomaticNoticeOpen} />
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
@@ -135,14 +148,14 @@ export default function EmployeePayoutSetupDialog({
           </Button>
           <Button
             onClick={handleSave}
-            disabled={loading || !provider || !firstName.trim() || !lastName.trim() || !email.trim()}
+            disabled={loading || saving || !provider || !firstName.trim() || !lastName.trim() || !email.trim()}
             className="bg-orange-500 hover:bg-orange-600 text-white"
           >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Save payout account
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
-    </>
   );
 }
