@@ -125,14 +125,20 @@ app/
 │   ├── user/settings/
 │   └── notifications/
 │
-├── system-admin/               # Role: Internal System Admin
-│   ├── layout.jsx
-│   ├── login/
+├── system-admin/               # Role: Internal System Admin (per-person accounts + 2FA, BB-110)
+│   ├── layout.jsx              # Session check via /auth/verify, SystemAdminProvider
+│   ├── login/                  # Password → 2FA setup (QR) / code → recovery codes
 │   ├── dashboard/
-│   ├── users/
+│   ├── performance/
 │   ├── errors/
-│   ├── security/
-│   └── performance/
+│   ├── bbuddy/                 # B. Buddy: activity, summary, companies, support staff, admin activity
+│   ├── database/               # Read-only database overview + cleanup preview
+│   ├── account/                # My account: change password, recovery codes
+│   ├── admins/                 # System Admins (owners only)
+│   ├── users/                  # User Activity analytics (BB-112)
+│   ├── security/               # Security Monitor — graded signals (BB-112)
+│   ├── requests/               # Request Logs, opened from "View requests" (BB-112)
+│   └── server/                 # Live Server — health + live log (BB-112)
 │
 └── api/
     └── contact/route.js        # Contact form POST handler
@@ -193,6 +199,19 @@ components/
 │   ├── Navbar/
 │   └── Footer.jsx
 │
+├── system-admin/               # System-admin dashboard UI (BB-110)
+│   ├── SystemAdminNav.jsx      # One-row nav, More menu, account menu
+│   ├── SystemAdminContext.jsx  # Signed-in admin (useSystemAdmin)
+│   ├── RecoveryCodes.jsx       # "Save your recovery codes" screen
+│   ├── TokenDialog.jsx         # View token dialog
+│   ├── ScreenshotButton.jsx
+│   ├── shared.jsx              # useSystemAdminSection, SectionCard, formatters, useCompanyOptions, polling hooks
+│   ├── activity/               # User Activity sections (BB-112)
+│   ├── performance/            # Performance tabs: Capacity (cards, charts, hotspots) + Endpoints (BB-112)
+│   ├── bbuddy/                 # B. Buddy page tabs, Add company drawer (BB-107) + api.js
+│   ├── database/               # Database page sections + shared.jsx
+│   └── server/                 # Live Server HealthCard + LogPanel (BB-112)
+│
 ├── Theme/ThemeProvider.jsx     # next-themes dark mode provider
 ├── DateTimePicker.jsx
 ├── LoadingScreen.jsx
@@ -225,10 +244,14 @@ lib/
 ├── notificationApi.js          # Notification API calls
 ├── prisma.js                   # Prisma ORM client instance
 ├── socketService.js            # Socket.io connection and event handlers
+├── systemAdminFetch.js         # All system-admin API calls: Bearer token, 401 → sign-in (BB-110)
+├── systemAgent.js              # B. Buddy (isSystemAgent) helpers: route guard lists, 403 messages (BB-110)
+├── timezones.js                # Time-zone list: Company Configurations, Add company (BB-107)
 ├── utils.js                    # General utilities (cn, etc.)
 ├── versionCheck.js             # App version check logic
 └── hooks/
-    └── use-mobile.js           # Mobile breakpoint detection hook
+    ├── use-mobile.js           # Mobile breakpoint detection hook
+    └── useImportTeam.js        # Bulk-import employee picker: /employee/team, active only (BB-108)
 ```
 
 ---
@@ -240,7 +263,71 @@ lib/
 | Company Admin | `/dashboard/company/` | Full HR management |
 | Employee | `/dashboard/employee/` | Self-service timekeeping, leaves, payroll |
 | BizBuddy Partner | `/dashboard/bizbuddy/` | Referrers and subscribers |
-| System Admin | `/system-admin/` | Internal platform management |
+| System Admin | `/system-admin/` | Internal platform management (separate sign-in, see below) |
+
+---
+
+## System Admin dashboard
+
+A separate app under `/system-admin/*` for BizBuddy staff. It doesn't use `useAuthStore` or the dashboard sidebar, and the public navbar is hidden on `/system-admin/*`.
+
+**Sign-in and session (BB-110)**
+- `/system-admin/login`: username + password → 2FA (first time: QR setup with `qrcode.react`, drawn locally) → 6-digit code or a recovery code → "Save your recovery codes" screen (`RecoveryCodes.jsx`) when new ones are issued.
+- The session token issued at the end of sign-in lives in `localStorage["system-admin-token"]` and is sent as a **Bearer** header. The server's cookie is `sameSite=strict`, so it can't be relied on across domains.
+- `app/system-admin/layout.jsx` calls `GET /auth/verify` on every page except login and puts the admin (`{ id, username, name, isOwner, twoFactorEnabled, … }`) in `SystemAdminContext` → `useSystemAdmin()`.
+- **Every call goes through `lib/systemAdminFetch.js`.** It adds the token, drops empty query values, and throws `SystemAdminError { status, code, data }`. A 401 **without** a `code` means the session is gone (logged out, expired, deactivated, 2FA reset): it clears the token and sends the admin to sign-in. Coded 401s (wrong password / code) are answers for the page to show.
+- **Owners vs admins:** `isOwner` gates the System Admins page (`/admins`) and picking other admins in Admin activity. Everyone has My account (password, recovery codes).
+
+**Pages** (nav: `components/system-admin/SystemAdminNav.jsx`, one row; less-used pages under **More**; account menu holds My account, System Admins (owners), View token, Sign out)
+
+| Route | What it is |
+|---|---|
+| `dashboard` | Overview |
+| `users` | User Activity analytics (BB-112) |
+| `security` | Security Monitor: graded signals, "View requests" → Request Logs (BB-112) |
+| `bbuddy` | B. Buddy: Activity (Refresh / Live), Summary, Companies (Add company, Set up B. Buddy, retired companies — BB-107), Staff, Admin activity. One Refresh in the tab row reloads the open tab |
+| `performance` | Capacity (BB-112: OK / Watch / Upgrade verdicts for the API server, database and hotspot endpoints, history charts, hotspots table) and Endpoints (per-endpoint response times) |
+| `errors` | API error logs |
+| `database` | Read-only database overview + cleanup preview |
+| `requests` | Request Logs (opened with filters from Security) |
+| `server` | Live Server: health card + live log tail (BB-112) |
+| `account`, `admins` | My account; System Admins (owners only) |
+
+**Shared helpers** (`components/system-admin/shared.jsx`): `useSystemAdminSection(path, query)` (load + retry state), `SectionCard`, `SortHeader`, `formatNumber` / `formatBytes` / `relativeTime` / `formatDay` / `formatDateTime`, `useCompanyOptions()`, `formatDuration` ("4.8 s"), and the polling pair `usePageVisible()` (stop polling while the tab is hidden) + `useRateLimitPause()` (hold polling for a minute after a 429).
+
+**Conventions:** admin pages are light-only; status colour is restrained (neutral badges, red only for real errors); polling is opt-in (Live toggles, Live Server) and always pauses when hidden. The B. Buddy page's calls go through `bbuddyFetch` in `components/system-admin/bbuddy/api.js` (`systemAdminFetch` scoped to `/api/system-admin/bbuddy`).
+
+---
+
+## B. Buddy (support accounts)
+
+B. Buddy is a hidden `admin` account in each company that BizBuddy support staff sign in to (BB-110).
+- **Sign-in** (`app/(auth)/sign-in/page.jsx`): the shared B. Buddy login, then a third step for the staff member's **code + PIN** (`agentCode` / `agentPin`), so actions are recorded per person. Each staff member is assigned to **one company**.
+- **Company panel only:** the login token carries `isSystemAgent: true`. `lib/systemAgent.js` holds the route guard lists (`isBlockedForSystemAgent`), the landing route (`SYSTEM_AGENT_HOME`, Company → Employees) and friendly messages for the server's `SYSTEM_AGENT_*` / `AGENT_*` 403 codes (`getSystemAgentErrorMessage`). The server enforces all of this; the client keeps the UI in line.
+- The user menu shows a small **Support** badge; the internal `bbuddy-<companyId>` username is never shown.
+- Managed from the system-admin B. Buddy page: staff (codes, PINs, company), per-company setup, and an activity audit.
+
+---
+
+## Bulk uploads (CSV)
+
+| Feature | Component | Endpoints | Flow |
+|---|---|---|---|
+| Upload Schedule (BB-103) | `Shifts&Schedules/UploadWeeklySchedule.jsx` | `/api/schedule-import/{template, preview, confirm}` | Pick mode (shifts / time blocks), dates (≤ 14 days) and employees → pre-filled template → mark slots → preview → one decision per item → confirm |
+| Import Punch Logs (BB-077, BB-108) | `Punchlogs&Overtimes&Leaves/ImportPunchLogs.jsx` | `/api/punch-log-import/{template, upload}` | Pick dates (≤ 31 days) and employees → pre-filled template → type clockIn / clockOut → upload once → 207 results (created / failed / blank rows skipped) |
+| Backtrack import | `Punchlogs&Overtimes&Leaves/ImportBacktrackPunchLogs.jsx` | `/api/backtrack-punch-log-import/{preview, confirm}` | Reads the **PadPro export** as-is (no template) → preview → confirm |
+| Employees bulk import | `Organizations&People/Employees.jsx` | `POST /api/employee/bulk` | Sample CSV built on the client → parsed on the client (PapaParse) → up to 100 people per file |
+
+**Shared rules**
+- **Templates come from the server**, pre-filled with one row per employee × date, so admins never look up IDs. The server owns columns, limits and validation; the client mirrors limits only for early feedback (row counts, range caps). Employees bulk import is the exception: its sample CSV is a client constant.
+- **Match by email**, never by name. `name` columns are for reading only. `employeeId` is still accepted for older files.
+- **Guide row (BB-108 follow-up):** the first row under the header shows each column's format and allowed values. Its first cell starts with `#` (`# GUIDE - not imported`), and **any `#` row is ignored on upload** — on the server for schedules and punch logs, in `Employees.jsx` for employee imports. Never put a real-looking example person in a template: it gets imported if left in.
+- **Company type matters:** BNC punch logs take `REGULAR` or `TRAINING` only; DayCare (PadPro) also `DRIVER_AIDE`, `DRIVER_AIDE_AM`, `DRIVER_AIDE_PM`. Blank = `REGULAR`.
+- **Files:** `.csv` only, 5 MB max. Dates `YYYY-MM-DD` (punch logs also accept `M/D/YY`, `M/D/YYYY`, `MM/DD/YY`, `MM/DD/YYYY`). Punch times: `08:00`, `8:00 AM`, `8:00:00 AM` (Excel's usual), `8 AM` and similar, read in the company's time zone; a clock-out earlier than the clock-in is the next day.
+- **Row numbers are file line numbers** (header = line 1). Guide rows don't count towards row limits; a file with only guide rows is a 400.
+- **Partial success is a 207.** Show created / failed per row with the server's reason and the real line number in the file. Whole-file problems (bad headers, row caps) come back as 400 with a `message`.
+- **Who can be picked:** the import dialogs load `GET /api/employee/team` themselves (`lib/hooks/useImportTeam.js`), active only. Admins get the whole company; supervisors get their **team**: own department plus direct reports (`EmploymentDetail.supervisorId`) in any department. That's the same rule the server checks; anyone else is a 403. Don't feed the pickers from `/api/employee?all=1` (whole company for every role).
+- **Template downloads:** only a 200 is the CSV. Anything else is JSON `{ message }`; show it in the dialog (under Download), not in a toast behind it. For "everyone", leave `departmentId` out.
 
 ---
 

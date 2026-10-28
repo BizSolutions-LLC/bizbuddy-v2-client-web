@@ -3253,6 +3253,8 @@ export default function EmployeesPunchLogs() {
         isDayCare={isDayCare}
         currentUserRole={currentUserRole}
         onImportComplete={refreshAll}
+        employees={employees}
+        departments={departments}
       />
 
       <ImportBacktrackPunchLogs

@@ -1,17 +1,56 @@
 /* components/Dashboard/DashboardContent/CompanyPanel/Punchlogs&Overtimes&Leaves/ImportPunchLogs.jsx */
 "use client";
 
+// BB-108 — the template comes pre-filled (one row per employee per date, like Upload
+// Schedule), so admins only type clock-in / clock-out. Blank rows are days off and the
+// server skips them. Contract: docs/server-request-BB-108-import-punch-logs.md.
+
 import { useMemo, useRef, useState } from "react";
 import { Upload, Download, Loader2, Lock, FileSpreadsheet, XCircle, CheckCircle2, Info } from "lucide-react";
-import { toast } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
+import useImportTeam from "@/lib/hooks/useImportTeam";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import MultiSelect from "@/components/common/MultiSelect";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
+const MAX_RANGE_DAYS = 31;
+// Server limits (BB-108): template rows (employees × days), file rows, rows with punches.
+const MAX_TEMPLATE_ROWS = 2000;
+const MAX_PUNCH_ROWS = 500;
+
+// Same date helpers as UploadWeeklySchedule.jsx — local YYYY-MM-DD, no timezone shifts.
+const parseDateOnly = (str) => {
+  const [y, m, d] = (str || "").split("-").map(Number);
+  return y && m && d ? new Date(y, m - 1, d) : null;
+};
+const toYmd = (dt) =>
+  `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+const addDays = (ymd, n) => {
+  const dt = parseDateOnly(ymd);
+  if (!dt) return "";
+  dt.setDate(dt.getDate() + n);
+  return toYmd(dt);
+};
+const daysInclusive = (startYmd, endYmd) => {
+  const s = parseDateOnly(startYmd);
+  const e = parseDateOnly(endYmd);
+  return s && e ? Math.round((e - s) / 86400000) + 1 : 0;
+};
+
+// "all" sentinel selection, same model MultiSelect's own "all" row uses.
+const toggleSelection = (prev, val) => {
+  if (val === "all") return ["all"];
+  let list = prev.filter((x) => x !== "all");
+  list = list.includes(val) ? list.filter((x) => x !== val) : [...list, val];
+  return list.length ? list : ["all"];
+};
 
 const isLockedCutoffReason = (reason = "") => {
   const r = reason.toLowerCase();
@@ -35,7 +74,15 @@ const formatRawRange = (date, clockIn, clockOut) => {
   return parts.join(" · ");
 };
 
-export default function ImportPunchLogs({ open, onOpenChange, isDayCare, currentUserRole, onImportComplete }) {
+export default function ImportPunchLogs({
+  open,
+  onOpenChange,
+  isDayCare,
+  currentUserRole,
+  onImportComplete,
+  employees = [],
+  departments = [],
+}) {
   const { token } = useAuthStore();
   const API_URL = process.env.NEXT_PUBLIC_API_URL;
   const fileInputRef = useRef(null);
@@ -44,9 +91,49 @@ export default function ImportPunchLogs({ open, onOpenChange, isDayCare, current
   const [file, setFile] = useState(null);
   const [downloadingTemplate, setDownloadingTemplate] = useState(false);
   const [uploadError, setUploadError] = useState(null);
-  const [result, setResult] = useState(null); // { message, created: [], failed: [] }
+  const [templateError, setTemplateError] = useState(null);
+  const [result, setResult] = useState(null); // { message, created: [], failed: [], skipped }
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [targetMode, setTargetMode] = useState("all"); // "all" | "department" | "specific"
+  const [departmentId, setDepartmentId] = useState("");
+  const [userIds, setUserIds] = useState(["all"]);
 
   const isSupervisor = (currentUserRole || "").toLowerCase() === "supervisor";
+
+  // Active people in the uploader's team (supervisors: own department + direct reports);
+  // anyone else in `userIds` is a 403.
+  const activeEmployees = useImportTeam(open, token, employees);
+  const employeeOptions = useMemo(
+    () =>
+      activeEmployees
+        .map((e) => ({
+          value: e.id,
+          label: `${e.profile?.firstName ?? ""} ${e.profile?.lastName ?? ""}`.trim() || e.email,
+        })),
+    [activeEmployees]
+  );
+
+  const rangeDays = daysInclusive(startDate, endDate);
+  const rangeError =
+    !startDate || !endDate ? null
+    : rangeDays < 1 ? "End date must be on or after the start date."
+    : rangeDays > MAX_RANGE_DAYS ? `The range can be at most ${MAX_RANGE_DAYS} days.`
+    : null;
+
+  // Template rows = employees × days, shown live. The team list is the same scope the
+  // server uses, so "everyone" counts for supervisors too; the server still checks.
+  const employeeCount =
+    targetMode === "specific" ? (userIds.includes("all") ? 0 : userIds.length)
+    : targetMode === "department" ? (departmentId ? activeEmployees.filter((e) => (e.departmentId ?? e.department?.id) === departmentId).length : 0)
+    : activeEmployees.length;
+  const templateRows = employeeCount != null && rangeDays > 0 && !rangeError ? employeeCount * rangeDays : null;
+  const tooManyRows = templateRows != null && templateRows > MAX_TEMPLATE_ROWS;
+
+  const templateReady =
+    startDate && endDate && !rangeError && !tooManyRows &&
+    (targetMode !== "department" || departmentId) &&
+    (targetMode !== "specific" || !userIds.includes("all"));
 
   const mergedRows = useMemo(() => {
     if (!result) return [];
@@ -60,8 +147,20 @@ export default function ImportPunchLogs({ open, onOpenChange, isDayCare, current
     setStep("idle");
     setFile(null);
     setUploadError(null);
+    setTemplateError(null);
     setResult(null);
+    setStartDate("");
+    setEndDate("");
+    setTargetMode("all");
+    setDepartmentId("");
+    setUserIds(["all"]);
     if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleStartDateChange = (value) => {
+    setStartDate(value);
+    // Keep the end date inside the window; default it to two weeks.
+    if (!endDate || endDate < value || daysInclusive(value, endDate) > MAX_RANGE_DAYS) setEndDate(value ? addDays(value, 13) : "");
   };
 
   const handleDialogOpenChange = (nextOpen) => {
@@ -75,25 +174,34 @@ export default function ImportPunchLogs({ open, onOpenChange, isDayCare, current
     setFile(picked);
   };
 
+  // Pre-filled: one row per chosen employee per date. Without a range the server
+  // still returns the old blank template, so this always sends one.
   const handleDownloadTemplate = async () => {
+    if (!templateReady) return;
     setDownloadingTemplate(true);
+    setTemplateError(null);
     try {
-      const res = await fetch(`${API_URL}/api/punch-log-import/template`, {
+      const params = new URLSearchParams({ startDate, endDate });
+      if (targetMode === "department" && departmentId) params.set("departmentId", departmentId);
+      if (targetMode === "specific" && !userIds.includes("all")) params.set("userIds", userIds.join(","));
+      const res = await fetch(`${API_URL}/api/punch-log-import/template?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      // Only a 200 is the CSV; anything else is JSON { message }, shown under the button
       if (!res.ok) {
-        toast.error("Could not download template.");
+        const json = await res.json().catch(() => null);
+        setTemplateError(json?.message || "Could not download the template.");
         return;
       }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = "punch_log_import_template.csv";
+      link.download = `punch_logs_${startDate}_to_${endDate}.csv`;
       link.click();
       URL.revokeObjectURL(url);
     } catch {
-      toast.error("Could not download template.");
+      setTemplateError("Could not download the template.");
     } finally {
       setDownloadingTemplate(false);
     }
@@ -134,6 +242,7 @@ export default function ImportPunchLogs({ open, onOpenChange, isDayCare, current
           message: json?.message || "",
           created: json?.data?.created || [],
           failed: json?.data?.failed || [],
+          skipped: json?.data?.skipped || 0,
         });
         setStep("results");
         onImportComplete?.();
@@ -156,7 +265,7 @@ export default function ImportPunchLogs({ open, onOpenChange, isDayCare, current
 
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
-      <DialogContent className={`${step === "results" ? "sm:max-w-2xl" : "sm:max-w-lg"} border-2 dark:border-white/10`}>
+      <DialogContent className={`${step === "results" ? "sm:max-w-2xl" : "sm:max-w-lg"} max-h-[90vh] overflow-y-auto border-2 dark:border-white/10`}>
         <div className="h-1 w-full bg-orange-500 -mt-6 mb-4" />
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -176,6 +285,96 @@ export default function ImportPunchLogs({ open, onOpenChange, isDayCare, current
               </Alert>
             )}
 
+            {/* 1. Template */}
+            <div className="space-y-3">
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium">1. Download a template for your employees and dates</p>
+                <p className="text-xs text-muted-foreground">
+                  Pick the dates (up to {MAX_RANGE_DAYS} days) and employees. We&apos;ll fill in names, emails and dates. You only add clock-in and clock-out times.
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1.5">
+                  <Label>From</Label>
+                  <Input type="date" value={startDate} onChange={(e) => handleStartDateChange(e.target.value)} className="h-9" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>To</Label>
+                  <Input
+                    type="date"
+                    value={endDate}
+                    min={startDate || undefined}
+                    max={startDate ? addDays(startDate, MAX_RANGE_DAYS - 1) : undefined}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="h-9"
+                  />
+                </div>
+              </div>
+              <p className={`text-xs -mt-1 ${rangeError ? "text-red-600" : "text-muted-foreground"}`}>
+                {rangeError || (rangeDays ? `${rangeDays} day${rangeDays === 1 ? "" : "s"} · up to ${MAX_RANGE_DAYS}.` : `Up to ${MAX_RANGE_DAYS} days.`)}
+              </p>
+
+              <div className="space-y-1.5">
+                <Label>Employees</Label>
+                <Select value={targetMode} onValueChange={setTargetMode}>
+                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{isSupervisor ? "Everyone on my team" : "All active employees"}</SelectItem>
+                    {!isSupervisor && <SelectItem value="department">One department</SelectItem>}
+                    <SelectItem value="specific">Specific employees</SelectItem>
+                  </SelectContent>
+                </Select>
+                {targetMode === "department" && (
+                  <Select value={departmentId} onValueChange={setDepartmentId}>
+                    <SelectTrigger className="h-9"><SelectValue placeholder="Choose a department" /></SelectTrigger>
+                    <SelectContent>
+                      {departments.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                )}
+                {targetMode === "specific" && (
+                  <MultiSelect
+                    options={employeeOptions}
+                    selected={userIds}
+                    onChange={(v) => setUserIds((prev) => toggleSelection(prev, v))}
+                    allLabel="Choose employees"
+                    width={0}
+                    className="w-full"
+                    searchable
+                    sortable
+                  />
+                )}
+              </div>
+
+              <div className="space-y-1">
+                {templateRows != null && (
+                  <p className={`text-xs ${tooManyRows ? "text-red-600" : "text-muted-foreground"}`}>
+                    {tooManyRows
+                      ? `Too many rows (${templateRows.toLocaleString()}). Pick fewer employees or days.`
+                      : `${templateRows.toLocaleString()} rows (${employeeCount} employee${employeeCount === 1 ? "" : "s"} × ${rangeDays} day${rangeDays === 1 ? "" : "s"}).`}
+                  </p>
+                )}
+                <Button
+                  variant="outline"
+                  className="w-full justify-center"
+                  onClick={handleDownloadTemplate}
+                  disabled={downloadingTemplate || !templateReady}
+                >
+                  {downloadingTemplate ? (
+                    <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Downloading…</>
+                  ) : (
+                    <><Download className="h-4 w-4 mr-1.5" />Download CSV Template</>
+                  )}
+                </Button>
+                {templateError && <p className="text-xs text-red-600 text-center">{templateError}</p>}
+                <p className="text-xs text-muted-foreground text-center">
+                  Leave a row&apos;s times empty for a day off; it&apos;s skipped. For two punches on one day, copy the row and fill each one.
+                </p>
+              </div>
+            </div>
+
+            {/* 2. Upload */}
+            <p className="text-sm font-medium border-t pt-4">2. Upload the filled-in file</p>
             <div className="rounded-lg border-2 border-dashed p-6 text-center space-y-3">
               <FileSpreadsheet className="h-8 w-8 mx-auto text-muted-foreground" />
               <input
@@ -195,22 +394,28 @@ export default function ImportPunchLogs({ open, onOpenChange, isDayCare, current
               )}
             </div>
 
-            <Button variant="ghost" className="w-full justify-center" onClick={handleDownloadTemplate} disabled={downloadingTemplate}>
-              {downloadingTemplate ? (
-                <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Downloading…</>
-              ) : (
-                <><Download className="h-4 w-4 mr-1.5" />Download Template</>
-              )}
-            </Button>
-
             <div className="space-y-1 text-xs text-muted-foreground">
-              {isSupervisor && <p>Supervisors can only import punch logs for employees in their own department.</p>}
-              {!isDayCare && <p>Driver/Aide punch types are not available for this company; use REGULAR or TRAINING.</p>}
+              {isSupervisor && <p>Supervisors can import for their team: their own department and their direct reports.</p>}
+              <p>
+                The first row of the template is a guide to the allowed values. It starts with # and is never imported. You
+                can delete it or leave it in.
+              </p>
+              <p>Times: 08:00 or 8:00 AM. A clock-out earlier than the clock-in counts as the next day.</p>
+              <p>
+                punchType:{" "}
+                {isDayCare
+                  ? "REGULAR, DRIVER_AIDE, DRIVER_AIDE_AM, DRIVER_AIDE_PM or TRAINING."
+                  : "REGULAR or TRAINING (Driver/Aide types aren't available for this company)."}{" "}
+                Leave it blank for REGULAR.
+              </p>
               <p>
                 Dates accepted: YYYY-MM-DD, M/D/YY, M/D/YYYY, MM/DD/YY, MM/DD/YYYY — check that every row uses the
                 same format, since spreadsheet autofill can silently change it per cell.
               </p>
-              <p>Up to 300 rows per file, 5MB max. Each row needs both a clock-in and a clock-out — open/in-progress punches aren't supported.</p>
+              <p>
+                Up to {MAX_PUNCH_ROWS} rows with punches and {MAX_TEMPLATE_ROWS.toLocaleString()} rows in total per file, 5MB max. A filled row
+                needs both a clock-in and a clock-out — open/in-progress punches aren&apos;t supported.
+              </p>
             </div>
 
             <Alert>
@@ -230,8 +435,9 @@ export default function ImportPunchLogs({ open, onOpenChange, isDayCare, current
           <div className="space-y-4 py-4">
             <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Uploading and validating {file?.name}…
+              Importing {file?.name}…
             </div>
+            <p className="text-xs text-center text-muted-foreground">A full file can take up to 30 seconds. Keep this window open.</p>
             <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
               <div className="bg-orange-500 h-2 rounded-full animate-pulse w-full" />
             </div>
@@ -247,6 +453,11 @@ export default function ImportPunchLogs({ open, onOpenChange, isDayCare, current
               {result.failed.length > 0 && (
                 <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
                   {result.failed.length} failed
+                </span>
+              )}
+              {result.skipped > 0 && (
+                <span className="text-xs text-muted-foreground">
+                  {result.skipped} blank row{result.skipped === 1 ? "" : "s"} skipped
                 </span>
               )}
             </div>
@@ -266,7 +477,7 @@ export default function ImportPunchLogs({ open, onOpenChange, isDayCare, current
                   {mergedRows.map((r, i) => (
                     <TableRow key={i}>
                       <TableCell className="align-top">{r.row}</TableCell>
-                      <TableCell className="align-top break-words">{r.employeeId || "—"}</TableCell>
+                      <TableCell className="align-top break-words">{r.name || r.employeeId || "—"}</TableCell>
                       <TableCell className="align-top break-words">
                         {r.status === "created"
                           ? formatParsedRange(r.clockIn, r.clockOut)

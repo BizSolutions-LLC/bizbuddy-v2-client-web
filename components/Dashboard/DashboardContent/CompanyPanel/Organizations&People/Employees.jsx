@@ -38,6 +38,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { getSystemAgentErrorMessage } from "@/lib/systemAgent";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
@@ -77,9 +78,11 @@ const fmt = (d) =>
     : "—";
 
 const CSV_TEMPLATE = `firstName,lastName,email,password,role,departmentId,employeeId,hireDate,jobTitle,employmentStatus,exemptStatus,employmentType,workLocation,probationEndDate,timeZone
-John,Doe,john.doe@example.com,Pa55word!,employee,,EMP001,2025-06-19,Engineer,full_time,exempt,employee_W2,onsite,2025-12-19,America/Los_Angeles
-Jane,Smith,jane.smith@example.com,S3cret12,supervisor,,EMP002,2025-06-20,Designer,part_time,non_exempt,contractor_1099,remote,,Asia/Manila
+# GUIDE - not imported,required,required,required,employee | supervisor | admin,optional,optional,YYYY-MM-DD,optional,full_time | part_time | contract,exempt | non_exempt,employee_W2 | contractor_1099,onsite | remote | hybrid,YYYY-MM-DD,e.g. America/Los_Angeles
 `;
+
+// BB-108 follow-up: a row whose first cell starts with "#" is a guide row and is never imported
+const isGuideRow = (row) => String(row.firstName || "").trim().startsWith("#");
 
 const DAYCARE_COMPANY_IDS = (process.env.NEXT_PUBLIC_DAYCARE_COMPANY_IDS || "")
   .split(",").map((id) => id.trim()).filter(Boolean);
@@ -170,6 +173,9 @@ export default function ModernEmployees() {
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
 
   const [editOriginalDeptId, setEditOriginalDeptId] = useState(null);
+  // BB-111: switching an active employee to Inactive asks for confirmation on save
+  const [editOriginalStatus, setEditOriginalStatus] = useState("active");
+  const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
   const [scheduleInheritModal, setScheduleInheritModal] = useState({
     open: false,
     employeeId: null,
@@ -580,6 +586,7 @@ export default function ModernEmployees() {
 
   const openEditModal = (employee) => {
     setEditOriginalDeptId(employee.department?.id || "none");
+    setEditOriginalStatus(employee.status || "active");
     setEditForm({
       id: employee.id,
       firstName: employee.profile?.firstName || "",
@@ -609,13 +616,20 @@ export default function ModernEmployees() {
     setShowEditModal(true);
   };
 
-  const handleSaveEdit = async () => {
+  const handleSaveEdit = async ({ confirmedDeactivate = false } = {}) => {
     const { id, firstName, lastName, email, password, role, status, departmentId, employeeId, hireDate, isDriver, supervisorId, addressLine, city, state, postalCode, ...employment } = editForm;
 
     if (!val(firstName) || !val(lastName) || !val(email)) {
       toast.error("First name, last name, and email are required.");
       return;
     }
+
+    // BB-111: Inactive means the account can't be used — confirm before saving it
+    if (status === "inactive" && editOriginalStatus !== "inactive" && !confirmedDeactivate) {
+      setShowDeactivateConfirm(true);
+      return;
+    }
+    setShowDeactivateConfirm(false);
 
     setEditLoading(true);
     const payload = {
@@ -657,7 +671,7 @@ export default function ModernEmployees() {
           fetchEmployees();
         }
       } else {
-        toast.error(j.error || j.message || "Failed to update employee.");
+        toast.error(getSystemAgentErrorMessage(j) || j.error || j.message || "Failed to update employee.");
       }
     } catch {
       toast.error("Failed to update employee.");
@@ -687,7 +701,7 @@ export default function ModernEmployees() {
         fetchEmployees();
       } else {
         const j = await r.json();
-        toast.error(j.message || "Failed to delete employee.");
+        toast.error(getSystemAgentErrorMessage(j) || j.message || "Failed to delete employee.");
       }
     } catch {
       toast.error("Failed to delete employee.");
@@ -762,10 +776,12 @@ export default function ModernEmployees() {
       header: true,
       skipEmptyLines: true,
       complete: async (results) => {
-        const rows = results.data;
+        // Keep each row's line in the file (header = line 1, same as the server's imports)
+        const kept = results.data.map((row, i) => ({ row, line: i + 2 })).filter(({ row }) => !isGuideRow(row));
+        const rows = kept.map((k) => k.row);
 
         if (rows.length === 0) {
-          toast.error("CSV file is empty.");
+          toast.error("CSV file has no employees.");
           return;
         }
 
@@ -815,7 +831,7 @@ export default function ModernEmployees() {
 
           const created = j.created || [];
           const failed  = (j.failed  || []).map((f) => ({
-            row: f.index + 1,
+            row: kept[f.index]?.line ?? f.index + 2,
             reason: f.reason || "Unknown error",
           }));
 
@@ -1311,7 +1327,7 @@ export default function ModernEmployees() {
                       />
                     </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <label className="text-sm font-medium">Role</label>
                       <Select value={editForm.role} onValueChange={(v) => setEditForm({ ...editForm, role: v })}>
@@ -1341,19 +1357,10 @@ export default function ModernEmployees() {
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Status</label>
-                      <Select value={editForm.status} onValueChange={(v) => setEditForm({ ...editForm, status: v })}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="active">Active</SelectItem>
-                          <SelectItem value="inactive">Inactive</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
                   </div>
+
+                  {/* BB-111: account access, kept apart from the other fields — Inactive means the account can't be used */}
+                  <AccountAccessField status={editForm.status} onChange={(v) => setEditForm({ ...editForm, status: v })} />
                 </div>
 
                 {/* Address */}
@@ -1564,7 +1571,7 @@ export default function ModernEmployees() {
                 Cancel
               </Button>
               <Button
-                onClick={handleSaveEdit}
+                onClick={() => handleSaveEdit()}
                 disabled={editLoading}
                 className="bg-orange-500 hover:bg-orange-600 text-white"
               >
@@ -1575,6 +1582,38 @@ export default function ModernEmployees() {
                   </>
                 ) : (
                   "Update Employee"
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* BB-111: confirm switching an active employee to Inactive */}
+        <Dialog open={showDeactivateConfirm} onOpenChange={(open) => !editLoading && setShowDeactivateConfirm(open)}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Deactivate this account?</DialogTitle>
+              <DialogDescription>
+                {`${editForm.firstName} ${editForm.lastName}`.trim() || "This employee"} won&apos;t be able to sign in or use
+                BizBuddy until the account is set back to Active. Your other changes will be saved as well.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowDeactivateConfirm(false)} disabled={editLoading}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => handleSaveEdit({ confirmedDeactivate: true })}
+                disabled={editLoading}
+              >
+                {editLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Deactivating...
+                  </>
+                ) : (
+                  "Deactivate account"
                 )}
               </Button>
             </DialogFooter>
@@ -1923,7 +1962,8 @@ export default function ModernEmployees() {
             </DialogHeader>
             <p className="mb-2 text-sm">
               Your CSV file must include the exact headers below. <em>departmentId</em>, <em>employeeId</em>, <em>hireDate</em>, and
-              all employment-detail columns are optional.
+              all employment-detail columns are optional. The first row is a guide to the allowed values and is never
+              imported. You can delete it or leave it in; add your employees below it.
             </p>
             <pre className="bg-neutral-100 dark:bg-neutral-800 dark:text-neutral-200 p-4 rounded-md text-sm font-mono overflow-x-auto">{CSV_TEMPLATE}</pre>
             <DialogFooter>
@@ -2078,5 +2118,43 @@ export default function ModernEmployees() {
         </Dialog>
       </div>
     </TooltipProvider>
+  );
+}
+
+// BB-111: account status sits in its own row, apart from the profile fields,
+// because Inactive means the account can't be used.
+function AccountAccessField({ status, onChange }) {
+  const isInactive = status === "inactive";
+
+  return (
+    <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="space-y-1">
+        <label className="text-sm font-medium">Account status</label>
+        <p className={`text-xs ${isInactive ? "text-destructive" : "text-muted-foreground"}`}>
+          {isInactive
+            ? "This account can't be used until it's set back to Active."
+            : "Inactive accounts can't sign in or use BizBuddy."}
+        </p>
+      </div>
+      <Select value={status} onValueChange={onChange}>
+        <SelectTrigger className="sm:w-44" aria-label="Account status">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="active">
+            <span className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-green-500" />
+              Active
+            </span>
+          </SelectItem>
+          <SelectItem value="inactive">
+            <span className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-destructive" />
+              Inactive
+            </span>
+          </SelectItem>
+        </SelectContent>
+      </Select>
+    </div>
   );
 }

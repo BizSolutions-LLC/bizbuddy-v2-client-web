@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { toast, Toaster } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
+import { getSystemAgentErrorMessage } from "@/lib/systemAgent";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
@@ -312,7 +313,7 @@ const Employee = () => {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.message || "Failed to save employee details");
+        throw new Error(getSystemAgentErrorMessage(data) || data.message || "Failed to save employee details");
       }
 
       if (data.success) {
@@ -351,7 +352,7 @@ const Employee = () => {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.message || "Failed to reset employee details");
+        throw new Error(getSystemAgentErrorMessage(data) || data.message || "Failed to reset employee details");
       }
 
       if (data.success) {

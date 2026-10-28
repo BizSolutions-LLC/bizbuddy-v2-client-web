@@ -4,6 +4,7 @@
 
 import { useEffect, useState } from "react";
 import { AlertTriangle, XCircle, RefreshCw, Server } from "lucide-react";
+import { systemAdminFetch } from "@/lib/systemAdminFetch";
 
 export default function ErrorsPage() {
   const [data, setData] = useState(null);
@@ -17,21 +18,8 @@ export default function ErrorsPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem("system-admin-token");
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/system-admin/errors?timeRange=${timeRange}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      const result = await response.json();
-      if (result.success) {
-        // console.log("🔴 Error data received:", result.data);
-        setData(result.data);
-      }
+      const result = await systemAdminFetch("/api/system-admin/errors", { query: { timeRange } });
+      setData(result.data);
     } catch (error) {
       console.error("Error fetching error data:", error);
     } finally {

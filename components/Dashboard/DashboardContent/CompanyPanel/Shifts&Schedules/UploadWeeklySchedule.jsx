@@ -10,6 +10,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Upload, Download, Loader2, FileSpreadsheet, XCircle, ArrowLeft, ChevronDown, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
+import useImportTeam from "@/lib/hooks/useImportTeam";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -107,14 +108,16 @@ export default function UploadWeeklySchedule({ open, onOpenChange, onImportCompl
   const [dragActive, setDragActive] = useState(false);
   const [downloadingTemplate, setDownloadingTemplate] = useState(false);
   const [setupError, setSetupError] = useState(null);
+  const [templateError, setTemplateError] = useState(null);
   const [preview, setPreview] = useState(null);
   const [decisions, setDecisions] = useState({}); // key → "create" | "skip" | "replace"
   const [shiftNames, setShiftNames] = useState({}); // key → edited shift name (time_blocks only)
 
   const isReviewStep = step === "preview" || step === "confirming";
 
-  // Inactive employees in `userIds` are a 403 server-side — only active ones are offered.
-  const activeEmployees = useMemo(() => employees.filter((e) => !e.status || e.status === "active"), [employees]);
+  // Active people in the uploader's team (supervisors: own department + direct reports);
+  // anyone else in `userIds` is a 403.
+  const activeEmployees = useImportTeam(open, token, employees);
   const employeeOptions = useMemo(
     () => activeEmployees.map((e) => ({
       value: e.id,
@@ -155,6 +158,7 @@ export default function UploadWeeklySchedule({ open, onOpenChange, onImportCompl
     setFile(null);
     setDragActive(false);
     setSetupError(null);
+    setTemplateError(null);
     setPreview(null);
     setDecisions({});
     setShiftNames({});
@@ -194,6 +198,7 @@ export default function UploadWeeklySchedule({ open, onOpenChange, onImportCompl
   const handleDownloadTemplate = async () => {
     if (!setupReady) return;
     setDownloadingTemplate(true);
+    setTemplateError(null);
     try {
       const params = new URLSearchParams({ mode, startDate, endDate });
       if (mode === "shifts") params.set("shiftIds", resolvedShiftIds.join(","));
@@ -201,9 +206,10 @@ export default function UploadWeeklySchedule({ open, onOpenChange, onImportCompl
       const res = await fetch(`${API_URL}/api/schedule-import/template?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      // Only a 200 is the CSV; anything else is JSON { message }, shown under the button
       if (!res.ok) {
         const json = await res.json().catch(() => null);
-        toast.error(json?.message || "Could not download template.");
+        setTemplateError(json?.message || "Could not download the template.");
         return;
       }
       const blob = await res.blob();
@@ -214,7 +220,7 @@ export default function UploadWeeklySchedule({ open, onOpenChange, onImportCompl
       link.click();
       URL.revokeObjectURL(url);
     } catch {
-      toast.error("Could not download template.");
+      setTemplateError("Could not download the template.");
     } finally {
       setDownloadingTemplate(false);
     }
@@ -484,7 +490,7 @@ export default function UploadWeeklySchedule({ open, onOpenChange, onImportCompl
               <Select value={targetMode} onValueChange={setTargetMode}>
                 <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">{isSupervisor ? "Everyone in my department" : "All active employees"}</SelectItem>
+                  <SelectItem value="all">{isSupervisor ? "Everyone on my team" : "All active employees"}</SelectItem>
                   {!isSupervisor && <SelectItem value="department">One department</SelectItem>}
                   <SelectItem value="specific">Specific employees</SelectItem>
                 </SelectContent>
@@ -509,7 +515,10 @@ export default function UploadWeeklySchedule({ open, onOpenChange, onImportCompl
                   sortable
                 />
               )}
-              <p className="text-xs text-muted-foreground">The template is pre-filled with one row per employee per date.</p>
+              <p className="text-xs text-muted-foreground">
+                The template is pre-filled with one row per employee per date. Its first row is a guide; it starts with # and
+                is never imported. You can delete it or leave it in.
+              </p>
             </div>
 
             <div className="space-y-1">
@@ -525,6 +534,7 @@ export default function UploadWeeklySchedule({ open, onOpenChange, onImportCompl
                   <><Download className="h-4 w-4 mr-1.5" />Download CSV Template</>
                 )}
               </Button>
+              {templateError && <p className="text-xs text-red-600 text-center">{templateError}</p>}
               <p className="text-xs text-muted-foreground text-center">
                 Leave a row blank for a day off. Don&apos;t rename or reorder the columns.
               </p>

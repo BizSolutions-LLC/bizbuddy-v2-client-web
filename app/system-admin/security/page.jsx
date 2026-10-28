@@ -1,157 +1,200 @@
 // app/system-admin/security/page.jsx
+//
+// BB-112: Security Monitor — graded signals of suspicious activity, critical
+// first. Signals only report; blocking is handled by sign-in limits, lockouts
+// and 2FA. No polling: the 30-day range touches a lot of rows.
 
 "use client";
 
-import { Lock, Shield, AlertTriangle, Eye, Ban, Activity } from "lucide-react";
+import { useMemo, useState } from "react";
+import Link from "next/link";
+import { RefreshCw, ArrowUpRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { SectionCard, useSystemAdminSection, relativeTime, formatDateTime, formatNumber } from "@/components/system-admin/shared";
+
+const RANGES = [
+  { value: "1h", label: "1h", hours: 1 },
+  { value: "6h", label: "6h", hours: 6 },
+  { value: "24h", label: "24h", hours: 24 },
+  { value: "7d", label: "7d", hours: 24 * 7 },
+  { value: "30d", label: "30d", hours: 24 * 30 },
+];
+
+const SEVERITY = {
+  critical: { label: "Critical", text: "text-red-600", badge: "border-red-200 bg-red-50 text-red-700" },
+  warning: { label: "Warning", text: "text-amber-600", badge: "border-amber-200 bg-amber-50 text-amber-700" },
+  info: { label: "Info", text: "text-blue-600", badge: "border-blue-200 bg-blue-50 text-blue-700" },
+};
+
+const GROUPS = [
+  {
+    id: "signin",
+    label: "Sign-in",
+    match: (t) =>
+      ["account_failed_signins", "credential_stuffing", "new_network_signin"].includes(t) || t.startsWith("reset_spike_"),
+  },
+  { id: "access", label: "Access", match: (t) => t === "repeated_access_denied" },
+  { id: "bbuddy", label: "B. Buddy", match: (t) => t.startsWith("bbuddy_") },
+  { id: "admin", label: "System admin", match: (t) => t.startsWith("admin_") },
+  { id: "platform", label: "Platform", match: (t) => ["server_errors", "request_flood"].includes(t) },
+];
+
+const groupOf = (type) => GROUPS.find((g) => g.match(type))?.id || "other";
+
+// Request Logs link for a signal: its own filters, the selected window, and the
+// subject's company. /requests can't filter by IP or email, so only signals
+// that carry filters get a link.
+function requestsHref(signal, hours) {
+  if (!signal.filters) return null;
+  const params = new URLSearchParams();
+  Object.entries(signal.filters).forEach(([k, v]) => v !== undefined && v !== null && params.set(k, String(v)));
+  if (signal.subject?.companyId && !params.has("companyId")) params.set("companyId", signal.subject.companyId);
+  const end = new Date();
+  params.set("startDate", new Date(end.getTime() - hours * 3600 * 1000).toISOString());
+  params.set("endDate", end.toISOString());
+  return `/system-admin/requests?${params.toString()}`;
+}
+
+// "ip 203.0.113.4 · jane@acme.com" from the signal's subject
+function subjectLine(subject = {}) {
+  return [subject.email, subject.ip && `IP ${subject.ip}`, subject.agentCode && `Staff ${subject.agentCode}`, subject.endpoint]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 export default function SecurityPage() {
+  const [range, setRange] = useState("24h");
+  const [group, setGroup] = useState("all");
+  const section = useSystemAdminSection("/api/system-admin/security/signals", { timeRange: range });
+  const { data, loading, error } = section;
+  const hours = RANGES.find((r) => r.value === range)?.hours || 24;
+
+  const signals = data?.signals || [];
+  const groupCounts = useMemo(() => {
+    const counts = {};
+    for (const s of signals) counts[groupOf(s.type)] = (counts[groupOf(s.type)] || 0) + 1;
+    return counts;
+  }, [signals]);
+  const visible = group === "all" ? signals : signals.filter((s) => groupOf(s.type) === group);
+
   return (
-    <div className="max-w-[1280px] mx-auto px-8 py-8">
-      {/* Header - GitHub Style */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-semibold text-neutral-900 mb-1">
-          Security Monitoring
-        </h1>
-        <p className="text-sm text-neutral-600">
-          Track security incidents, suspicious activity, and unauthorized access attempts
-        </p>
-      </div>
-
-      {/* Coming Soon State - GitHub Style */}
-      <div className="border border-neutral-300 rounded-md bg-white">
-        <div className="p-16 text-center">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-neutral-100 mb-4">
-            <Lock className="w-8 h-8 text-neutral-400" />
-          </div>
-          <h3 className="text-lg font-semibold text-neutral-900 mb-2">
-            Security Monitoring & Threat Detection
-          </h3>
-          <p className="text-sm text-neutral-600 mb-8 max-w-md mx-auto">
-            Advanced security monitoring, threat detection, and incident response tools will be available here soon to keep your system secure.
+    <div className="max-w-[1280px] mx-auto px-4 sm:px-8 py-8 space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold text-neutral-900 mb-1">Security Monitor</h1>
+          <p className="text-sm text-neutral-600">
+            Suspicious activity across sign-ins, access, B. Buddy and system admins.
+            {data?.generatedAt && <span className="text-neutral-500"> Updated {relativeTime(data.generatedAt)}.</span>}
           </p>
-
-          {/* Feature Preview Cards */}
-          <div className="grid grid-cols-3 gap-4 max-w-3xl mx-auto mt-8">
-            <div className="border border-neutral-200 rounded-md p-4 text-left">
-              <div className="w-8 h-8 rounded-md bg-red-100 flex items-center justify-center mb-3">
-                <AlertTriangle className="w-4 h-4 text-red-600" />
-              </div>
-              <h4 className="text-sm font-semibold text-neutral-900 mb-1">
-                Threat Detection
-              </h4>
-              <p className="text-xs text-neutral-600">
-                Real-time monitoring of suspicious activities and attacks
-              </p>
-            </div>
-
-            <div className="border border-neutral-200 rounded-md p-4 text-left">
-              <div className="w-8 h-8 rounded-md bg-orange-100 flex items-center justify-center mb-3">
-                <Ban className="w-4 h-4 text-orange-600" />
-              </div>
-              <h4 className="text-sm font-semibold text-neutral-900 mb-1">
-                Access Control
-              </h4>
-              <p className="text-xs text-neutral-600">
-                Monitor and block unauthorized access attempts
-              </p>
-            </div>
-
-            <div className="border border-neutral-200 rounded-md p-4 text-left">
-              <div className="w-8 h-8 rounded-md bg-blue-100 flex items-center justify-center mb-3">
-                <Shield className="w-4 h-4 text-blue-600" />
-              </div>
-              <h4 className="text-sm font-semibold text-neutral-900 mb-1">
-                Audit Logs
-              </h4>
-              <p className="text-xs text-neutral-600">
-                Complete audit trail of security events and actions
-              </p>
-            </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="inline-flex rounded-md border bg-background p-0.5" role="group" aria-label="Time range">
+            {RANGES.map((r) => (
+              <button
+                key={r.value}
+                type="button"
+                onClick={() => setRange(r.value)}
+                aria-pressed={range === r.value}
+                className={`rounded px-3 py-1 text-sm transition-colors ${
+                  range === r.value ? "bg-muted font-medium text-foreground" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {r.label}
+              </button>
+            ))}
           </div>
-
-          {/* Planned Features List */}
-          <div className="mt-8 pt-8 border-t border-neutral-200">
-            <h4 className="text-xs font-semibold text-neutral-700 uppercase tracking-wide mb-4">
-              Planned Features
-            </h4>
-            <div className="flex flex-wrap justify-center gap-2">
-              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-700">
-                Failed Login Attempts
-              </span>
-              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-700">
-                Brute Force Detection
-              </span>
-              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-700">
-                IP Blocking & Whitelisting
-              </span>
-              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-700">
-                Rate Limit Violations
-              </span>
-              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-700">
-                Suspicious Activity Alerts
-              </span>
-              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-700">
-                Geolocation Tracking
-              </span>
-              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-700">
-                API Abuse Detection
-              </span>
-              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-700">
-                Security Incident Timeline
-              </span>
-            </div>
-          </div>
+          <Button variant="outline" size="sm" onClick={() => section.reload()} disabled={loading}>
+            <RefreshCw className={loading ? "animate-spin" : ""} /> Refresh
+          </Button>
         </div>
       </div>
 
-      {/* Placeholder Grid - What it will look like */}
-      <div className="grid grid-cols-3 gap-4 mt-6 opacity-50 pointer-events-none">
-        <div className="border border-neutral-300 rounded-md bg-white">
-          <div className="p-4 border-b border-neutral-200">
-            <div className="h-4 w-32 bg-neutral-200 rounded"></div>
-          </div>
-          <div className="p-4 space-y-3">
-            <div className="h-12 bg-neutral-100 rounded"></div>
-            <div className="h-12 bg-neutral-100 rounded"></div>
-            <div className="h-12 bg-neutral-100 rounded"></div>
-          </div>
-        </div>
-
-        <div className="border border-neutral-300 rounded-md bg-white">
-          <div className="p-4 border-b border-neutral-200">
-            <div className="h-4 w-32 bg-neutral-200 rounded"></div>
-          </div>
-          <div className="p-4 space-y-3">
-            <div className="h-12 bg-neutral-100 rounded"></div>
-            <div className="h-12 bg-neutral-100 rounded"></div>
-            <div className="h-12 bg-neutral-100 rounded"></div>
-          </div>
-        </div>
-
-        <div className="border border-neutral-300 rounded-md bg-white">
-          <div className="p-4 border-b border-neutral-200">
-            <div className="h-4 w-32 bg-neutral-200 rounded"></div>
-          </div>
-          <div className="p-4 space-y-3">
-            <div className="h-12 bg-neutral-100 rounded"></div>
-            <div className="h-12 bg-neutral-100 rounded"></div>
-            <div className="h-12 bg-neutral-100 rounded"></div>
-          </div>
-        </div>
+      {/* Counters */}
+      <div className="grid grid-cols-3 gap-4">
+        {Object.entries(SEVERITY).map(([key, s]) => (
+          <Card key={key}>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">{s.label}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loading && !data ? (
+                <Skeleton className="h-8 w-12" />
+              ) : (
+                <div className={`text-2xl font-bold ${data?.counts?.[key] ? s.text : "text-foreground"}`}>
+                  {error ? "—" : formatNumber(data?.counts?.[key] ?? 0)}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
-      {/* Security Alert Banner Preview */}
-      <div className="mt-6 opacity-50 pointer-events-none">
-        <div className="border border-red-300 bg-red-50 rounded-md p-4">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="w-5 h-5 text-red-600 mt-0.5" />
-            <div className="flex-1">
-              <div className="h-4 w-48 bg-red-200 rounded mb-2"></div>
-              <div className="h-3 w-full bg-red-100 rounded"></div>
-            </div>
-          </div>
+      <SectionCard title="Signals" section={section} skeletonRows={4}>
+        {/* Group chips */}
+        <div className="mb-4 flex flex-wrap gap-2">
+          {[{ id: "all", label: "All" }, ...GROUPS].map((g) => {
+            const count = g.id === "all" ? signals.length : groupCounts[g.id] || 0;
+            const active = group === g.id;
+            return (
+              <button
+                key={g.id}
+                type="button"
+                onClick={() => setGroup(g.id)}
+                aria-pressed={active}
+                className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                  active ? "border-foreground bg-foreground text-background" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {g.label} <span className={active ? "opacity-80" : ""}>{count}</span>
+              </button>
+            );
+          })}
         </div>
-      </div>
+
+        {visible.length === 0 ? (
+          <p className="py-10 text-center text-sm text-muted-foreground">No security signals in this period.</p>
+        ) : (
+          <ul className="divide-y rounded-md border">
+            {visible.map((s, i) => {
+              const sev = SEVERITY[s.severity] || SEVERITY.info;
+              const href = requestsHref(s, hours);
+              const subject = subjectLine(s.subject);
+              return (
+                <li key={`${s.type}-${i}`} className="flex flex-col gap-2 p-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline" className={`text-[11px] font-medium ${sev.badge}`}>
+                        {sev.label}
+                      </Badge>
+                      <span className="text-sm font-medium text-foreground">{s.title}</span>
+                      {s.count != null && <span className="text-xs text-muted-foreground">×{formatNumber(s.count)}</span>}
+                    </div>
+                    <p className="text-sm text-muted-foreground">{s.detail}</p>
+                    {subject && <p className="text-xs text-muted-foreground font-mono break-all">{subject}</p>}
+                  </div>
+                  <div className="flex flex-shrink-0 items-center gap-4 text-xs text-muted-foreground sm:flex-col sm:items-end sm:gap-1">
+                    <span title={s.lastSeen ? formatDateTime(s.lastSeen) : undefined}>
+                      {s.lastSeen ? `Last seen ${relativeTime(s.lastSeen)}` : ""}
+                    </span>
+                    {href && (
+                      <Link href={href} className="inline-flex items-center gap-0.5 font-medium text-foreground hover:underline">
+                        View requests <ArrowUpRight className="h-3 w-3" />
+                      </Link>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </SectionCard>
+
+      <p className="text-xs text-muted-foreground">
+        Signals show suspicious activity; they don&apos;t block it. Blocking is handled by sign-in limits, lockouts and 2FA.
+      </p>
     </div>
   );
 }
