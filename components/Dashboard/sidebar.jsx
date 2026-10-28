@@ -7,7 +7,7 @@ import useAuthStore from "@/store/useAuthStore";
 import { useEffect, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Lock, ChevronDown, Building2, User, Pin, PinOff } from "lucide-react";
+import { X, Lock, ChevronDown, Building2, User, Pin, PinOff, Headset } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
@@ -454,7 +454,7 @@ function SidebarUserInfo({ profileData, plan }) {
   const name =
     prof.firstName || prof.lastName
       ? `${prof.firstName} ${prof.lastName}`.trim()
-      : usr.username || "Unknown User";
+      : usr.isSystemAgent ? "B. Buddy" : usr.username || "Unknown User";
 
   return (
     <motion.div
@@ -492,12 +492,21 @@ function SidebarUserInfo({ profileData, plan }) {
           <h3 className="text-sm sm:text-base font-semibold text-neutral-900 dark:text-neutral-100 truncate">
             {name}
           </h3>
-          <div className="flex items-center gap-2">
-            <User className="w-3 h-3 text-neutral-400 flex-shrink-0" />
-            <span className="text-xs text-neutral-500 dark:text-neutral-400 capitalize truncate">
-              {usr.role}
-            </span>
-          </div>
+          {usr.isSystemAgent ? (
+            <div className="flex items-center gap-2">
+              <Headset className="w-3 h-3 text-neutral-400 flex-shrink-0" />
+              <span className="text-xs text-neutral-500 dark:text-neutral-400 truncate">
+                Support mode: B. Buddy
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <User className="w-3 h-3 text-neutral-400 flex-shrink-0" />
+              <span className="text-xs text-neutral-500 dark:text-neutral-400 capitalize truncate">
+                {usr.role}
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </motion.div>
@@ -660,8 +669,16 @@ export default function Sidebar({ isSidebarOpen, closeSidebar, onNavigateStart, 
   const payrollItem            = getPayrollItems(role);
   const employeePanelWithPayroll = [...EmployeePanelItems, payrollItem];
 
-  const features  = applyPlanLock(employeePanelWithPayroll, plan);
-  const settings  = applyPlanLock(filterCompanyPanelByRole(CompanyPanelItems, roleLower), plan);
+  // BB-110: B. Buddy gets the Company panel only, minus company deletion
+  const isSystemAgent = Boolean(profileData?.user?.isSystemAgent);
+  const companyItems = isSystemAgent
+    ? CompanyPanelItems.map((g) => ({ ...g, children: g.children.filter((c) => c.id !== "company/deletion") }))
+    : CompanyPanelItems;
+
+  // Payroll Management is company-wide, so B. Buddy keeps it (but not My Payslip)
+  const agentFeatures = [{ ...payrollItem, children: payrollItem.children.filter((c) => c.id === "employee/payroll") }];
+  const features  = applyPlanLock(isSystemAgent ? agentFeatures : employeePanelWithPayroll, plan);
+  const settings  = applyPlanLock(filterCompanyPanelByRole(companyItems, roleLower), plan);
   const bizbuddy  = getBizBuddyItems(role);
 
   const toggle = (id) => setOpenDropdown(openDropdown === id ? null : id);
@@ -706,10 +723,11 @@ export default function Sidebar({ isSidebarOpen, closeSidebar, onNavigateStart, 
               <div className="flex-1 overflow-y-auto px-2 sm:px-3 lg:px-4 py-3 sm:py-4 lg:py-6 space-y-3 sm:space-y-4 lg:space-y-6 scrollbar-thin scrollbar-thumb-neutral-300 dark:scrollbar-thumb-neutral-600">
 
                 {/* Employee Panel */}
+                {features.length > 0 && (
                 <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
                   <h2 className="mb-1 sm:mb-2 px-1 sm:px-2 text-[10px] sm:text-xs font-bold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 flex items-center gap-1 sm:gap-2">
                     <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-orange-500 rounded-full flex-shrink-0" />
-                    <span className="truncate">Employee Panel</span>
+                    <span className="truncate">{isSystemAgent ? "Payroll" : "Employee Panel"}</span>
                   </h2>
                   <ul className="space-y-0.5 sm:space-y-1">
                     {features.map((g, index) => (
@@ -731,6 +749,7 @@ export default function Sidebar({ isSidebarOpen, closeSidebar, onNavigateStart, 
                     ))}
                   </ul>
                 </motion.div>
+                )}
 
                 {/* Company Panel */}
                 {settings.length > 0 && (

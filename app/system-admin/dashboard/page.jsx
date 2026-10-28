@@ -3,6 +3,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { systemAdminFetch } from "@/lib/systemAdminFetch";
 import { 
   Activity, 
   AlertTriangle, 
@@ -46,29 +47,16 @@ export default function SystemAdminDashboard() {
     if (!silent) setLoading(true);
     
     try {
-      const token = localStorage.getItem("system-admin-token");
-      
-      const [overviewRes, trendsRes, performanceRes] = await Promise.all([
-        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/system-admin/overview?timeRange=${timeRange}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/system-admin/trends?timeRange=${timeRange}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/system-admin/performance?timeRange=${timeRange}&limit=5`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
+      // allSettled: one failing section shouldn't blank the others (a 401 redirects to sign-in)
+      const [overviewRes, trendsRes, performanceRes] = await Promise.allSettled([
+        systemAdminFetch("/api/system-admin/overview", { query: { timeRange } }),
+        systemAdminFetch("/api/system-admin/trends", { query: { timeRange } }),
+        systemAdminFetch("/api/system-admin/performance", { query: { timeRange, limit: 5 } }),
       ]);
 
-      const [overviewData, trendsData, performanceData] = await Promise.all([
-        overviewRes.json(),
-        trendsRes.json(),
-        performanceRes.json(),
-      ]);
-
-      if (overviewData.success) setOverview(overviewData.data);
-      if (trendsData.success) setTrends(trendsData.data);
-      if (performanceData.success) setPerformance(performanceData.data);
+      if (overviewRes.status === "fulfilled") setOverview(overviewRes.value.data);
+      if (trendsRes.status === "fulfilled") setTrends(trendsRes.value.data);
+      if (performanceRes.status === "fulfilled") setPerformance(performanceRes.value.data);
       
       setLastUpdate(new Date());
     } catch (error) {

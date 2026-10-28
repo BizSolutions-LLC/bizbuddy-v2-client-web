@@ -83,7 +83,11 @@ const companyDocsContent = [
       },
       {
         title: "Editing an employee",
-        body: "Use the Edit row action to update profile, address and employment details, change the Direct Supervisor, or set the Status to Active or Inactive. Leave New Password blank to keep the current password. View Details shows the full record.",
+        body: "Use the Edit row action to update profile, address and employment details, change the Direct Supervisor, or change the Account status. Leave New Password blank to keep the current password. View Details shows the full record.",
+        tips: [
+          "Account status has its own row. Inactive accounts can't sign in or use BizBuddy until they're set back to Active.",
+          "Saving an active employee as Inactive asks you to confirm (Deactivate this account?). Choose Deactivate account to save, or Cancel to keep them active.",
+        ],
       },
       {
         title: "Driver schedule",
@@ -94,11 +98,15 @@ const companyDocsContent = [
         title: "Importing employees from CSV",
         steps: [
           "Click Import Guide to see the required headers, then Download Sample CSV.",
+          "The first row of the sample is a guide to the allowed values (it starts with #) and is never imported. You can delete it or leave it in; add your employees below it.",
           "Fill in the file. departmentId, employeeId, hireDate and the employment-detail columns are optional.",
           "Click Import CSV and choose your file.",
           "Review the CSV Import Summary. Any failed rows are listed with the reason.",
         ],
-        tips: ["You can import up to 100 employees per file. Split larger lists into batches."],
+        tips: [
+          "You can import up to 100 employees per file. Split larger lists into batches.",
+          "Row numbers in the summary are the file's line numbers, with the header as line 1.",
+        ],
       },
       {
         title: "Deleting an employee",
@@ -195,24 +203,29 @@ const companyDocsContent = [
       {
         title: "Importing punch logs",
         steps: [
-          "Click the upload icon (Import Punch Logs) and use Download Template.",
-          "Fill in up to 300 rows (5MB max). Each row needs both a clock-in and a clock-out.",
-          "Upload the file and check the results per row.",
+          "Click the upload icon (Import Punch Logs).",
+          "Under Download a template, pick the From and To dates (up to 31 days) and the employees: all active employees, one department or specific employees. Then click Download CSV Template.",
+          "The template comes pre-filled with one row per employee per date, so you only type clockIn and clockOut. Leave both times empty for a day off; that row is skipped. For two punches on one day, copy the row and fill each one.",
+          "Under Upload the filled-in file, click Choose CSV File, then Upload, and check the results per row.",
         ],
         tips: [
           "Imported punches are approved immediately. There's no separate approval step.",
-          "Supervisors can only import punch logs for employees in their own department.",
+          "The first row of the template is a guide to the allowed values. It starts with # and is never imported. You can delete it or leave it in.",
+          "Times can be 08:00 or 8:00 AM. A clock-out earlier than the clock-in counts as the next day.",
+          "Up to 500 rows with punches and 2,000 rows in total per file (5MB max). A template is limited to 2,000 rows (employees × days).",
+          "Row numbers in the results are the file's line numbers: the header is line 1 and the guide row line 2, so the first employee is row 3.",
+          "Supervisors can import for their team: their own department and their direct reports.",
         ],
       },
       {
         title: "Punch types in imports",
         companyType: "DAYCARE",
-        body: "Import rows can use any punch type, including the Driver / Aide types.",
+        body: "Import rows can use REGULAR, DRIVER_AIDE, DRIVER_AIDE_AM, DRIVER_AIDE_PM or TRAINING as the punch type. Leave it blank for REGULAR.",
       },
       {
         title: "Punch types in imports",
         companyType: "BNC",
-        body: "Use REGULAR or TRAINING as the punch type. Driver/Aide punch types aren't available for your company.",
+        body: "Use REGULAR or TRAINING as the punch type, or leave it blank for REGULAR. Driver/Aide punch types aren't available for your company.",
       },
       {
         title: "Backtrack import",
@@ -454,15 +467,16 @@ const companyDocsContent = [
         steps: [
           "Click Upload Schedule.",
           "Choose how you'll mark it: Existing shifts (pick the shifts this upload uses; each one becomes a column, and you can search the list) or Time blocks (30-min, and say whether it includes overnight shifts).",
-          "Pick a start and end date (up to 14 days) and the target employees (all active employees, one department, or specific employees), then Download CSV Template. It comes pre-filled with one row per employee per date.",
-          "Mark \"1\" under each shift (or time block) the employee works. Leave a row blank for a day off. Drag the file back in (.csv, up to 5MB).",
+          "Pick a start and end date (up to 14 days) and the target employees (all active employees, one department, or specific employees; supervisors choose from their team), then Download CSV Template. It comes pre-filled with one row per employee per date.",
+          "Mark x (or 1 / yes) under each shift (or time block) the employee works. Leave a row blank for a day off. Drag the file back in (.csv, up to 5MB).",
           "Review the preview. Clean entries are created. Entries that overlap an existing assignment are set to Reject; switch any you want to Replace. Then Confirm. The button shows how many will be created and replaced.",
         ],
         tips: [
           "Upload with the same mode, shifts and dates you used for the template. Don't rename or reorder its columns.",
           "Replace removes the existing assignment and notifies the employee. It isn't allowed once the employee has punched that day or the date is in a locked cutoff.",
           "Rows that overlap another row in the same file, or can't be processed, aren't imported. Fix them in the file and upload it again.",
-          "Supervisors can only upload for their own department.",
+          "The first row of the template is a guide (it starts with #) and is never imported. You can delete it or leave it in.",
+          "Supervisors can upload for their team: their own department and their direct reports.",
         ],
       },
     ],
