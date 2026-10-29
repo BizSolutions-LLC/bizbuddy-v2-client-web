@@ -3,7 +3,7 @@
 // BB-112 Capacity: history from GET /capacity/history (every 5 minutes for 1 day,
 // hourly beyond). One measure per chart, on a shared time axis, so units never
 // share an axis. Limits are dashed lines; pool timeouts are red markers on the
-// connections chart.
+// connections chart. Plain titles; the exact measure is in the hint.
 
 "use client";
 
@@ -36,7 +36,7 @@ function ChartTooltip({ active, payload, label, title, format, extra }) {
   );
 }
 
-function MiniChart({ title, hint, points, dataKey, format, xFormat, limit, limitLabel, domainMax, markerKey, extraTooltip, footer }) {
+function MiniChart({ title, hint, tech, points, dataKey, format, xFormat, limit, limitLabel, domainMax, markerKey, extraTooltip, footer }) {
   const data = points.map((p) => ({
     at: p.at,
     value: p[dataKey],
@@ -48,7 +48,7 @@ function MiniChart({ title, hint, points, dataKey, format, xFormat, limit, limit
   return (
     <div className="min-w-0 rounded-md border bg-card p-4">
       <div className="mb-3 flex items-baseline justify-between gap-3">
-        <div>
+        <div title={tech}>
           <p className="text-sm font-medium text-foreground">{title}</p>
           {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
         </div>
@@ -112,10 +112,11 @@ export default function CapacityCharts({ points, days }) {
 
   return (
     <div className="grid gap-4 md:grid-cols-2">
-      <MiniChart title="CPU" hint="Average per interval" points={points} dataKey="cpuPercent" format={(v) => `${formatNumber(v, 1)}%`} xFormat={xFormat} domainMax={100} />
+      <MiniChart title="CPU" hint="Average" tech="Average CPU per interval" points={points} dataKey="cpuPercent" format={(v) => `${formatNumber(v, 1)}%`} xFormat={xFormat} domainMax={100} />
       <MiniChart
         title="Memory"
-        hint="Peak per interval"
+        hint="Peak"
+        tech="Peak memory (RSS) per interval"
         points={points}
         dataKey="rssMb"
         format={mb}
@@ -123,11 +124,12 @@ export default function CapacityCharts({ points, days }) {
         limit={memoryLimit}
         limitLabel={memoryLimit != null ? `Limit ${formatNumber(memoryLimit)} MB` : undefined}
       />
-      <MiniChart title="Requests in progress" hint="Most at once per interval" points={points} dataKey="inFlightPeak" format={(v) => formatNumber(v)} xFormat={xFormat} />
-      <MiniChart title="Response time, p95" hint="95% of requests finish faster" points={points} dataKey="p95Ms" format={ms} xFormat={xFormat} />
+      <MiniChart title="Requests at once" hint="Peak" tech="Most requests in progress at the same time, per interval" points={points} dataKey="inFlightPeak" format={(v) => formatNumber(v)} xFormat={xFormat} />
+      <MiniChart title="Response time" hint="Slow requests" tech="95th percentile per interval: 95% of requests finish faster" points={points} dataKey="p95Ms" format={ms} xFormat={xFormat} />
       <MiniChart
         title="Database connections"
-        hint="Peak per interval"
+        hint="Peak"
+        tech="Peak connections per interval; red dots are pool timeouts"
         points={points}
         dataKey="dbConnections"
         format={(v) => formatNumber(v)}
@@ -140,14 +142,14 @@ export default function CapacityCharts({ points, days }) {
           timeouts > 0 ? (
             <span className="inline-flex items-center gap-1.5">
               <span className="h-2 w-2 rounded-full bg-destructive" />
-              {formatNumber(timeouts)} pool timeout{timeouts === 1 ? "" : "s"}: requests waited too long for a connection
+              {formatNumber(timeouts)} wait{timeouts === 1 ? "" : "s"} for a connection timed out
             </span>
           ) : (
-            "No pool timeouts in this period."
+            "No connection waits timed out."
           )
         }
       />
-      <MiniChart title="Database latency" hint="Slowest ping per interval" points={points} dataKey="dbLatencyMs" format={ms} xFormat={xFormat} />
+      <MiniChart title="Database speed" hint="Slowest ping" tech="Slowest SELECT 1 ping per interval" points={points} dataKey="dbLatencyMs" format={ms} xFormat={xFormat} />
     </div>
   );
 }

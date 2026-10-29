@@ -1,7 +1,8 @@
 // app/system-admin/performance/page.jsx
 //
-// Performance: Capacity (BB-112: verdicts, gauges, history, hotspots) and
-// Endpoints (per-endpoint response times, the page's original view).
+// Performance: Capacity (BB-112: verdicts, gauges, history, hotspots),
+// Endpoints (per-endpoint response times, the page's original view) and
+// Reports (BB-113: saved months as PDF).
 
 "use client";
 
@@ -9,10 +10,12 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import CapacityView from "@/components/system-admin/performance/CapacityView";
 import EndpointsView from "@/components/system-admin/performance/EndpointsView";
+import ReportsView from "@/components/system-admin/performance/ReportsView";
 
 const TABS = [
   { id: "capacity", label: "Capacity" },
   { id: "endpoints", label: "Endpoints" },
+  { id: "reports", label: "Reports" },
 ];
 
 export default function PerformancePage() {
@@ -32,7 +35,7 @@ export default function PerformancePage() {
         ))}
       </div>
 
-      {tab === "capacity" ? <CapacityView /> : <EndpointsView />}
+      {tab === "capacity" ? <CapacityView /> : tab === "endpoints" ? <EndpointsView /> : <ReportsView />}
     </div>
   );
 }

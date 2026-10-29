@@ -1,8 +1,9 @@
 // components/system-admin/performance/HotspotsTable.jsx
 //
-// BB-112 Capacity: endpoints by total server time (server order). Flagged rows
-// (slow or much slower, 20+ calls) carry a marker; a row opens Request Logs
-// filtered to that endpoint and method.
+// BB-112 Capacity: busiest endpoints by total server time (server order). Flagged rows
+// (slow for their kind or much slower, 20+ calls) carry a marker; a row opens
+// Request Logs filtered to that endpoint and method. p95 and Change are coloured
+// by the server's bands when it sends them (v2.11.1+).
 
 "use client";
 
@@ -13,6 +14,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatNumber, formatDuration } from "../shared";
 import { isFlagged } from "./CapacityCards";
+import { BAND, bandRanges } from "./bands";
+
+const KIND = { light: "Light", heavy: "Heavy", long: "Long" };
 
 const SHOW_FIRST = 15;
 
@@ -20,9 +24,14 @@ const SHOW_FIRST = 15;
 const LEFT = "text-left px-3";
 const NUM = "text-right px-3 tabular-nums";
 
-function Change({ value }) {
+function Change({ value, band }) {
   if (value == null) return <span className="text-muted-foreground">—</span>;
-  const tone = value >= 50 ? "text-red-600 font-medium" : value < 0 ? "text-green-700" : "text-muted-foreground";
+  const tone =
+    band === "terrible" || (band === undefined && value >= 50)
+      ? "text-red-600 font-medium"
+      : band === "watch"
+        ? "text-amber-600"
+        : value < 0 ? "text-green-700" : "text-muted-foreground";
   return <span className={tone}>{value > 0 ? `+${value}%` : `${value}%`}</span>;
 }
 
@@ -38,11 +47,12 @@ function Share({ value }) {
   );
 }
 
-export default function HotspotsTable({ endpoints = [], days }) {
+export default function HotspotsTable({ endpoints = [], days, thresholds }) {
   const router = useRouter();
   const [showAll, setShowAll] = useState(false);
   const rows = showAll ? endpoints : endpoints.slice(0, SHOW_FIRST);
   const flagged = endpoints.filter(isFlagged).length;
+  const banded = endpoints[0]?.band !== undefined;
 
   const open = (e) =>
     router.push(`/system-admin/requests?${new URLSearchParams({ endpoint: e.endpoint, method: e.method })}`);
@@ -51,14 +61,13 @@ export default function HotspotsTable({ endpoints = [], days }) {
     <Card className="min-w-0">
       <CardHeader>
         <CardTitle className="text-base">
-          API hotspots{" "}
+          Busiest endpoints{" "}
           <span className="font-normal text-muted-foreground">
             · {formatNumber(endpoints.length)} endpoints{flagged ? ` · ${flagged} flagged` : ""}
           </span>
         </CardTitle>
         <CardDescription>
-          Sorted by total server time over the last {days === 1 ? "day" : `${days} days`}. Change compares p95 with the
-          period before. Click a row to see its requests.
+          Sorted by total server time{banded ? ", speed judged by kind" : ""}. Click a row for its requests.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -70,13 +79,28 @@ export default function HotspotsTable({ endpoints = [], days }) {
               <TableHeader>
                 <TableRow>
                   <TableHead className={LEFT}>Endpoint</TableHead>
+                  {banded && (
+                    <TableHead className={LEFT} title="Light reads should be far faster than long syncs, imports or exports">
+                      Kind
+                    </TableHead>
+                  )}
                   <TableHead className={NUM}>Calls</TableHead>
-                  <TableHead className={NUM}>Avg</TableHead>
-                  <TableHead className={NUM}>p95</TableHead>
-                  <TableHead className={NUM}>Change</TableHead>
+                  <TableHead className={NUM} title="Average response time">
+                    Typical
+                  </TableHead>
+                  <TableHead className={NUM} title="p95: 95% of calls finish faster">
+                    Slow calls
+                  </TableHead>
+                  <TableHead className={NUM} title={`Change in p95 vs the ${days === 1 ? "day" : `${days} days`} before`}>
+                    vs before
+                  </TableHead>
                   <TableHead className={NUM}>Share of server time</TableHead>
-                  <TableHead className={NUM}>Slow calls</TableHead>
-                  <TableHead className={NUM}>5xx</TableHead>
+                  <TableHead className={NUM} title="Calls over the server's slow-request limit">
+                    Very slow
+                  </TableHead>
+                  <TableHead className={NUM} title="Server errors (5xx)">
+                    Errors
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -103,13 +127,23 @@ export default function HotspotsTable({ endpoints = [], days }) {
                           </span>
                         </div>
                       </TableCell>
+                      {banded && (
+                        <TableCell className={`${LEFT} text-xs text-muted-foreground`}>{KIND[e.class] || e.class}</TableCell>
+                      )}
                       <TableCell className={NUM}>{formatNumber(e.calls)}</TableCell>
                       <TableCell className={NUM}>{formatDuration(e.avgMs)}</TableCell>
-                      <TableCell className={`${NUM} ${e.p95Ms >= 3000 ? "font-medium text-red-600" : ""}`}>
+                      <TableCell
+                        className={`${NUM} ${
+                          banded
+                            ? `${BAND[e.band]?.text || ""} ${e.band === "terrible" ? "font-medium" : ""}`
+                            : e.p95Ms >= 3000 ? "font-medium text-red-600" : ""
+                        }`}
+                        title={banded ? `${KIND[e.class] || e.class}: ${bandRanges(thresholds?.endpoints?.[e.class])}` : undefined}
+                      >
                         {formatDuration(e.p95Ms)}
                       </TableCell>
                       <TableCell className={NUM}>
-                        <Change value={e.p95ChangePercent} />
+                        <Change value={e.p95ChangePercent} band={e.changeBand} />
                       </TableCell>
                       <TableCell className={NUM}>
                         <Share value={e.shareOfServerTimePercent} />
