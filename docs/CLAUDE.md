@@ -207,7 +207,7 @@ components/
 │   ├── ScreenshotButton.jsx
 │   ├── shared.jsx              # useSystemAdminSection, SectionCard, formatters, useCompanyOptions, polling hooks
 │   ├── activity/               # User Activity sections (BB-112)
-│   ├── performance/            # Performance tabs: Capacity (cards, charts, hotspots) + Endpoints (BB-112)
+│   ├── performance/            # Performance tabs: Capacity (cards, band scales, charts, hotspots), Endpoints (BB-112), Reports (BB-113)
 │   ├── bbuddy/                 # B. Buddy page tabs, Add company drawer (BB-107) + api.js
 │   ├── database/               # Database page sections + shared.jsx
 │   └── server/                 # Live Server HealthCard + LogPanel (BB-112)
@@ -286,7 +286,7 @@ A separate app under `/system-admin/*` for BizBuddy staff. It doesn't use `useAu
 | `users` | User Activity analytics (BB-112) |
 | `security` | Security Monitor: graded signals, "View requests" → Request Logs (BB-112) |
 | `bbuddy` | B. Buddy: Activity (Refresh / Live), Summary, Companies (Add company, Set up B. Buddy, retired companies — BB-107), Staff, Admin activity. One Refresh in the tab row reloads the open tab |
-| `performance` | Capacity (BB-112: OK / Watch / Upgrade verdicts for the API server, database and hotspot endpoints, history charts, hotspots table) and Endpoints (per-endpoint response times) |
+| `performance` | Capacity (BB-112: OK / Watch / Upgrade verdicts for the API server, database and busiest endpoints, band scales from the server's thresholds, coverage + plans banner, history charts, hotspots table), Endpoints (per-endpoint response times) and Reports (BB-113: Baseline + 30-day period PDFs via `systemAdminDownload`) |
 | `errors` | API error logs |
 | `database` | Read-only database overview + cleanup preview |
 | `requests` | Request Logs (opened with filters from Security) |

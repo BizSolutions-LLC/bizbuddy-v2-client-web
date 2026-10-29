@@ -3,7 +3,8 @@
 // BB-112 Performance → Capacity: is the API server, the database or one heavy
 // endpoint the limit, and is it time to upgrade? GET /capacity (verdicts,
 // gauges, hotspots) and /capacity/history (charts) for 1 / 7 / 30 days. Loads
-// on open and on Refresh; no polling.
+// on open and on Refresh; no polling. Band scales, legend, coverage and plan
+// lines come from server v2.11.1+.
 
 "use client";
 
@@ -16,6 +17,7 @@ import { formatDateTime, relativeTime } from "../shared";
 import { OverallBanner, ServerCard, DatabaseCard, HotspotsCard } from "./CapacityCards";
 import CapacityCharts from "./CapacityCharts";
 import HotspotsTable from "./HotspotsTable";
+import { BandLegend } from "./bands";
 
 const PERIODS = [
   { days: 1, label: "1 day" },
@@ -62,10 +64,7 @@ export default function CapacityView() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-neutral-600">
-          Whether the API server, the database or a single endpoint is holding things back, and whether to upgrade.
-        </p>
+      <div className="flex flex-wrap items-center justify-end gap-3">
         <div className="flex items-center gap-2">
           {loadedAt && (
             <span className="hidden text-xs text-muted-foreground sm:inline" title={formatDateTime(loadedAt)}>
@@ -118,10 +117,12 @@ export default function CapacityView() {
           <OverallBanner data={data} />
 
           <div className="grid gap-4 lg:grid-cols-3">
-            <ServerCard server={data.server || {}} />
-            <DatabaseCard database={data.database || {}} />
+            <ServerCard server={data.server || {}} thresholds={data.thresholds} />
+            <DatabaseCard database={data.database || {}} thresholds={data.thresholds} />
             <HotspotsCard hotspots={data.hotspots || {}} />
           </div>
+
+          <BandLegend thresholds={data.thresholds} />
 
           <section className="space-y-3">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -133,9 +134,11 @@ export default function CapacityView() {
             {noSamples || points.length === 0 ? (
               <div className="rounded-md border bg-card px-4 py-10 text-center">
                 <p className="text-sm font-medium text-foreground">No history yet</p>
-                <p className="mx-auto mt-1 max-w-lg text-sm text-muted-foreground">
-                  Samples are saved every 5 minutes once the server runs on Render with the new table. API hotspots below
-                  still work, because they come from request logs.
+                <p
+                  className="mx-auto mt-1 max-w-lg text-sm text-muted-foreground"
+                  title="Samples are saved every 5 minutes once the server runs on Render with the samples table."
+                >
+                  Charts appear once samples are saved. Busiest endpoints below still work.
                 </p>
               </div>
             ) : (
@@ -143,11 +146,10 @@ export default function CapacityView() {
             )}
           </section>
 
-          <HotspotsTable endpoints={data.hotspots?.endpoints || []} days={data.days || days} />
+          <HotspotsTable endpoints={data.hotspots?.endpoints || []} days={data.days || days} thresholds={data.thresholds} />
 
-          <p className="text-xs text-muted-foreground">
-            Samples every {sampling?.everyMinutes ?? 5} minutes, kept {sampling?.keepDays ?? 30} days. Verdicts are
-            guidance, not alarms.
+          <p className="text-xs text-muted-foreground" title="Verdicts are guidance, not alarms.">
+            Sampled every {sampling?.everyMinutes ?? 5} min · kept {sampling?.keepDays ?? 30} days
           </p>
         </>
       )}
