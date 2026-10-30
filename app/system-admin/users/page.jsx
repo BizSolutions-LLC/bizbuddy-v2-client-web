@@ -11,7 +11,7 @@ import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useSystemAdminSection, useCompanyOptions } from "@/components/system-admin/shared";
+import { useSystemAdminSection, useCompanyOptions, useRefreshLocked, oldestCachedAt } from "@/components/system-admin/shared";
 import OverviewSection from "@/components/system-admin/activity/OverviewSection";
 import FeatureUsageSection from "@/components/system-admin/activity/FeatureUsageSection";
 import PeakHoursSection from "@/components/system-admin/activity/PeakHoursSection";
@@ -38,6 +38,8 @@ export default function UserActivityPage() {
 
   const sections = [overview, features, peakHours];
   const refreshing = sections.some((s) => s.loading);
+  // BB-114: each section shows its own "As of"; Refresh unlocks once the oldest is 30 s old
+  const refreshLocked = useRefreshLocked(oldestCachedAt(...sections.map((s) => s.cache)));
 
   return (
     <div className="max-w-[1280px] mx-auto px-4 sm:px-8 py-8 space-y-6">
@@ -79,7 +81,7 @@ export default function UserActivityPage() {
               </SelectContent>
             </Select>
           </div>
-          <Button variant="outline" size="sm" className="h-9" onClick={() => sections.forEach((s) => s.reload())} disabled={refreshing}>
+          <Button variant="outline" size="sm" className="h-9" onClick={() => sections.forEach((s) => s.refresh())} disabled={refreshing || refreshLocked}>
             <RefreshCw className={refreshing ? "animate-spin" : ""} /> Refresh
           </Button>
         </div>

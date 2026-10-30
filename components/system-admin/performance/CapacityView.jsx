@@ -13,7 +13,7 @@ import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { systemAdminFetch } from "@/lib/systemAdminFetch";
-import { formatDateTime, relativeTime } from "../shared";
+import { CacheStamp, oldestCachedAt, useRefreshLocked } from "../shared";
 import { OverallBanner, ServerCard, DatabaseCard, HotspotsCard } from "./CapacityCards";
 import CapacityCharts from "./CapacityCharts";
 import HotspotsTable from "./HotspotsTable";
@@ -32,21 +32,26 @@ export default function CapacityView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [loadedAt, setLoadedAt] = useState(null);
+  // BB-114: server cache of /capacity and /capacity/history (1 min each)
+  const [caches, setCaches] = useState([]);
   const requestId = useRef(0);
 
-  const load = useCallback(async () => {
+  // refresh: only from the Refresh button — asks the server to recompute (refresh=1)
+  const load = useCallback(async (refresh = false) => {
     const id = ++requestId.current;
     setLoading(true);
     setError("");
     try {
+      const query = { days, refresh: refresh ? 1 : undefined };
       const [capacity, hist] = await Promise.all([
-        systemAdminFetch("/api/system-admin/capacity", { query: { days } }),
-        systemAdminFetch("/api/system-admin/capacity/history", { query: { days } }),
+        systemAdminFetch("/api/system-admin/capacity", { query }),
+        systemAdminFetch("/api/system-admin/capacity/history", { query }),
       ]);
       if (id !== requestId.current) return;
       setData(capacity.data);
       setHistory(hist.data);
       setLoadedAt(new Date());
+      setCaches([capacity.cache, hist.cache]);
     } catch (err) {
       if (id === requestId.current) setError(err.message);
     } finally {
@@ -58,6 +63,9 @@ export default function CapacityView() {
     load();
   }, [load]);
 
+  const cachedAt = oldestCachedAt(...caches);
+  const refreshLocked = useRefreshLocked(cachedAt);
+
   const points = history?.points || [];
   const noSamples = data && !data.server?.samples;
   const sampling = data?.sampling;
@@ -66,11 +74,7 @@ export default function CapacityView() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-end gap-3">
         <div className="flex items-center gap-2">
-          {loadedAt && (
-            <span className="hidden text-xs text-muted-foreground sm:inline" title={formatDateTime(loadedAt)}>
-              Checked {relativeTime(loadedAt)}
-            </span>
-          )}
+          <CacheStamp at={cachedAt || loadedAt} className="hidden sm:inline" />
           <div className="flex rounded-md border" role="group" aria-label="Period">
             {PERIODS.map((p, i) => (
               <button
@@ -86,7 +90,7 @@ export default function CapacityView() {
               </button>
             ))}
           </div>
-          <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+          <Button variant="outline" size="sm" onClick={() => load(true)} disabled={loading || refreshLocked}>
             <RefreshCw className={loading ? "animate-spin" : ""} /> Refresh
           </Button>
         </div>
@@ -95,7 +99,7 @@ export default function CapacityView() {
       {error && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 p-3">
           <p className="text-sm text-red-700">{error}</p>
-          <Button size="sm" variant="outline" onClick={load}>
+          <Button size="sm" variant="outline" onClick={() => load()}>
             <RefreshCw /> Retry
           </Button>
         </div>

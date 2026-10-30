@@ -15,7 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { systemAdminFetch } from "@/lib/systemAdminFetch";
-import { formatDuration, formatNumber } from "../shared";
+import { CacheStamp, formatDuration, formatNumber, useRefreshLocked } from "../shared";
 
 const RANGES = ["1h", "6h", "24h", "7d", "30d"];
 
@@ -108,15 +108,23 @@ export default function EndpointsView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [timeRange, setTimeRange] = useState("24h");
+  const [cache, setCache] = useState(null);
+  const refreshLocked = useRefreshLocked(cache?.cachedAt);
   const requestId = useRef(0);
 
-  const load = useCallback(async () => {
+  // refresh: only from the Refresh button — asks the server to recompute (refresh=1, BB-114)
+  const load = useCallback(async (refresh = false) => {
     const id = ++requestId.current;
     setLoading(true);
     setError("");
     try {
-      const result = await systemAdminFetch("/api/system-admin/performance", { query: { timeRange, limit: 50 } });
-      if (id === requestId.current) setData(result.data);
+      const result = await systemAdminFetch("/api/system-admin/performance", {
+        query: { timeRange, limit: 50, refresh: refresh ? 1 : undefined },
+      });
+      if (id === requestId.current) {
+        setData(result.data);
+        setCache(result.cache || null);
+      }
     } catch (err) {
       if (id === requestId.current) setError(err.message);
     } finally {
@@ -148,6 +156,7 @@ export default function EndpointsView() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-end gap-2">
+        <CacheStamp at={cache?.cachedAt} className="hidden sm:inline" />
         <div className="flex rounded-md border" role="group" aria-label="Period">
           {RANGES.map((range, i) => (
             <button
@@ -163,7 +172,7 @@ export default function EndpointsView() {
             </button>
           ))}
         </div>
-        <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+        <Button variant="outline" size="sm" onClick={() => load(true)} disabled={loading || refreshLocked}>
           <RefreshCw className={loading ? "animate-spin" : ""} /> Refresh
         </Button>
       </div>
@@ -171,7 +180,7 @@ export default function EndpointsView() {
       {error && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 p-3">
           <p className="text-sm text-red-700">{error}</p>
-          <Button size="sm" variant="outline" onClick={load}>
+          <Button size="sm" variant="outline" onClick={() => load()}>
             <RefreshCw /> Retry
           </Button>
         </div>

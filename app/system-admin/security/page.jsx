@@ -13,7 +13,15 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { SectionCard, useSystemAdminSection, relativeTime, formatDateTime, formatNumber } from "@/components/system-admin/shared";
+import {
+  SectionCard,
+  CacheStamp,
+  useSystemAdminSection,
+  useRefreshLocked,
+  relativeTime,
+  formatDateTime,
+  formatNumber,
+} from "@/components/system-admin/shared";
 
 const RANGES = [
   { value: "1h", label: "1h", hours: 1 },
@@ -70,6 +78,9 @@ export default function SecurityPage() {
   const [group, setGroup] = useState("all");
   const section = useSystemAdminSection("/api/system-admin/security/signals", { timeRange: range });
   const { data, loading, error } = section;
+  // BB-114: signals are cached for 2 min; generatedAt covers an uncached response
+  const asOf = section.cache?.cachedAt || data?.generatedAt;
+  const refreshLocked = useRefreshLocked(section.cache?.cachedAt);
   const hours = RANGES.find((r) => r.value === range)?.hours || 24;
 
   const signals = data?.signals || [];
@@ -87,7 +98,7 @@ export default function SecurityPage() {
           <h1 className="text-2xl font-semibold text-neutral-900 mb-1">Security Monitor</h1>
           <p className="text-sm text-neutral-600">
             Suspicious activity across sign-ins, access, B. Buddy and system admins.
-            {data?.generatedAt && <span className="text-neutral-500"> Updated {relativeTime(data.generatedAt)}.</span>}
+            {asOf && <> <CacheStamp at={asOf} className="text-sm text-neutral-500" /></>}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -106,7 +117,7 @@ export default function SecurityPage() {
               </button>
             ))}
           </div>
-          <Button variant="outline" size="sm" onClick={() => section.reload()} disabled={loading}>
+          <Button variant="outline" size="sm" onClick={() => section.refresh()} disabled={loading || refreshLocked}>
             <RefreshCw className={loading ? "animate-spin" : ""} /> Refresh
           </Button>
         </div>
@@ -132,7 +143,7 @@ export default function SecurityPage() {
         ))}
       </div>
 
-      <SectionCard title="Signals" section={section} skeletonRows={4}>
+      <SectionCard title="Signals" section={section} skeletonRows={4} asOf={false}>
         {/* Group chips */}
         <div className="mb-4 flex flex-wrap gap-2">
           {[{ id: "all", label: "All" }, ...GROUPS].map((g) => {

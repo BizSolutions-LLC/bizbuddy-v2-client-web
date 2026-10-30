@@ -295,6 +295,8 @@ A separate app under `/system-admin/*` for BizBuddy staff. It doesn't use `useAu
 
 **Shared helpers** (`components/system-admin/shared.jsx`): `useSystemAdminSection(path, query)` (load + retry state), `SectionCard`, `SortHeader`, `formatNumber` / `formatBytes` / `relativeTime` / `formatDay` / `formatDateTime`, `useCompanyOptions()`, `formatDuration` ("4.8 s"), and the polling pair `usePageVisible()` (stop polling while the tab is hidden) + `useRateLimitPause()` (hold polling for a minute after a 429).
 
+**Server-cached analytics (BB-114):** the analytics endpoints (`overview`, `trends`, `performance`, `errors`, `activity/*`, `security/signals`, `capacity`, `capacity/history`, …) return an optional top-level `cache: { hit, cachedAt, expiresAt }`. `useSystemAdminSection` keeps it as `section.cache` and adds `refresh()` (sends `refresh=1`; only for an explicit Refresh tap — `reload()`, Retry and polls never force it). `SectionCard` shows `CacheStamp` ("As of 10:42 AM · 3 minutes ago") from `section.cache.cachedAt` (`asOf={false}` hides it). Helpers: `oldestCachedAt(...caches)` (cards built from several endpoints), `latestExpiresAt(...caches)` (schedule polls), `useRefreshLocked(cachedAt)` (Refresh disabled 30 s after `cachedAt`, the server ignores it then). The dashboard polls at the latest `expiresAt` + 2 s, not on a fixed timer.
+
 **Conventions:** admin pages are light-only; status colour is restrained (neutral badges, red only for real errors); polling is opt-in (Live toggles, Live Server) and always pauses when hidden. The B. Buddy page's calls go through `bbuddyFetch` in `components/system-admin/bbuddy/api.js` (`systemAdminFetch` scoped to `/api/system-admin/bbuddy`).
 
 ---
