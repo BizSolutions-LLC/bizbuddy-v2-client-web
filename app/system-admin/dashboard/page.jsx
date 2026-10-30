@@ -4,6 +4,13 @@
 
 import { useEffect, useState } from "react";
 import { systemAdminFetch } from "@/lib/systemAdminFetch";
+import {
+  CacheStamp,
+  oldestCachedAt,
+  latestExpiresAt,
+  useRefreshLocked,
+  usePageVisible,
+} from "@/components/system-admin/shared";
 import { 
   Activity, 
   AlertTriangle, 
@@ -32,32 +39,46 @@ export default function SystemAdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState("24h");
   const [lastUpdate, setLastUpdate] = useState(new Date());
+  // BB-114: server cache ({ cachedAt, expiresAt }) of overview / trends / performance
+  const [caches, setCaches] = useState([]);
+  const pageVisible = usePageVisible();
+  const asOf = oldestCachedAt(...caches);
+  const refreshLocked = useRefreshLocked(asOf);
 
   useEffect(() => {
     fetchAllData();
-    
-    const interval = setInterval(() => {
-      fetchAllData(true);
-    }, 30000);
-
-    return () => clearInterval(interval);
   }, [timeRange]);
 
-  const fetchAllData = async (silent = false) => {
+  // BB-114: poll when the server's cache expires (latest expiresAt + 2 s) — polling
+  // sooner only returns the same data. 60 s without cache info; clamped to 5 s–2 min
+  // against clock skew. Paused while the tab is hidden; never sends refresh=1.
+  useEffect(() => {
+    if (!pageVisible || loading) return;
+    const expiresAt = latestExpiresAt(...caches);
+    const delay = expiresAt ? Math.min(Math.max(expiresAt.getTime() + 2000 - Date.now(), 5000), 120000) : 60000;
+    const timer = setTimeout(() => fetchAllData(true), delay);
+    return () => clearTimeout(timer);
+  }, [caches, pageVisible, loading, timeRange]);
+
+  // silent: background poll (no spinner). refresh: only from the Refresh button (refresh=1).
+  const fetchAllData = async (silent = false, refresh = false) => {
     if (!silent) setLoading(true);
-    
+
     try {
+      const flag = refresh ? 1 : undefined;
       // allSettled: one failing section shouldn't blank the others (a 401 redirects to sign-in)
       const [overviewRes, trendsRes, performanceRes] = await Promise.allSettled([
-        systemAdminFetch("/api/system-admin/overview", { query: { timeRange } }),
-        systemAdminFetch("/api/system-admin/trends", { query: { timeRange } }),
-        systemAdminFetch("/api/system-admin/performance", { query: { timeRange, limit: 5 } }),
+        systemAdminFetch("/api/system-admin/overview", { query: { timeRange, refresh: flag } }),
+        systemAdminFetch("/api/system-admin/trends", { query: { timeRange, refresh: flag } }),
+        systemAdminFetch("/api/system-admin/performance", { query: { timeRange, limit: 5, refresh: flag } }),
       ]);
 
       if (overviewRes.status === "fulfilled") setOverview(overviewRes.value.data);
       if (trendsRes.status === "fulfilled") setTrends(trendsRes.value.data);
       if (performanceRes.status === "fulfilled") setPerformance(performanceRes.value.data);
-      
+
+      // Always a new array so the next poll is scheduled even when every call failed
+      setCaches([overviewRes, trendsRes, performanceRes].map((r) => (r.status === "fulfilled" ? r.value.cache : null)));
       setLastUpdate(new Date());
     } catch (error) {
       console.error("Error fetching dashboard data:", error);
@@ -112,14 +133,14 @@ export default function SystemAdminDashboard() {
                 <span>{getStatusText(overview?.errorRate || 0)}</span>
               </div>
               <span className="text-neutral-400">•</span>
-              <span>Updated {lastUpdate.toLocaleTimeString()}</span>
+              <CacheStamp at={asOf || lastUpdate} className="text-sm text-neutral-600" />
             </div>
           </div>
 
           <div className="flex items-center gap-2">
             <button
-              onClick={() => fetchAllData()}
-              disabled={loading}
+              onClick={() => fetchAllData(false, true)}
+              disabled={loading || refreshLocked}
               className="p-2 rounded-md border border-neutral-300 hover:bg-neutral-50 hover:border-neutral-400 transition-colors disabled:opacity-50"
             >
               <RefreshCw className={`w-4 h-4 text-neutral-700 ${loading ? "animate-spin" : ""}`} />

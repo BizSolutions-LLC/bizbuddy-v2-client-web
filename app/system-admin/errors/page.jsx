@@ -5,9 +5,13 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, XCircle, RefreshCw, Server } from "lucide-react";
 import { systemAdminFetch } from "@/lib/systemAdminFetch";
+import { CacheStamp, useRefreshLocked } from "@/components/system-admin/shared";
 
 export default function ErrorsPage() {
   const [data, setData] = useState(null);
+  // BB-114: server cache of /errors (1 min)
+  const [cache, setCache] = useState(null);
+  const refreshLocked = useRefreshLocked(cache?.cachedAt);
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState("24h");
 
@@ -15,11 +19,15 @@ export default function ErrorsPage() {
     fetchData();
   }, [timeRange]);
 
-  const fetchData = async () => {
+  // refresh: only from the Refresh button — asks the server to recompute (refresh=1)
+  const fetchData = async (refresh = false) => {
     setLoading(true);
     try {
-      const result = await systemAdminFetch("/api/system-admin/errors", { query: { timeRange } });
+      const result = await systemAdminFetch("/api/system-admin/errors", {
+        query: { timeRange, refresh: refresh ? 1 : undefined },
+      });
       setData(result.data);
+      setCache(result.cache || null);
     } catch (error) {
       console.error("Error fetching error data:", error);
     } finally {
@@ -70,9 +78,10 @@ export default function ErrorsPage() {
           </div>
 
           <div className="flex items-center gap-2">
+            <CacheStamp at={cache?.cachedAt} className="hidden sm:inline" />
             <button
-              onClick={fetchData}
-              disabled={loading}
+              onClick={() => fetchData(true)}
+              disabled={loading || refreshLocked}
               className="p-2 rounded-md border border-neutral-300 hover:bg-neutral-50 hover:border-neutral-400 transition-colors disabled:opacity-50"
             >
               <RefreshCw className={`w-4 h-4 text-neutral-700 ${loading ? "animate-spin" : ""}`} />

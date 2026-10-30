@@ -13,26 +13,30 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { systemAdminFetch } from "@/lib/systemAdminFetch";
+import { cn } from "@/lib/utils";
 
 /**
  * GET a system-admin endpoint as one page section.
  * Re-fetches when `query` changes (compared by value); reload() reuses the last
  * query unless given a new one. Out-of-order responses are ignored.
+ * BB-114: keeps the server's `cache` ({ hit, cachedAt, expiresAt }, null on
+ * uncached endpoints). refresh() is for a user's explicit Refresh only — it adds
+ * refresh=1 so the server recomputes; reload() and Retry never do.
  */
 export function useSystemAdminSection(path, query) {
-  const [state, setState] = useState({ data: null, loading: true, error: "" });
+  const [state, setState] = useState({ data: null, cache: null, loading: true, error: "" });
   const lastQuery = useRef(query);
   const requestId = useRef(0);
   const queryKey = JSON.stringify(query ?? null);
 
   const reload = useCallback(
-    async (nextQuery = lastQuery.current) => {
+    async (nextQuery = lastQuery.current, { refresh = false } = {}) => {
       lastQuery.current = nextQuery;
       const id = ++requestId.current;
       setState((s) => ({ ...s, loading: true, error: "" }));
       try {
-        const json = await systemAdminFetch(path, { query: nextQuery });
-        if (id === requestId.current) setState({ data: json.data, loading: false, error: "" });
+        const json = await systemAdminFetch(path, { query: refresh ? { ...nextQuery, refresh: 1 } : nextQuery });
+        if (id === requestId.current) setState({ data: json.data, cache: json.cache || null, loading: false, error: "" });
       } catch (err) {
         if (id === requestId.current) setState((s) => ({ ...s, loading: false, error: err.message }));
       }
@@ -40,11 +44,70 @@ export function useSystemAdminSection(path, query) {
     [path]
   );
 
+  const refresh = useCallback(() => reload(lastQuery.current, { refresh: true }), [reload]);
+
   useEffect(() => {
     reload(JSON.parse(queryKey) ?? undefined);
   }, [reload, queryKey]);
 
-  return { ...state, reload };
+  return { ...state, reload, refresh };
+}
+
+// ── BB-114: server-cached analytics ──────────────────────────────────────────
+// The server ignores refresh=1 while its copy is under 30 s old.
+const REFRESH_LOCK_MS = 30000;
+
+const toTime = (value) => (value ? new Date(value).getTime() : NaN);
+
+// A card built from several endpoints is only as fresh as its oldest part
+export function oldestCachedAt(...caches) {
+  const times = caches.map((c) => toTime(c?.cachedAt)).filter(Number.isFinite);
+  return times.length ? new Date(Math.min(...times)) : null;
+}
+
+export function latestExpiresAt(...caches) {
+  const times = caches.map((c) => toTime(c?.expiresAt)).filter(Number.isFinite);
+  return times.length ? new Date(Math.max(...times)) : null;
+}
+
+// true for 30 s after `cachedAt` — Refresh is disabled while the server would ignore it
+export function useRefreshLocked(cachedAt) {
+  const [locked, setLocked] = useState(false);
+  const at = toTime(cachedAt);
+  useEffect(() => {
+    // Capped at 30 s so a skewed browser clock can't lock it longer
+    const left = Number.isFinite(at) ? Math.min(at + REFRESH_LOCK_MS - Date.now(), REFRESH_LOCK_MS) : 0;
+    setLocked(left > 0);
+    if (left <= 0) return;
+    const timer = setTimeout(() => setLocked(false), left);
+    return () => clearTimeout(timer);
+  }, [at]);
+  return locked;
+}
+
+// Re-render every `ms` so relative times stay current
+function useTick(ms) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setTick((n) => n + 1), ms);
+    return () => clearInterval(timer);
+  }, [ms]);
+}
+
+// "As of 10:42 AM · 3 minutes ago" — when the server computed the data, not when it arrived
+export function CacheStamp({ at, className }) {
+  useTick(30000);
+  if (!at) return null;
+  const date = new Date(at);
+  const time =
+    date.toDateString() === new Date().toDateString()
+      ? date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+      : formatDateTime(date);
+  return (
+    <span className={cn("text-xs text-muted-foreground", className)} title={formatDateTime(date)}>
+      As of {time} · {relativeTime(date)}
+    </span>
+  );
 }
 
 export function formatBytes(bytes) {
@@ -81,8 +144,9 @@ export function relativeTime(value) {
   return "just now";
 }
 
-// Card with its own loading skeleton and error + Retry
-export function SectionCard({ title, description, section, onRetry, skeletonRows = 5, actions, children }) {
+// Card with its own loading skeleton and error + Retry. Shows "As of …" when the
+// section's endpoint is server-cached (BB-114); asOf={false} hides it.
+export function SectionCard({ title, description, section, onRetry, skeletonRows = 5, actions, asOf = true, children }) {
   const { data, loading, error } = section;
 
   return (
@@ -94,6 +158,7 @@ export function SectionCard({ title, description, section, onRetry, skeletonRows
             {loading && data && <RefreshCw className="w-4 h-4 animate-spin text-muted-foreground" />}
           </CardTitle>
           {description && <CardDescription>{description}</CardDescription>}
+          {asOf && <CacheStamp at={section.cache?.cachedAt} className="block" />}
         </div>
         {actions}
       </CardHeader>

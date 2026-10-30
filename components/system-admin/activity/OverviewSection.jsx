@@ -96,7 +96,7 @@ export default function OverviewSection({ section }) {
           </div>
         </SectionCard>
 
-        <SectionCard title="Sign-ins per day" section={section} skeletonRows={6}>
+        <SectionCard title="Sign-ins per day" section={section} skeletonRows={6} asOf={false}>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={data?.signIns || []} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
