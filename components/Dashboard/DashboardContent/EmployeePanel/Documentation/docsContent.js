@@ -281,6 +281,29 @@ const docsContent = [
     ],
   },
   {
+    id: "payout-account",
+    title: "Payout account",
+    summary: "Connect the bank account that should receive your pay.",
+    href: "/dashboard/employee/disbursement/my-payout-account",
+    topics: [
+      {
+        title: "Connecting your bank",
+        steps: [
+          "Go to Payroll → Payout account.",
+          "Enter your First name, Last name and Email.",
+          "Enter the Account holder name, Account type (Checking or Savings), Routing number and Account number.",
+          "Click Save payout account.",
+        ],
+        tips: [
+          "Pay is sent with Moov or Stripe. This account only receives payroll.",
+          "Bank numbers are sent once. Saving again does not replace a bank that is already linked.",
+          "Your company has to link a funding account before this page can be saved. If it says payout accounts are not available yet, contact your admin.",
+          "Admins and supervisors set up the company funding account from Disbursement. This page is for employees receiving pay.",
+        ],
+      },
+    ],
+  },
+  {
     id: "payslip",
     title: "My Payslip",
     summary: "View and download your payslips.",

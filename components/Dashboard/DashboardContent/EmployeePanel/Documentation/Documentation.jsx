@@ -37,7 +37,7 @@ const TABS = [
     label: "Employee",
     icon: User,
     title: "BizBuddy Employee Guide",
-    description: "Learn how to use the Employee Panel: clocking in and out, reviewing your logs, filing requests, and managing your leaves and payslips.",
+    description: "Learn how to use the Employee Panel: clocking in and out, reviewing your logs, filing requests, and managing your leaves, payout account and payslips.",
     content: docsContent,
   },
   {
@@ -45,7 +45,7 @@ const TABS = [
     label: "Company Panel",
     icon: Building2,
     title: "Company Panel Guide",
-    description: "Manage your people, review requests and punch logs, run cutoffs, and set up shifts, schedules and locations.",
+    description: "Manage your people, review requests and punch logs, run cutoffs, pay a finalized payroll, and set up shifts, schedules and locations.",
     content: companyDocsContent,
   },
   {
@@ -71,7 +71,11 @@ function resolveCompanyType(data) {
 const matchesCompanyType = (item, companyType) =>
   !item.companyType || !companyType || item.companyType === companyType;
 
-const GROUP_LABELS = Object.fromEntries(CompanyPanelItems.map((g) => [g.id, g.label]));
+const GROUP_LABELS = {
+  ...Object.fromEntries(CompanyPanelItems.map((g) => [g.id, g.label])),
+  // Payroll is an Employee Panel sidebar group, not a Company Panel one.
+  payroll: "Payroll",
+};
 
 // Groups consecutive sections by groupId so the TOC and section list can show
 // the same headings as the sidebar. Sections without a groupId get no heading.
@@ -295,11 +299,13 @@ export default function Documentation() {
   const visibleTabs = useMemo(() => {
     if (loading) return [];
     const allowedGroups = new Set(filterCompanyPanelByRole(CompanyPanelItems, role).map((g) => g.id));
+    const canSeePayrollDocs = ["admin", "supervisor", "superadmin"].includes(String(role || "").toLowerCase());
 
     return TABS.map((tab) => {
       const sections = tab.content
         // Employee guide is ungrouped; company/settings sections follow the sidebar's role filter.
-        .filter((s) => !s.groupId || allowedGroups.has(s.groupId))
+        // Payroll is documented here even though those pages live on the Employee Panel.
+        .filter((s) => !s.groupId || allowedGroups.has(s.groupId) || (s.groupId === "payroll" && canSeePayrollDocs))
         .filter((s) => matchesCompanyType(s, companyType))
         .map((s) => ({
           ...s,
