@@ -135,7 +135,7 @@ export default function UserMenu() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-neutral-800 dark:text-neutral-100 truncate">{fullName}</p>
                   <p className="text-xs text-neutral-600 dark:text-neutral-400 truncate">{user?.email}</p>
-                  {user?.username && <p className="text-xs text-neutral-500 dark:text-neutral-500 truncate">@{user.username}</p>}
+                  {user?.username && !user?.isSystemAgent && <p className="text-xs text-neutral-500 dark:text-neutral-500 truncate">@{user.username}</p>}
                 </div>
               </div>
 
@@ -146,7 +146,13 @@ export default function UserMenu() {
                     <span className="truncate max-w-32">{company.name}</span>
                   </div>
                 )}
-                <Badge className={`capitalize text-xs ${getRoleColor(user?.role)}`}>{user?.role || "User"}</Badge>
+                {user?.isSystemAgent ? (
+                  <Badge variant="secondary" className="text-xs whitespace-nowrap">
+                    Support
+                  </Badge>
+                ) : (
+                  <Badge className={`capitalize text-xs ${getRoleColor(user?.role)}`}>{user?.role || "User"}</Badge>
+                )}
               </div>
             </div>
             <div className="py-2">
@@ -161,6 +167,7 @@ export default function UserMenu() {
                 </motion.div>
               </Link>
 
+              {!user?.isSystemAgent && (
               <Link href="/dashboard/user/settings" onClick={() => setIsOpen(false)}>
                 <motion.div
                   whileHover={{ backgroundColor: "rgba(249, 115, 22, 0.1)" }}
@@ -171,6 +178,7 @@ export default function UserMenu() {
                   <span>Settings</span>
                 </motion.div>
               </Link>
+              )}
 
               <div className="border-t border-neutral-200 dark:border-neutral-700 my-2" />
 

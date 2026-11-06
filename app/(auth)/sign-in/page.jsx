@@ -4,7 +4,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Crown, Shield, UserCheck, User, Eye, EyeOff, Check } from "lucide-react";
+import { Crown, Shield, UserCheck, User, Eye, EyeOff, Check, Headset } from "lucide-react";
 import useAuthStore from "@/store/useAuthStore";
 import Footer from "@/components/Partial/Footer";
 import { motion } from "framer-motion";
@@ -19,6 +19,12 @@ export default function SignInPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  // BB-110: B. Buddy support sign-in (staff code + PIN)
+  const [agentData, setAgentData] = useState({ agentCode: "", agentPin: "" });
+  const [showPin, setShowPin] = useState(false);
+
+  const selectedUser = users.find((u) => u.companyId === selectedCompanyId);
+  const isAgentSelected = Boolean(selectedUser?.isSystemAgent);
 
   const handleChange = (e) => {
     setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -66,14 +72,22 @@ export default function SignInPage() {
     setError("");
   };
 
-  const handleSignInWithPassword = async (e) => {
-    e.preventDefault();
+  const handleAgentChange = (e) => {
+    const { name, value } = e.target;
+    setAgentData((prev) => ({
+      ...prev,
+      [name]: name === "agentPin" ? value.replace(/\D/g, "").slice(0, 8) : value,
+    }));
+  };
 
-    if (!formData.email || !formData.password || !selectedCompanyId) {
-      setError("Email, password, and company selection are required.");
-      return;
-    }
+  const handleAgentBack = () => {
+    setAgentData({ agentCode: "", agentPin: "" });
+    setShowPin(false);
+    setError("");
+    setStep(2);
+  };
 
+  const submitLogin = async ({ withAgent = false } = {}) => {
     setError("");
     setLoading(true);
 
@@ -85,9 +99,38 @@ export default function SignInPage() {
           email: formData.email.trim().toLowerCase(),
           password: formData.password,
           companyId: selectedCompanyId,
+          ...(withAgent
+            ? { agentCode: agentData.agentCode.trim(), agentPin: agentData.agentPin }
+            : {}),
         }),
       });
       const data = await res.json();
+
+      // B. Buddy needs the staff code + PIN step — not an error
+      if (res.status === 401 && data.code === "AGENT_IDENTITY_REQUIRED") {
+        setStep(3);
+        setLoading(false);
+        return;
+      }
+
+      if (res.status === 401 && data.code === "AGENT_IDENTITY_INVALID") {
+        setError("Invalid staff code or PIN.");
+        setLoading(false);
+        return;
+      }
+
+      if (res.status === 429 && data.code === "AGENT_LOCKED") {
+        setError("Too many wrong PINs. This staff code is locked for 15 minutes, or ask a system admin to reset your PIN.");
+        setLoading(false);
+        return;
+      }
+
+      // Valid staff code/PIN, but not assigned to this company — stay on the code/PIN step
+      if (res.status === 403 && data.code === "AGENT_NOT_ASSIGNED") {
+        setError("You're not assigned to this company.");
+        setLoading(false);
+        return;
+      }
 
       if (res.status === 403) {
         setError("Your account is inactive. Please contact your administrator to reactivate your account.");
@@ -108,6 +151,28 @@ export default function SignInPage() {
       setError("Something went wrong.");
     }
     setLoading(false);
+  };
+
+  const handleSignInWithPassword = async (e) => {
+    e.preventDefault();
+
+    if (!formData.email || !formData.password || !selectedCompanyId) {
+      setError("Email, password, and company selection are required.");
+      return;
+    }
+
+    await submitLogin();
+  };
+
+  const handleAgentSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!agentData.agentCode.trim() || !/^\d{6,8}$/.test(agentData.agentPin)) {
+      setError("Enter your staff code and a 6–8 digit PIN.");
+      return;
+    }
+
+    await submitLogin({ withAgent: true });
   };
 
   const handleForgotPassword = () => {
@@ -186,6 +251,12 @@ export default function SignInPage() {
             <div className={`w-3 h-3 rounded-full transition-colors duration-300 ${step === 1 ? "bg-orange-500" : "bg-green-500"}`} />
             <div className={`h-0.5 w-10 rounded-full transition-colors duration-300 ${step === 2 ? "bg-orange-500" : step > 2 ? "bg-green-500" : "bg-neutral-200 dark:bg-neutral-700"}`} />
             <div className={`w-3 h-3 rounded-full transition-colors duration-300 ${step === 2 ? "bg-orange-500" : step > 2 ? "bg-green-500" : "bg-neutral-200 dark:bg-neutral-700"}`} />
+            {(isAgentSelected || step === 3) && (
+              <>
+                <div className={`h-0.5 w-10 rounded-full transition-colors duration-300 ${step === 3 ? "bg-orange-500" : "bg-neutral-200 dark:bg-neutral-700"}`} />
+                <div className={`w-3 h-3 rounded-full transition-colors duration-300 ${step === 3 ? "bg-orange-500" : "bg-neutral-200 dark:bg-neutral-700"}`} />
+              </>
+            )}
           </div>
         </motion.div>
 
@@ -283,7 +354,7 @@ export default function SignInPage() {
                         ? "bg-orange-100 dark:bg-orange-800/50 text-orange-600 dark:text-orange-400"
                         : "bg-neutral-200 dark:bg-neutral-700 text-neutral-500 dark:text-neutral-400"
                     }`}>
-                      {getRoleIcon(u.role)}
+                      {u.isSystemAgent ? <Headset className="h-4 w-4" /> : getRoleIcon(u.role)}
                     </span>
 
                     <div className="flex-1 min-w-0">
@@ -300,14 +371,16 @@ export default function SignInPage() {
                             ? "text-orange-500/80 dark:text-orange-400/70"
                             : "text-neutral-400 dark:text-neutral-500"
                         }`}>
-                          {u.username}
+                          {u.isSystemAgent ? "B. Buddy" : u.username}
                         </span>
                         <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${
-                          selectedCompanyId === u.companyId
-                            ? "bg-orange-100 dark:bg-orange-800/40 text-orange-600 dark:text-orange-400"
-                            : "bg-neutral-200 dark:bg-neutral-700 text-neutral-500 dark:text-neutral-400"
+                          u.isSystemAgent
+                            ? "bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300"
+                            : selectedCompanyId === u.companyId
+                              ? "bg-orange-100 dark:bg-orange-800/40 text-orange-600 dark:text-orange-400"
+                              : "bg-neutral-200 dark:bg-neutral-700 text-neutral-500 dark:text-neutral-400"
                         }`}>
-                          {getRoleLabel(u.role)}
+                          {u.isSystemAgent ? "Internal" : getRoleLabel(u.role)}
                         </span>
                       </div>
                     </div>
@@ -355,6 +428,7 @@ export default function SignInPage() {
                   </div>
                 </div>
 
+                {!isAgentSelected && (
                 <div className="flex justify-end">
                   <button
                     type="button"
@@ -364,6 +438,7 @@ export default function SignInPage() {
                     Forgot your password?
                   </button>
                 </div>
+                )}
 
                 <button
                   type="submit"
@@ -377,6 +452,99 @@ export default function SignInPage() {
 
             {error && <ErrorBanner message={error} />}
           </motion.div>
+        )}
+
+        {/* Step 3: B. Buddy support sign-in (staff code + PIN) */}
+        {step === 3 && (
+          <motion.form
+            onSubmit={handleAgentSubmit}
+            className="w-full max-w-md sm:max-w-lg bg-white dark:bg-neutral-900 p-6 sm:p-8 rounded-2xl shadow-lg border border-neutral-100 dark:border-neutral-800 space-y-5"
+            initial={{ scale: 0.97, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ duration: 0.4 }}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={handleAgentBack}
+                className="flex items-center gap-1.5 text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200 text-sm font-medium flex-shrink-0 transition-colors duration-150"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
+                </svg>
+                Back
+              </button>
+              <div className="px-3 py-1.5 bg-neutral-100 dark:bg-neutral-800 rounded-full text-xs text-neutral-500 dark:text-neutral-300 truncate min-w-0 max-w-[200px] sm:max-w-xs border border-neutral-200 dark:border-neutral-700">
+                {selectedUser?.companyName || formData.email}
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <h3 className="text-xl sm:text-2xl font-semibold text-neutral-800 dark:text-neutral-100 flex items-center gap-2">
+                <Headset className="h-5 w-5 text-neutral-500 dark:text-neutral-400" />
+                Support sign-in
+              </h3>
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                You&apos;re signing in as B. Buddy. Enter your personal staff code and PIN so your actions are recorded under your name.
+              </p>
+            </div>
+
+            <div>
+              <label htmlFor="agentCode" className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5">
+                Staff code
+              </label>
+              <input
+                id="agentCode"
+                type="text"
+                name="agentCode"
+                value={agentData.agentCode}
+                onChange={handleAgentChange}
+                autoComplete="off"
+                autoCapitalize="characters"
+                className="w-full px-4 py-3.5 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-400 transition-all duration-200 text-base placeholder:text-neutral-400 dark:placeholder:text-neutral-500"
+                required
+              />
+            </div>
+
+            <div>
+              <label htmlFor="agentPin" className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1.5">
+                PIN
+              </label>
+              <div className="relative">
+                <input
+                  id="agentPin"
+                  type={showPin ? "text" : "password"}
+                  name="agentPin"
+                  inputMode="numeric"
+                  pattern="\d{6,8}"
+                  maxLength={8}
+                  value={agentData.agentPin}
+                  onChange={handleAgentChange}
+                  autoComplete="off"
+                  className="w-full px-4 py-3.5 pr-11 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-400 transition-all duration-200 text-base placeholder:text-neutral-400 dark:placeholder:text-neutral-500"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPin((prev) => !prev)}
+                  className="absolute inset-y-0 right-3 flex items-center text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 transition-colors"
+                  aria-label={showPin ? "Hide PIN" : "Show PIN"}
+                >
+                  {showPin ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full flex items-center justify-center gap-2 px-5 py-4 rounded-xl font-bold text-base text-white bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 shadow-md hover:shadow-lg transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {loading ? <><Spinner /> Signing in...</> : <>Continue <ArrowRight /></>}
+            </button>
+
+            {error && <ErrorBanner message={error} />}
+          </motion.form>
         )}
       </div>
 

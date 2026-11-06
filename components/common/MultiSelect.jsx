@@ -19,6 +19,7 @@ export default function MultiSelect({
   sortable = false,
   className = "",
   singleSelect = false,
+  fullWidthContent = false,
 }) {
   const allChecked = selected.includes("all") || selected.length === options.length;
   const triggerId = useId();
@@ -48,19 +49,19 @@ export default function MultiSelect({
 
   const Row = ({ label, checked, onClick }) => (
     <div
-      className="flex items-center gap-2 p-2 rounded-md hover:bg-muted cursor-pointer"
+      className={`flex ${fullWidthContent ? "items-start" : "items-center"} gap-2 p-2 rounded-md hover:bg-muted cursor-pointer`}
       onClick={onClick}
     >
       {singleSelect ? (
         <span
-          className={`h-4 w-4 shrink-0 rounded-full border border-primary flex items-center justify-center ${checked ? "bg-primary" : ""}`}
+          className={`h-4 w-4 shrink-0 rounded-full border border-primary flex items-center justify-center ${checked ? "bg-primary" : ""} ${fullWidthContent ? "mt-0.5" : ""}`}
         >
           {checked && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
         </span>
       ) : (
-        <Checkbox checked={checked} className="h-4 w-4" />
+        <Checkbox checked={checked} className={`h-4 w-4 ${fullWidthContent ? "mt-0.5 shrink-0" : ""}`} />
       )}
-      <span className="truncate text-sm">{label}</span>
+      <span className={fullWidthContent ? "text-sm break-words text-left min-w-0" : "truncate text-sm"}>{label}</span>
     </div>
   );
 
@@ -81,7 +82,10 @@ export default function MultiSelect({
           <ChevronDown className="ml-2 h-4 w-4 opacity-50 shrink-0" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-64 p-2 space-y-1" align="start">
+      <PopoverContent
+        className={`${fullWidthContent ? "w-[var(--radix-popover-trigger-width)] min-w-64" : "w-64"} p-2 space-y-1`}
+        align="start"
+      >
         {(searchable || sortable) && (
           <div className="flex items-center gap-1 pb-2 border-b mb-1">
             {searchable && (

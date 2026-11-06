@@ -114,6 +114,21 @@ function formatYmd(ymd) {
   return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
+// "YYYY-MM-DD" → "Oct 27" without a UTC shift.
+function formatYmdShort(ymd) {
+  if (!ymd) return "";
+  const [y, m, d] = String(ymd).slice(0, 10).split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+// Ledger row's leave → "Oct 27" or "Nov 9 – Nov 11".
+function leaveRangeLabel(leave) {
+  if (!leave?.startDate) return "";
+  const start = formatYmdShort(leave.startDate);
+  const end   = formatYmdShort(leave.endDate);
+  return !end || end === start ? start : `${start} – ${end}`;
+}
+
 function creditFormFrom(settings) {
   const form = {};
   LEAVE_CREDIT_FIELDS.forEach((k) => { form[k] = settings?.[k] != null ? String(settings[k]) : ""; });
@@ -1445,7 +1460,7 @@ function LeaveLedgerDrilldownModal({ open, onClose, token, API, userId, policyId
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-lg overflow-hidden">
+      <DialogContent className="sm:max-w-2xl overflow-hidden">
         <div className="h-[3px] bg-orange-500 -mt-6 mb-4 -mx-6" />
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -1473,6 +1488,7 @@ function LeaveLedgerDrilldownModal({ open, onClose, token, API, userId, policyId
                   <th className="text-right px-3 py-2 text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">Hours</th>
                   <th className="text-right px-3 py-2 text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">Balance After</th>
                   <th className="text-left  px-3 py-2 text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">Note</th>
+                  <th className="text-left  px-3 py-2 text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">By</th>
                 </tr>
               </thead>
               <tbody>
@@ -1485,10 +1501,16 @@ function LeaveLedgerDrilldownModal({ open, onClose, token, API, userId, policyId
                   }[t.type] || { label: t.type || "—", bg: "bg-neutral-50", clr: "text-neutral-500" };
                   // Lifecycle rows (submitted/approved/…) carry no balance movement — hours is null.
                   const hours = t.hours != null ? Number(t.hours) : null;
+                  // Row date is when the action happened; the leave's own dates come from t.leave (BB-116).
+                  const leaveLabel = leaveRangeLabel(t.leave);
+                  const approver   = t.leave?.approver;
+                  const showAssigned = ["approved", "rejected", "deduction"].includes(t.type)
+                    && approver?.name && approver.id !== t.performedBy?.id;
                   return (
                     <tr key={t.id} className="border-t border-neutral-100 dark:border-neutral-800">
                       <td className="px-3 py-2 text-xs text-neutral-500 whitespace-nowrap">
                         {t.createdAt ? new Date(t.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+                        {leaveLabel && <span className="block text-[11px] text-neutral-400">Leave: {leaveLabel}</span>}
                       </td>
                       <td className="px-3 py-2">
                         <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${typeCfg.bg} ${typeCfg.clr}`}>{typeCfg.label}</span>
@@ -1500,6 +1522,10 @@ function LeaveLedgerDrilldownModal({ open, onClose, token, API, userId, policyId
                         {t.balanceAfter != null ? `${t.balanceAfter}h` : "—"}
                       </td>
                       <td className="px-3 py-2 text-xs text-neutral-500">{t.note || "—"}</td>
+                      <td className="px-3 py-2 text-xs text-neutral-500">
+                        {t.performedBy?.name || "—"}
+                        {showAssigned && <span className="block text-[11px] text-neutral-400">Assigned: {approver.name}</span>}
+                      </td>
                     </tr>
                   );
                 })}

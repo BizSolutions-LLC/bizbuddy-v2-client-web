@@ -11,6 +11,7 @@ import PageLoader from "@/components/Dashboard/PageLoader";
 import DashboardSkeleton from "./DashboardSkeleton";
 import ErrorBoundary from "@/components/common/ErrorBoundary";
 import FeedbackWidget from "@/components/common/FeedbackWidget";
+import { isSystemAgentToken, isBlockedForSystemAgent, SYSTEM_AGENT_HOME } from "@/lib/systemAgent";
 
 export default function DashboardLayoutClient({ children }) {
   const { token, login, logout, sidebarOpen, setSidebarOpen } = useAuthStore();
@@ -66,6 +67,14 @@ export default function DashboardLayoutClient({ children }) {
     }
   }, [token, login, logout, router]);
 
+  // BB-110: B. Buddy is Company-panel only — bounce it off employee/self-service routes
+  const isSystemAgent = isSystemAgentToken(token);
+  const isBlockedRoute = isSystemAgent && isBlockedForSystemAgent(pathname);
+
+  useEffect(() => {
+    if (isBlockedRoute) router.replace(SYSTEM_AGENT_HOME);
+  }, [isBlockedRoute, router]);
+
   useEffect(() => {
     if (!isLoadingAuth) {
       const t = setTimeout(() => setIsReady(true), 50);
@@ -89,6 +98,7 @@ export default function DashboardLayoutClient({ children }) {
 
   if (isLoadingAuth || !isReady) return <DashboardSkeleton />;
   if (!token) return null;
+  if (isBlockedRoute) return <DashboardSkeleton />;
 
   const closeSidebar = () => {
     if (!isSidebarPinned) setSidebarOpen(false);

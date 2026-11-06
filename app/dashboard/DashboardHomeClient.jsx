@@ -5,19 +5,21 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Loader2, ArrowRight } from "lucide-react";
+import useAuthStore from "@/store/useAuthStore";
+import { isSystemAgentToken, SYSTEM_AGENT_HOME } from "@/lib/systemAgent";
 
 export default function DashboardHomeClient() {
   const router = useRouter();
+  const { token } = useAuthStore();
   const [isRedirecting, setIsRedirecting] = useState(false);
 
   useEffect(() => {
     setIsRedirecting(true);
-    const t = setTimeout(
-      () => router.replace("/dashboard/employee/overview"),
-      800
-    );
+    // BB-110: B. Buddy opens straight into the Company panel
+    const home = isSystemAgentToken(token) ? SYSTEM_AGENT_HOME : "/dashboard/employee/overview";
+    const t = setTimeout(() => router.replace(home), 800);
     return () => clearTimeout(t);
-  }, [router]);
+  }, [router, token]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-50 via-white to-orange-50 dark:from-neutral-900 dark:via-neutral-800 dark:to-neutral-900">

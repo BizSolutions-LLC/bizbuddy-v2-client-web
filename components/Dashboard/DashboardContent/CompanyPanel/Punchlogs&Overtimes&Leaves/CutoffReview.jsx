@@ -498,6 +498,12 @@ const NO_SHIFT_TOOLTIP = "No schedule assigned for this day. Assign a shift firs
 // (e.g. "301.8min" with no schedule). Flip back to true once the server figure is fixed.
 const SHOW_LEFT_EARLY_TAG = false;
 
+// BB-105: "Too Early" and "Auto clock-out triggered" read inaccurately, so they're hidden for
+// now. Display only — neither tag drives the Flagged badge or any filter. ("min late" is
+// accurate and stays.)
+const SHOW_TOO_EARLY_TAG = false;
+const SHOW_AUTO_CLOCKOUT_TAG = false;
+
 // Records "Approve All Raw" would approve for one employee — shared by the bulk action
 // and its BB-104 no-schedule confirmation so both always count the same set.
 function collectBulkApprovable(emp, requiredAction) {
@@ -1269,9 +1275,17 @@ const OTBlockRow = ({ block, onOTBlock, localOTBlockStatus, threshold, isCutoffB
 };
 
 /** Employee card */
-const EmployeeCard = ({ emp, onApprove, onApproveOT, onApproveSchedule, onApproveRaw, onEdit, onExclude, onConflict, onBulkApproveRaw, onBulkApproveSchedule, onOTBlock, localOTBlockStatus, companyTimezone, dailyOtThresholdHours, cutoffOtThresholdHours, otBasis, onReset, onSetPunchType, trainingDates, refreshingOT, cutoffStatus, onEditFixedHours }) => {
-  const [expanded, setExpanded] = useState(false);
+const EmployeeCard = ({ emp, expanded, onToggle, onApprove, onApproveOT, onApproveSchedule, onApproveRaw, onEdit, onExclude, onConflict, onBulkApproveRaw, onBulkApproveSchedule, onOTBlock, localOTBlockStatus, companyTimezone, dailyOtThresholdHours, cutoffOtThresholdHours, otBasis, onReset, onSetPunchType, trainingDates, refreshingOT, cutoffStatus, onEditFixedHours }) => {
   const isCutoffBasis = otBasis === "cutoff";
+
+  // BB-096: opening this card closes the previously open one, which can shift the page.
+  // Wait for that collapse (0.2s) to finish, then bring this card's header into view.
+  const cardRef = useRef(null);
+  useEffect(() => {
+    if (!expanded) return;
+    const t = setTimeout(() => cardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 220);
+    return () => clearTimeout(t);
+  }, [expanded]);
 
   // B&C: build a map of formatted-date → OT block so we can inject OT rows after the last
   // punch row for each date without a second pass.
@@ -1313,11 +1327,11 @@ const EmployeeCard = ({ emp, onApprove, onApproveOT, onApproveSchedule, onApprov
     : "border-neutral-200 dark:border-neutral-800";
 
   return (
-    <div className={`bg-white dark:bg-neutral-900 rounded-xl border ${cardBorder} overflow-hidden shadow-sm hover:shadow-md transition-shadow`}>
+    <div ref={cardRef} className={`scroll-mt-40 bg-white dark:bg-neutral-900 rounded-xl border ${cardBorder} overflow-hidden shadow-sm hover:shadow-md transition-shadow`}>
       {/* Header */}
       <div
         className="flex items-center gap-3 px-4 py-3 cursor-pointer select-none"
-        onClick={() => setExpanded((v) => !v)}
+        onClick={onToggle}
       >
         {/* Avatar */}
         <div
@@ -1605,6 +1619,7 @@ export default function CutoffReview({ cutoffId }) {
   const [trainingDayModal,  setTrainingDayModal]  = useState(false); // BB-095: whole-day Training dialog
   const [trainingDayDate,   setTrainingDayDate]   = useState("");
   const [trainingDaySaving, setTrainingDaySaving] = useState(null);  // "TRAINING" | "REGULAR" while in flight
+  const [openEmpId,         setOpenEmpId]         = useState(null);  // BB-096: only one employee card open at a time
 
   // ── Filters ──
   const [activeTab,    setActiveTab]    = useState("all");
@@ -2128,7 +2143,7 @@ export default function CutoffReview({ cutoffId }) {
     const scheduledHrs    = schedule?.scheduledHours || null;
 
     const tags = [];
-    if (tl.isTooEarlyPunch) tags.push({ cls: "tooEarly", label: "Too Early" });
+    if (SHOW_TOO_EARLY_TAG && tl.isTooEarlyPunch) tags.push({ cls: "tooEarly", label: "Too Early" });
     if (isLate && !tl.isApproved)      tags.push({ cls: "late", label: `${calc.lateMinutes}min late` });
     if (withinGrace) tags.push({ cls: "snap", label: "Within grace — snaps to schedule" });
     if (SHOW_LEFT_EARLY_TAG && leftEarly && !tl.isApproved) {
@@ -2147,7 +2162,7 @@ export default function CutoffReview({ cutoffId }) {
     if (!isBNC && hasOT) tags.push({ cls: "ot", label: `+${calc.overtimeHours}h OT` });
     if (calc.willSnapIn)  tags.push({ cls: "snap", label: "Clock-in will snap" });
     if (calc.willSnapOut) tags.push({ cls: "snap", label: "Clock-out will snap" });
-    if (tl.autoClockOut && !tl.isApproved)  tags.push({ cls: "auto", label: "Auto clock-out triggered" });
+    if (SHOW_AUTO_CLOCKOUT_TAG && tl.autoClockOut && !tl.isApproved)  tags.push({ cls: "auto", label: "Auto clock-out triggered" });
     if (approval.isDuplicate && !tl.isApproved) tags.push({ cls: "flag", label: "Possible duplicate" });
 
     // Actions — both BNC and DayCare use the four-button model.
@@ -2585,7 +2600,7 @@ export default function CutoffReview({ cutoffId }) {
         }
       );
       if (!res.ok) throw new Error();
-      toast.success("Approved");
+      // BB-105: no "Approved" toast — the row's status change is confirmation enough.
       // Keep approvingIds active — refreshApprovals clears it once the GET /approvals
       // completes and employees are rebuilt with enriched hours from enrichApprovals.
       await refreshApprovals(recId);
@@ -3081,6 +3096,8 @@ export default function CutoffReview({ cutoffId }) {
             >
               <EmployeeCard
                 emp={emp}
+                expanded={openEmpId === emp.id}
+                onToggle={() => setOpenEmpId((cur) => (cur === emp.id ? null : emp.id))}
                 onApprove={(id) => doApprove(id)}
                 onApproveOT={(id) => doApprove(id, { withOT: true })}
                 onApproveSchedule={handleApproveSchedule}

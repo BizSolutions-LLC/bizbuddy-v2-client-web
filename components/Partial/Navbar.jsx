@@ -91,6 +91,9 @@ export default function NavBar() {
   const isDashboard = pathname?.startsWith("/dashboard");
   const hideLogo = isDashboard && sidebarOpen;
 
+  // The system-admin dashboard has its own nav
+  if (pathname?.startsWith("/system-admin")) return null;
+
   return (
     <motion.header
       initial={{ y: -100 }}
