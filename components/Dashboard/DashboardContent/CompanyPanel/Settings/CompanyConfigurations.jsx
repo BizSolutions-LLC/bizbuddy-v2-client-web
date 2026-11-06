@@ -3,6 +3,7 @@
 // Converted from HTML prototype — all original APIs preserved.
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Building2, Loader2, Save, Clock, User, CheckSquare, AlertCircle,
@@ -1942,6 +1943,14 @@ export default function ModernCompanyConfigurations() {
     { id: "break-policy",   label: "Break Policy" },
     { id: "fixed-hours",    label: "Fixed Hours" },
   ];
+
+  // BB-115: ?tab=<id> opens a tab (setup guide links). Re-applies when the link changes
+  // while the page is already open; unknown ids are ignored.
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  useEffect(() => {
+    if (tabParam && TABS.some((t) => t.id === tabParam)) setActiveTab(tabParam);
+  }, [tabParam, isDayCare]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Render ───────────────────────────────────────────────────────────────
   return (

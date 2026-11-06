@@ -1,26 +1,24 @@
 "use client";
 // components/Dashboard/DashboardContent/CompanyPanel/Settings/LeaveReportDialog.jsx
-// BB-098 — Leave Settings → Generate Report. Fetches GET /api/reports/leave (JSON) and
-// hands it to lib/exports/leaveReports.js to write CSV or PDF, the same split as the
-// Employees Punch Logs report.
+// BB-106 — Leave Settings → Generate Report. The server builds the Leave Report workbook
+// (GET /api/reports/leave/template, .xlsx, one sheet per leave type); this dialog only
+// collects filters and downloads the file. Replaces the BB-098 CSV/PDF reports.
 
 import { useEffect, useMemo, useState } from "react";
 import { Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import MultiSelect from "@/components/common/MultiSelect";
+import { downloadLeaveTemplateReport } from "@/lib/leaveReportActions";
 
-// Kept here, not imported from lib/exports/leaveReports, so jsPDF only loads on Generate.
-const REPORT_TYPES = {
-  summary:    { label: "Balance Summary",        hint: "Each employee's credited, used, adjusted, expired and available hours as of a date, with what's left per fiscal year." },
-  activity:   { label: "Activity by Period",     hint: "Opening, credited, used, unpaid, adjusted, expired and closing hours per month, quarter or year." },
-  expiration: { label: "Fiscal-Year Expiration", hint: "Every fiscal-year credit lot: what's left, when it expires, and whether the reminder went out." },
-};
+const QUARTERS = ["Q1", "Q2", "Q3", "Q4"];
+const MONTHS   = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const QUARTER_OPTIONS = QUARTERS.map((q) => ({ value: q, label: q }));
+const MONTH_OPTIONS   = MONTHS.map((m) => ({ value: m, label: m }));
 
 // "all" sentinel selection, same model as the Leave Types assignment picker.
 function toggleSelection(prev, val) {
@@ -30,29 +28,23 @@ function toggleSelection(prev, val) {
   return list.length ? list : ["all"];
 }
 
-const todayYmd = () => new Date().toLocaleDateString("en-CA");
-const yearStartYmd = () => `${new Date().getFullYear()}-01-01`;
+const currentYear = () => new Date().getFullYear();
 
 export default function LeaveReportDialog({ open, onOpenChange, token, API, role, policies, matrix }) {
   const isSupervisor = (role || "").toLowerCase() === "supervisor";
 
-  const [type,           setType]           = useState("summary");
-  const [from,           setFrom]           = useState(yearStartYmd);
-  const [to,             setTo]             = useState(todayYmd);
-  const [groupBy,        setGroupBy]        = useState("quarter");
-  const [basis,          setBasis]          = useState("fiscal");
-  const [withinDays,     setWithinDays]     = useState("");
-  const [policyIds,      setPolicyIds]      = useState(["all"]);
-  const [userIds,        setUserIds]        = useState(["all"]);
-  const [departmentId,   setDepartmentId]   = useState("all");
+  const [year,            setYear]            = useState(() => String(currentYear()));
+  const [rangeMode,       setRangeMode]       = useState("year"); // year | quarters | months
+  const [quarters,        setQuarters]        = useState(["all"]);
+  const [months,          setMonths]          = useState(["all"]);
+  const [policyIds,       setPolicyIds]       = useState(["all"]);
+  const [userIds,         setUserIds]         = useState(["all"]);
+  const [departmentId,    setDepartmentId]    = useState("all");
   const [includeInactive, setIncludeInactive] = useState(false);
-  const [includeGranted, setIncludeGranted] = useState(false);
-  const [format,         setFormat]         = useState("csv");
-  const [departments,    setDepartments]    = useState([]);
-  const [generating,     setGenerating]     = useState(false);
+  const [departments,     setDepartments]     = useState([]);
+  const [generating,      setGenerating]      = useState(false);
 
-  // Supervisors are scoped to their own department server-side (403 otherwise), so they
-  // get no department picker at all.
+  // Supervisors are scoped to their own department server-side, so they get no picker.
   useEffect(() => {
     if (!open || isSupervisor || departments.length) return;
     fetch(`${API}/api/departments`, { headers: { Authorization: `Bearer ${token}` } })
@@ -61,39 +53,31 @@ export default function LeaveReportDialog({ open, onOpenChange, token, API, role
       .catch(() => {});
   }, [open, isSupervisor, departments.length, API, token]);
 
+  const yearOptions     = useMemo(() => Array.from({ length: 5 }, (_, i) => String(currentYear() - i)), []);
   const policyOptions   = useMemo(() => policies.map((p) => ({ value: p.id, label: p.isArchived ? `${p.leaveType} (archived)` : p.leaveType })), [policies]);
   const employeeOptions = useMemo(() => matrix.map((r) => ({ value: r.userId, label: r.fullName || r.email })), [matrix]);
 
-  const needsRange = type === "activity";
+  // "All" quarters/months = whole year, so nothing is sent. Picks are sent in calendar order.
+  const pickedQuarters = rangeMode === "quarters" && !quarters.includes("all") ? QUARTERS.filter((q) => quarters.includes(q)) : [];
+  const pickedMonths   = rangeMode === "months" && !months.includes("all") ? MONTHS.filter((m) => months.includes(m)) : [];
+  const isPartialYear  = pickedQuarters.length > 0 || pickedMonths.length > 0;
 
   const generate = async () => {
-    if (needsRange && (!from || !to || from > to)) { toast.error("Choose a valid date range."); return; }
     setGenerating(true);
     try {
-      const params = new URLSearchParams({ type });
-      if (to) params.set("to", to);
-      if (needsRange) { params.set("from", from); params.set("groupBy", groupBy); params.set("basis", basis); }
-      if (type === "expiration" && withinDays.trim() !== "") params.set("expiringWithinDays", withinDays.trim());
-      if (!policyIds.includes("all")) params.set("policyIds", policyIds.join(","));
-      if (!userIds.includes("all")) params.set("userIds", userIds.join(","));
-      if (!isSupervisor && departmentId !== "all") params.set("departmentId", departmentId);
-      if (includeInactive) params.set("includeInactive", "true");
-
-      const r = await fetch(`${API}/api/reports/leave?${params}`, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.message || "Failed to generate the leave report");
-      const report = j.data;
-
-      if (!report?.rows?.length) {
-        toast.info(type === "expiration" && !report?.settings?.leaveCreditsInitializedAt
-          ? "Leave credit setup hasn't been applied yet — there are no fiscal-year credits to report."
-          : "No data for the selected filters.");
-        return;
-      }
-
-      const { exportLeaveReport } = await import("@/lib/exports/leaveReports");
-      const result = await exportLeaveReport({ report, format, includeGranted });
-      if (result.success) toast.success(result.filename);
+      const filename = await downloadLeaveTemplateReport({
+        apiUrl: API,
+        token,
+        year,
+        quarters:     pickedQuarters,
+        months:       pickedMonths,
+        policyIds:    policyIds.includes("all") ? undefined : policyIds,
+        departmentId: !isSupervisor && departmentId !== "all" ? departmentId : undefined,
+        userIds:      userIds.includes("all") ? undefined : userIds,
+        includeInactive,
+        fallbackFilename: `Leave_Report_${year}.xlsx`,
+      });
+      toast.success(filename);
       onOpenChange(false);
     } catch (e) {
       toast.error(`Report generation failed: ${e.message}`);
@@ -113,79 +97,63 @@ export default function LeaveReportDialog({ open, onOpenChange, token, API, role
             </span>
             Generate Leave Report
           </DialogTitle>
-          <DialogDescription>Choose a report, its period and filters, then download it as CSV or PDF.</DialogDescription>
+          <DialogDescription>Downloads an Excel workbook with one sheet per leave type and one row per employee.</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
-          {/* Report type */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold">Report</Label>
-            <Select value={type} onValueChange={setType}>
-              <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {Object.entries(REPORT_TYPES).map(([value, t]) => <SelectItem key={value} value={value}>{t.label}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <p className="text-[11px] text-neutral-500">{REPORT_TYPES[type].hint}</p>
-          </div>
-
           {/* Period */}
-          {needsRange ? (
-            <>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold">From</Label>
-                  <Input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} className="h-9 text-sm" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold">To</Label>
-                  <Input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} className="h-9 text-sm" />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold">Group By</Label>
-                  <Select value={groupBy} onValueChange={setGroupBy}>
-                    <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="month">Monthly</SelectItem>
-                      <SelectItem value="quarter">Quarterly</SelectItem>
-                      <SelectItem value="year">Yearly</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold">Year Basis</Label>
-                  <Select value={basis} onValueChange={setBasis} disabled={groupBy === "month"}>
-                    <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="fiscal">Fiscal year</SelectItem>
-                      <SelectItem value="calendar">Calendar year</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <p className="text-[11px] text-neutral-400 -mt-2">Activity reports can cover up to 5 years.</p>
-            </>
-          ) : (
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold">{type === "summary" ? "Balances As Of" : "State As Of"}</Label>
-                <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="h-9 text-sm" />
-              </div>
-              {type === "expiration" && (
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold">Expiring Within (days)</Label>
-                  <Input
-                    type="number" min={0} max={365}
-                    value={withinDays}
-                    placeholder="Reminder setting"
-                    onChange={(e) => setWithinDays(e.target.value)}
-                    className="h-9 text-sm"
-                  />
-                </div>
-              )}
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Year</Label>
+              <Select value={year} onValueChange={setYear}>
+                <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {yearOptions.map((y) => <SelectItem key={y} value={y}>{y}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Range</Label>
+              <Select value={rangeMode} onValueChange={setRangeMode}>
+                <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="year">Whole year</SelectItem>
+                  <SelectItem value="quarters">Quarters</SelectItem>
+                  <SelectItem value="months">Months</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          {rangeMode === "quarters" && (
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Quarters</Label>
+              <MultiSelect
+                options={QUARTER_OPTIONS}
+                selected={quarters}
+                onChange={(v) => setQuarters((prev) => toggleSelection(prev, v))}
+                allLabel="All quarters"
+                width={0}
+                className="w-full"
+              />
+            </div>
+          )}
+          {rangeMode === "months" && (
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Months</Label>
+              <MultiSelect
+                options={MONTH_OPTIONS}
+                selected={months}
+                onChange={(v) => setMonths((prev) => toggleSelection(prev, v))}
+                allLabel="All months"
+                width={0}
+                className="w-full"
+              />
+            </div>
+          )}
+          {isPartialYear && (
+            <p className="text-[11px] text-neutral-500 -mt-2">
+              Only pay dates in the selected {rangeMode} are shown. Balance {year} is as of the end of the last selected cutoff.
+            </p>
           )}
 
           {/* Filters */}
@@ -199,6 +167,7 @@ export default function LeaveReportDialog({ open, onOpenChange, token, API, role
               width={0}
               className="w-full"
             />
+            <p className="text-[11px] text-neutral-500">Each leave type becomes its own sheet.</p>
           </div>
           {!isSupervisor && (
             <div className="space-y-1.5">
@@ -225,30 +194,15 @@ export default function LeaveReportDialog({ open, onOpenChange, token, API, role
               sortable
             />
           </div>
-          <div className="space-y-2">
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <Checkbox checked={includeInactive} onCheckedChange={(v) => setIncludeInactive(v === true)} />
-              Include inactive employees
-            </label>
-            {type !== "expiration" && (
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <Checkbox checked={includeGranted} onCheckedChange={(v) => setIncludeGranted(v === true)} />
-                Add a Granted column (automatic grants only)
-              </label>
-            )}
-          </div>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <Checkbox checked={includeInactive} onCheckedChange={(v) => setIncludeInactive(v === true)} />
+            Include inactive employees
+          </label>
 
-          {/* Format */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold">Format</Label>
-            <Select value={format} onValueChange={setFormat}>
-              <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="csv">CSV</SelectItem>
-                <SelectItem value="pdf">PDF</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          <p className="text-[11px] text-neutral-400">
+            Columns: previous-year balance, {year} credits, one column per pay date (grouped by month; a leave day
+            counts under the cutoff that contains it), total used, balance, and next year&apos;s beginning balance.
+          </p>
         </div>
 
         <DialogFooter>

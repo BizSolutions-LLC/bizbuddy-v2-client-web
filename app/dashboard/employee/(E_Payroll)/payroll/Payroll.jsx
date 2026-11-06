@@ -1,5 +1,6 @@
 'use client';
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { toast, Toaster } from 'sonner';
 import Reports from './Reports';
 import Employee from './Employee';
@@ -2582,6 +2583,13 @@ const Payroll = () => {
     { id: 'company', label: 'Company' },
     { id: 'check-printing', label: 'Check Printing' },
   ];
+
+  // BB-115: ?tab=<id> opens a tab (setup guide links to ?tab=company). Unknown ids are ignored.
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  useEffect(() => {
+    if (tabParam && tabs.some((t) => t.id === tabParam)) setActiveTab(tabParam);
+  }, [tabParam]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const renderTabContent = () => {
     switch (activeTab) {
