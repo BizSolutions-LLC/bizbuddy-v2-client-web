@@ -506,6 +506,218 @@ const companyDocsContent = [
       },
     ],
   },
+
+  // Payroll pages live under Employee Panel → Payroll. groupId "payroll" draws the
+  // bold Payroll heading; it is not a Company Panel sidebar group.
+  {
+    id: "payroll-management",
+    groupId: "payroll",
+    routeId: "employee/payroll",
+    title: "Payroll Management",
+    summary: "Load hours from a processed cutoff, compute pay, and save the payroll report.",
+    topics: [
+      {
+        title: "Opening Payroll Management",
+        body: "Go to Employee Panel → Payroll → Payroll Management. Admins, supervisors and superadmins can open it. The page has five tabs: Employee Sheet, Reports, Employee, Company and Check Printing. Employee Sheet and Reports are marked Beta.",
+      },
+      {
+        title: "Running payroll on Employee Sheet",
+        body: "Employee Sheet is the payroll workflow: load hours, compute salaries, then process the payroll report.",
+        steps: [
+          "Under Load hours, choose a Processed cutoff. From and To fill in from that cutoff.",
+          "Click Load Hours. If the cutoff is not listed, it still needs a payroll export. Use Create Cutoff, or Review & process on a pending cutoff, then come back and load hours.",
+          "Click Compute Salary. The sheet fills Gross Pay, deductions, taxes and Net Pay. Total Net Payroll shows once the compute finishes.",
+          "Click Process Payroll Report. This saves the run. Open More for Save Payroll, Add Deduction Column, Export Excel or Refresh Data.",
+        ],
+        tips: [
+          "Load Hours becomes Reload Hours after the first load. Compute Salary becomes Recompute Salary, and Process Payroll Report becomes Reprocess Payroll Report.",
+          "Hours include active employees and supervisors. Overtime includes approved hours only.",
+          "Salary employees are paid from annual pay divided by the number of periods in the year. Hourly employees are paid from their rate times the loaded punch hours.",
+        ],
+      },
+      {
+        title: "Employee payroll settings",
+        steps: [
+          "Open the Employee tab and select a person.",
+          "Under Payroll Settings, set Marital Status, Pay Type (Hourly or Salary), the pay rate, and Driver Rate if they drive.",
+          "Set PTO Hours Balance, Additional Fed Income Tax, Additional State Income Tax, and With CalSavers if it applies.",
+          "Under Tax Exemptions, Yes means that tax is withheld at $0. Federal, Social Security, Medicare, SDI and PIT can each be exempt.",
+          "Under Tax Rate Overrides, leave Federal Tax Rate and State Tax Rate on Auto to use the company brackets, or choose Custom and enter a flat percent.",
+          "Click SAVE.",
+        ],
+        tips: ["Name, address and Active come from the employee profile and can't be edited here."],
+      },
+      {
+        title: "Company payroll settings",
+        steps: [
+          "Open the Company tab.",
+          "Company Information is read-only. Change the company profile under Settings → Profile.",
+          "Under Payroll & Cutoff Settings, set Pay Frequency (Weekly, Bi-Weekly, Semi-Monthly or Monthly), Cutoff Start Day, Payment Day and PTO Enabled. Click Calculate Pay Period if you want the dates filled in, then UPDATE SETTINGS.",
+          "Under Federal Income Tax Brackets and State Income Tax Brackets, add or edit brackets per filing status. Each bracket uses annual taxable income.",
+          "Under Payroll Tax Rates, set Social Security (FICA), Medicare Tax and State Disability (SDI), then click SAVE TAX RATES. Employer taxes (not taken from the employee's net) are saved with Save rate.",
+        ],
+      },
+      {
+        title: "Reports",
+        steps: [
+          "Open the Reports tab. A red count means a saved run has not been opened yet.",
+          "Payroll Detail is the working report. 941 Tax Liability and DE-9C are not available yet.",
+          "Choose a Period type: Custom Range, Monthly, Quarterly or Yearly.",
+          "Export the report, or open a run to View paycheck, Download a payslip, or Print check.",
+        ],
+        tips: [
+          "Create Disbursement Batch on a saved run opens that payroll in Disbursement. If a batch already exists, the button is View Disbursement.",
+          "Emailing a payslip waits until that employee's payment is recorded in Disbursement.",
+        ],
+      },
+      {
+        title: "Check printing",
+        steps: [
+          "Open the Check Printing tab.",
+          "Under Select Template, choose the check layout.",
+          "Under Fine-tune Settings, adjust positions and font sizes. Reset to Default restores the template.",
+          "Click Generate Test PDF to preview a check.",
+        ],
+      },
+    ],
+  },
+  {
+    id: "disbursement",
+    groupId: "payroll",
+    routeId: "employee/disbursement",
+    title: "Disbursement",
+    summary: "Pay a finalized payroll: review who is paid by bank, record payments made outside BizBuddy, and keep a proof of payment.",
+    topics: [
+      {
+        title: "Who can use Disbursement",
+        body: "Open Employee Panel → Payroll → Disbursement. Admins, supervisors and superadmins can open it. Employees use Payroll → Payout account to connect the bank that receives their pay.",
+        tips: [
+          "Admins create a batch, set up company funding, choose how each person is paid, and record an outside payment.",
+          "Supervisors can review a batch and approve it. The person who created the batch cannot approve it.",
+          "The person who approved a batch cannot attach the payment proof. A different administrator does that.",
+        ],
+      },
+      {
+        title: "Starting a disbursement",
+        steps: [
+          "Go to Payroll → Disbursement.",
+          "Under Start a disbursement, choose a locked, finalized payroll that does not already have an open batch.",
+          "Click Create batch. BizBuddy opens that batch for review.",
+        ],
+        tips: [
+          "If the list says No payroll is ready, finalize and lock a payroll first, or cancel the open batch for that period.",
+          "Company funding opens the company payout account. View batches opens the full list.",
+        ],
+      },
+      {
+        title: "Reading the overview",
+        body: "The cards at the top of Disbursement show payroll that is ready to pay, how many payroll runs are finalized, employees still awaiting payout setup, batches awaiting approval, batches ready for submission, completed batches, and failed or exception batches. A card you can act on opens that list. Employees awaiting payout setup opens company funding.",
+      },
+      {
+        title: "Finding a batch",
+        steps: [
+          "Click View batches, or open a card on the overview.",
+          "Filter by status, or search by payroll period, who created the batch, or its status.",
+          "Click a row to open Review disbursement.",
+        ],
+      },
+      {
+        title: "Choosing how each person is paid",
+        steps: [
+          "On Review disbursement, find the employee under Recipients. Search by name, account or status, and click a column heading to sort.",
+          "Under Payment, choose Automatic bank or Manual payment.",
+          "For Automatic bank, Bank connected means a payout account is already linked. Otherwise click Set up payout account and enter their name, email and bank details.",
+          "Manual payment is for a check, cash, or other payment made outside BizBuddy.",
+        ],
+        tips: [
+          "Set up payout account stays unavailable until the company funding account is linked.",
+          "A linked employee bank is not replaced by saving again.",
+          "Blocking errors, shown in red, stop approval until they are resolved. Warnings, shown in amber, do not block approval by themselves.",
+          "Approval history shows who created the batch, who approved it, and who recorded payment. Audit history lists each change, who made it, and when.",
+        ],
+      },
+      {
+        title: "Approving a batch",
+        steps: [
+          "When the batch is Ready for Review, click Approve Disbursement.",
+          "Check the recipient count, total, currency and payroll period, then confirm.",
+        ],
+        tips: [
+          "A different person from the creator must approve. Supervisors and admins can approve.",
+          "Approving does not send money. Recipient amounts cannot be changed after approval.",
+          "The creator sees Waiting for a second person to approve.",
+        ],
+      },
+      {
+        title: "Recording a payment made outside BizBuddy",
+        body: "This is available once the batch is Ready for Disbursement, and only for employees set to Manual payment. The person who approved the batch cannot record it.",
+        steps: [
+          "Click Mark paid on one employee, or Mark all paid for every unpaid manual recipient.",
+          "Choose Payment sent via: Check, Cash or Other.",
+          "Attach Proof of payment: a PNG, JPEG, WebP or PDF, up to 5MB. You can drag the file in.",
+          "Confirm. BizBuddy records the payment. It does not transfer money.",
+        ],
+        tips: [
+          "Mark all paid uses one method and one proof file for every unpaid manual recipient.",
+          "View proof on a recipient, or View payment proof on the batch, opens the file that was attached.",
+          "Send payouts is on the review page, but automatic bank transfers are still under development. Clicking it asks you to contact BizBuddy. It does not move money.",
+        ],
+      },
+      {
+        title: "Cancelling a batch",
+        steps: [
+          "On a batch that is Ready for Review, Approved, or Ready for Disbursement, click Cancel.",
+          "Confirm Cancel batch.",
+        ],
+        tips: [
+          "Only an administrator can cancel.",
+          "Cancelling does not move money. It lets a new disbursement be created from the same payroll run.",
+        ],
+      },
+      {
+        title: "Batch statuses",
+        statuses: [
+          { label: "Draft", tone: "warning", meaning: "Started, and not ready for review yet." },
+          { label: "Ready for Review", tone: "warning", meaning: "Waiting for a second person to approve." },
+          { label: "Approved", tone: "info", meaning: "Approved. Money has not been sent." },
+          { label: "Ready for Disbursement", tone: "info", meaning: "Approved and ready to record payment." },
+          { label: "Processing", tone: "warning", meaning: "A payout is in progress." },
+          { label: "Completed", tone: "success", meaning: "Payout recorded or confirmed." },
+          { label: "Failed", tone: "danger", meaning: "The payout did not complete." },
+          { label: "Needs Review", tone: "danger", meaning: "Something needs a person to look at it before it can continue." },
+          { label: "Cancelled", tone: "neutral", meaning: "Closed without paying. The payroll run can be used for a new batch." },
+        ],
+      },
+      {
+        title: "Recipient statuses",
+        statuses: [
+          { label: "Pending", tone: "neutral", meaning: "Not paid yet." },
+          { label: "Ready", tone: "info", meaning: "Ready to be paid." },
+          { label: "Automated transfer ready", tone: "info", meaning: "Their payout account is linked for an automatic bank payment." },
+          { label: "Warning", tone: "warning", meaning: "Something to check. A warning does not block approval by itself." },
+          { label: "Blocked", tone: "danger", meaning: "This person cannot be paid until the blocking issue is fixed." },
+          { label: "Failed", tone: "danger", meaning: "Their payment did not complete." },
+          { label: "Paid", tone: "success", meaning: "Payment recorded. The method and who recorded it show under Payment." },
+        ],
+      },
+      {
+        title: "Company funding",
+        body: "The company bank account funds payroll. Employees do not use this account to receive pay. Only an administrator can set it up. Open it with Company funding on the Disbursement page.",
+        steps: [
+          "Choose a Funding provider: Moov or Stripe. This cannot be changed once the account is linked.",
+          "Enter the Legal name and Email. For Moov, also choose a Business type. Saving accepts Moov's terms.",
+          "Enter the Account holder name, Holder type (Business or Individual), Account type, Routing number and Account number.",
+          "Click Save payout account.",
+        ],
+        tips: [
+          "Bank numbers are sent once. Saving again does not replace a bank that is already linked.",
+          "If the page says money movement is not enabled yet, a payment provider has not been configured.",
+          "For Moov, Bank verification may ask for a code from two small deposits on the company bank statement. Enter that code and click Submit code. BizBuddy does not create the code.",
+          "For Moov, Enable tax service for this company turns the tax service on or off.",
+        ],
+      },
+    ],
+  },
 ];
 
 export default companyDocsContent;

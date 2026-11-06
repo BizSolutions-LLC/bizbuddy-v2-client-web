@@ -7,6 +7,7 @@ import useAuthStore from '@/store/useAuthStore';
 import {
   computeEmployeePayroll,
   calculateDeductionValue,
+  calculateAdditionalEarning,
   calculateTaxes,
   calculateFutaDeduction,
   calculateEmployerWageBaseTax,
@@ -508,6 +509,10 @@ function createCustomDeductionId() {
   return `custom-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+function createCustomEarningId() {
+  return `earning-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
 function formatCutoffRangeLabel(period, tz = 'UTC') {
   const start = toLocalDateStr(period.periodStart, tz);
   const end = toLocalDateStr(period.periodEnd, tz);
@@ -573,10 +578,15 @@ const EmployeeSheet = () => {
   const [deductionTypes, setDeductionTypes] = useState([]);
   const [earningTypes, setEarningTypes] = useState([]);
   const [customDeductionColumns, setCustomDeductionColumns] = useState([]);
+  const [customEarningColumns, setCustomEarningColumns] = useState([]);
   const [deductionInputs, setDeductionInputs] = useState({});
+  const [earningInputs, setEarningInputs] = useState({});
   const [columnHeaderInputs, setColumnHeaderInputs] = useState({});
+  const [earningHeaderInputs, setEarningHeaderInputs] = useState({});
   const [showAddDeductionColumn, setShowAddDeductionColumn] = useState(false);
+  const [showAddEarningColumn, setShowAddEarningColumn] = useState(false);
   const [newCustomDeduction, setNewCustomDeduction] = useState({ label: '', calculationType: 'fixed' });
+  const [newCustomEarning, setNewCustomEarning] = useState({ label: '', calculationType: 'fixed' });
   const [checkNumber, setCheckNumber] = useState('');
   const [savedPayrollRunId, setSavedPayrollRunId] = useState(null);
   const [paidEmployeeIds, setPaidEmployeeIds] = useState(() => new Set());
@@ -762,6 +772,7 @@ const EmployeeSheet = () => {
     return employeeRows.map((row) => ({
       ...row,
       grossPay: null,
+      baseGrossPay: null,
       taxes: null,
       taxBreakdown: null,
       federalTaxDetail: null,
@@ -770,10 +781,12 @@ const EmployeeSheet = () => {
       netPay: null,
       computeError: null,
       deductionBreakdown: null,
+      additionalEarningsBreakdown: null,
       futaDeduction: null,
       suiDeduction: null,
       ettDeduction: null,
       earningsBreakdown: null,
+      baseEarningsBreakdown: null,
     }));
   }, []);
 
@@ -830,6 +843,83 @@ const EmployeeSheet = () => {
       };
     },
     [allDeductionColumns, futaSettings, suiSettings, ettSettings]
+  );
+
+  const applyEarningsToRow = useCallback(
+    (
+      row,
+      deductionInputsByType = {},
+      earningInputsByType = {},
+      deductionColumns = allDeductionColumns,
+      earningColumns = customEarningColumns,
+      futaOverride = futaSettings,
+      employerSettings = { sui: suiSettings, ett: ettSettings },
+      activeTaxRates = taxRates,
+      payFrequency = companyConfig?.payFrequency
+    ) => {
+      if (row.baseGrossPay == null || row.computeError) {
+        return { ...row, suiDeduction: null, ettDeduction: null };
+      }
+
+      let additionalTotal = 0;
+      const additionalEarningsBreakdown = {};
+      earningColumns.forEach((col) => {
+        const amount = calculateAdditionalEarning(col, earningInputsByType[col.id] ?? '', row.baseGrossPay);
+        additionalEarningsBreakdown[col.id] = amount;
+        additionalTotal += amount;
+      });
+
+      const grossPay = round2(row.baseGrossPay + additionalTotal);
+      const employee = {
+        payrollDetails: row.payrollDetails,
+        earningRates: row.earningRates || {},
+      };
+      const taxBreakdown = calculateTaxes(employee, grossPay, activeTaxRates, payFrequency);
+      const federalTaxDetail = getFederalTaxDetail(
+        employee,
+        grossPay,
+        activeTaxRates.federalBrackets,
+        payFrequency
+      );
+      const stateTaxDetail = getStateTaxDetail(
+        employee,
+        grossPay,
+        activeTaxRates.stateBrackets,
+        payFrequency
+      );
+
+      const earningsBreakdown = { ...(row.baseEarningsBreakdown || {}) };
+      earningColumns.forEach((col) => {
+        earningsBreakdown[col.id] = additionalEarningsBreakdown[col.id];
+      });
+
+      return applyDeductionsToRow(
+        {
+          ...row,
+          grossPay,
+          taxes: taxBreakdown.totalTaxes,
+          taxBreakdown,
+          federalTaxDetail,
+          stateTaxDetail,
+          additionalEarningsBreakdown,
+          earningsBreakdown,
+        },
+        deductionInputsByType,
+        deductionColumns,
+        futaOverride,
+        employerSettings
+      );
+    },
+    [
+      allDeductionColumns,
+      applyDeductionsToRow,
+      companyConfig?.payFrequency,
+      customEarningColumns,
+      futaSettings,
+      suiSettings,
+      ettSettings,
+      taxRates,
+    ]
   );
 
   const handleAddCustomDeductionColumn = () => {
@@ -951,6 +1041,133 @@ const EmployeeSheet = () => {
     [applyDeductionsToRow, invalidateSavedPayroll]
   );
 
+  const handleAddCustomEarningColumn = () => {
+    const label = newCustomEarning.label.trim();
+    if (!label) {
+      toast.error('Column name is required');
+      return;
+    }
+
+    const newColumn = {
+      id: createCustomEarningId(),
+      label,
+      calculationType: newCustomEarning.calculationType,
+      isCustom: true,
+    };
+
+    setCustomEarningColumns((prev) => [...prev, newColumn]);
+    setShowAddEarningColumn(false);
+    setNewCustomEarning({ label: '', calculationType: 'fixed' });
+
+    if (salaryComputed) {
+      const updatedColumns = [...customEarningColumns, newColumn];
+      setRows((currentRows) =>
+        currentRows.map((row) =>
+          applyEarningsToRow(
+            row,
+            deductionInputs[row.id] ?? {},
+            { ...earningInputs[row.id], [newColumn.id]: '' },
+            allDeductionColumns,
+            updatedColumns
+          )
+        )
+      );
+    }
+
+    toast.success(`Added "${label}" earnings column`);
+  };
+
+  const handleColumnHeaderEarningChange = useCallback(
+    (columnId, value) => {
+      invalidateSavedPayroll();
+      setEarningHeaderInputs((prev) => ({ ...prev, [columnId]: value }));
+
+      setEarningInputs((prev) => {
+        const next = { ...prev };
+
+        setRows((currentRows) =>
+          currentRows.map((row) => {
+            const rowInputs = {
+              ...next[row.id],
+              [columnId]: value,
+            };
+            next[row.id] = rowInputs;
+            return applyEarningsToRow(row, deductionInputs[row.id] ?? {}, rowInputs);
+          })
+        );
+
+        return next;
+      });
+    },
+    [applyEarningsToRow, deductionInputs, invalidateSavedPayroll]
+  );
+
+  const handleCustomEarningLabelChange = (columnId, label) => {
+    setCustomEarningColumns((prev) =>
+      prev.map((col) => (col.id === columnId ? { ...col, label } : col))
+    );
+  };
+
+  const handleRemoveCustomEarningColumn = (columnId) => {
+    const remainingColumns = customEarningColumns.filter((col) => col.id !== columnId);
+
+    setCustomEarningColumns(remainingColumns);
+    setEarningHeaderInputs((prev) => {
+      const { [columnId]: _removed, ...rest } = prev;
+      return rest;
+    });
+
+    setEarningInputs((prev) => {
+      const next = {};
+      Object.entries(prev).forEach(([employeeId, inputs]) => {
+        const { [columnId]: _removed, ...rest } = inputs;
+        next[employeeId] = rest;
+      });
+
+      setRows((currentRows) =>
+        currentRows.map((row) =>
+          applyEarningsToRow(
+            row,
+            deductionInputs[row.id] ?? {},
+            next[row.id] ?? {},
+            allDeductionColumns,
+            remainingColumns
+          )
+        )
+      );
+
+      return next;
+    });
+
+    toast.success('Earnings column removed');
+  };
+
+  const handleEarningInputChange = useCallback(
+    (employeeId, columnId, value) => {
+      invalidateSavedPayroll();
+      setEarningInputs((prev) => {
+        const nextInputs = {
+          ...prev[employeeId],
+          [columnId]: value,
+        };
+
+        setRows((currentRows) =>
+          currentRows.map((row) =>
+            row.id === employeeId
+              ? applyEarningsToRow(row, deductionInputs[employeeId] ?? {}, nextInputs)
+              : row
+          )
+        );
+
+        return {
+          ...prev,
+          [employeeId]: nextInputs,
+        };
+      });
+    },
+    [applyEarningsToRow, deductionInputs, invalidateSavedPayroll]
+  );
+
   const getEligiblePayrollRows = useCallback(() => {
     return rows.filter((row) => row.grossPay != null && !row.computeError);
   }, [rows]);
@@ -979,6 +1196,7 @@ const EmployeeSheet = () => {
           netPay: round2(row.grossPay - row.deductions),
           deductionsBreakdown: row.deductionBreakdown || {},
           earningsBreakdown: row.earningsBreakdown || {},
+          additionalEarningsBreakdown: row.additionalEarningsBreakdown || {},
         },
         taxes,
         netPayAfterTaxes: row.netPay,
@@ -1020,6 +1238,7 @@ const EmployeeSheet = () => {
         checkNumberStart: checkNumber || '1',
         employees: employeesData,
         earningTypes: (earningTypes || []).filter((et) => et.enabled !== false),
+        additionalEarningColumns: customEarningColumns,
         deductionTypes: allDeductionColumns,
         totals,
         hoursData,
@@ -1040,6 +1259,7 @@ const EmployeeSheet = () => {
     return payrollRunId;
   }, [
     allDeductionColumns,
+    customEarningColumns,
     checkNumber,
     companyConfig,
     dateRange.from,
@@ -1271,7 +1491,9 @@ const EmployeeSheet = () => {
     setHoursLoaded(false);
     setSalaryComputed(false);
     setDeductionInputs({});
+    setEarningInputs({});
     setColumnHeaderInputs({});
+    setEarningHeaderInputs({});
     invalidateSavedPayroll();
     await loadHours(dateRange.from, dateRange.to, baseRows, selectedCutoffId);
   };
@@ -1395,8 +1617,11 @@ const EmployeeSheet = () => {
         ...customDeductionColumns,
       ];
 
+      const earningCols = customEarningColumns;
+
       setRows((prev) => {
         const rebuiltInputs = {};
+        const rebuiltEarningInputs = {};
 
         const updatedRows = prev.map((row) => {
           const detail = detailById[row.id];
@@ -1405,6 +1630,7 @@ const EmployeeSheet = () => {
             return {
               ...row,
               grossPay: null,
+              baseGrossPay: null,
               taxes: null,
               taxBreakdown: null,
               federalTaxDetail: null,
@@ -1413,10 +1639,12 @@ const EmployeeSheet = () => {
               netPay: null,
               computeError: 'no_profile',
               deductionBreakdown: null,
+              additionalEarningsBreakdown: null,
               futaDeduction: null,
               suiDeduction: null,
               ettDeduction: null,
               earningsBreakdown: null,
+              baseEarningsBreakdown: null,
             };
           }
 
@@ -1449,6 +1677,7 @@ const EmployeeSheet = () => {
               payRate: detail.payrollDetails.payRate,
               driverPayRate: detail.payrollDetails.driverPayRate,
               grossPay: null,
+              baseGrossPay: null,
               taxes: null,
               taxBreakdown: null,
               federalTaxDetail: null,
@@ -1457,10 +1686,12 @@ const EmployeeSheet = () => {
               netPay: null,
               computeError: result.error,
               deductionBreakdown: null,
+              additionalEarningsBreakdown: null,
               futaDeduction: null,
               suiDeduction: null,
               ettDeduction: null,
               earningsBreakdown: null,
+              baseEarningsBreakdown: null,
             };
           }
 
@@ -1488,11 +1719,14 @@ const EmployeeSheet = () => {
             payRate: detail.payrollDetails.payRate,
             driverPayRate: detail.payrollDetails.driverPayRate,
             grossPay: result.grossPay,
+            baseGrossPay: result.grossPay,
             taxes: taxBreakdown.totalTaxes,
             taxBreakdown,
             federalTaxDetail,
             stateTaxDetail,
             earningsBreakdown: result.earningsBreakdown || {},
+            baseEarningsBreakdown: result.earningsBreakdown || {},
+            additionalEarningsBreakdown: {},
             computeError: null,
           };
 
@@ -1502,13 +1736,28 @@ const EmployeeSheet = () => {
           });
           rebuiltInputs[row.id] = rowInputs;
 
-          return applyDeductionsToRow(baseRow, rowInputs, allTypes, activeFutaSettings, {
-            sui: activeSuiSettings,
-            ett: activeEttSettings,
+          const rowEarningInputs = {};
+          earningCols.forEach((col) => {
+            rowEarningInputs[col.id] =
+              earningHeaderInputs[col.id] ?? earningInputs[row.id]?.[col.id] ?? '';
           });
+          rebuiltEarningInputs[row.id] = rowEarningInputs;
+
+          return applyEarningsToRow(
+            baseRow,
+            rowInputs,
+            rowEarningInputs,
+            allTypes,
+            earningCols,
+            activeFutaSettings,
+            { sui: activeSuiSettings, ett: activeEttSettings },
+            activeTaxRates,
+            payFrequency
+          );
         });
 
         setDeductionInputs(rebuiltInputs);
+        setEarningInputs(rebuiltEarningInputs);
         return updatedRows;
       });
 
@@ -1580,7 +1829,9 @@ const EmployeeSheet = () => {
     setHoursLoaded(false);
     setSalaryComputed(false);
     setDeductionInputs({});
+    setEarningInputs({});
     setColumnHeaderInputs({});
+    setEarningHeaderInputs({});
     invalidateSavedPayroll();
     setRows((prev) => clearSalaryFromRows(clearHoursFromRows(prev)));
   };
@@ -1591,7 +1842,9 @@ const EmployeeSheet = () => {
       setLoading(true);
       setSalaryComputed(false);
       setDeductionInputs({});
+      setEarningInputs({});
       setColumnHeaderInputs({});
+      setEarningHeaderInputs({});
       invalidateSavedPayroll();
       const employeeRows = await fetchEmployees();
       await refreshCutoffPeriods();
@@ -1642,6 +1895,15 @@ const EmployeeSheet = () => {
     cols.push(PAY_TYPE_COLUMN);
     if (salaryComputed) {
       cols.push(SALARY_COLUMNS[0]);
+      customEarningColumns.forEach((col) => {
+        cols.push({
+          key: `earning_${col.id}`,
+          label: col.label,
+          align: 'right',
+          earningColumn: col,
+          isEarningInput: true,
+        });
+      });
       allDeductionColumns.forEach((dt) => {
         cols.push({
           key: `deduction_${dt.id}`,
@@ -1665,7 +1927,7 @@ const EmployeeSheet = () => {
       cols.push({ key: 'actions', label: 'Payslip', align: 'center', isActions: true });
     }
     return cols;
-  }, [hoursLoaded, salaryComputed, allDeductionColumns, futaSettings.enabled, suiSettings.enabled, ettSettings.enabled]);
+  }, [hoursLoaded, salaryComputed, allDeductionColumns, customEarningColumns, futaSettings.enabled, suiSettings.enabled, ettSettings.enabled]);
 
   const filteredRows = useMemo(() => {
     let result = rows;
@@ -1739,6 +2001,10 @@ const EmployeeSheet = () => {
     allDeductionColumns.forEach((dt) => {
       deductionTotals[dt.id] = 0;
     });
+    const earningTotals = {};
+    customEarningColumns.forEach((col) => {
+      earningTotals[col.id] = 0;
+    });
 
     const taxTotals = TAX_COLUMNS.reduce((acc, col) => {
       acc[col.breakdownKey] = 0;
@@ -1758,17 +2024,21 @@ const EmployeeSheet = () => {
           const amount = row.deductionBreakdown?.[dt.id];
           if (amount != null) acc.deductionTotals[dt.id] += amount;
         });
+        customEarningColumns.forEach((col) => {
+          const amount = row.additionalEarningsBreakdown?.[col.id];
+          if (amount != null) acc.earningTotals[col.id] += amount;
+        });
         TAX_COLUMNS.forEach((col) => {
           const amount = row.taxBreakdown?.[col.breakdownKey];
           if (amount != null) acc.taxTotals[col.breakdownKey] += amount;
         });
         return acc;
       },
-      { gross: 0, taxes: 0, deductions: 0, net: 0, futa: 0, sui: 0, ett: 0, deductionTotals, taxTotals }
+      { gross: 0, taxes: 0, deductions: 0, net: 0, futa: 0, sui: 0, ett: 0, deductionTotals, earningTotals, taxTotals }
     );
 
     return totals;
-  }, [filteredRows, allDeductionColumns]);
+  }, [filteredRows, allDeductionColumns, customEarningColumns]);
 
   const exportToExcel = () => {
     if (filteredRows.length === 0) {
@@ -1803,6 +2073,14 @@ const EmployeeSheet = () => {
 
       if (salaryComputed) {
         base['Gross Pay'] = formatCurrency(row.grossPay);
+        customEarningColumns.forEach((col) => {
+          const amount = row.additionalEarningsBreakdown?.[col.id] ?? 0;
+          const input = earningInputs[row.id]?.[col.id] ?? '';
+          const suffix = col.calculationType === 'percent' ? '%' : '';
+          base[`${col.label} (earnings)`] = input
+            ? `${input}${suffix} → ${formatCurrency(amount)}`
+            : formatCurrency(amount);
+        });
         allDeductionColumns.forEach((dt) => {
           const amount = row.deductionBreakdown?.[dt.id] ?? 0;
           const input = deductionInputs[row.id]?.[dt.id] ?? '';
@@ -2083,7 +2361,7 @@ const EmployeeSheet = () => {
                   More
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuContent align="end" className="w-56">
                 {salaryComputed && (
                   <>
                     <DropdownMenuItem
@@ -2092,6 +2370,10 @@ const EmployeeSheet = () => {
                     >
                       <Save className="text-indigo-600" />
                       {savingPayroll ? 'Saving...' : savedPayrollRunId ? 'Re-save Payroll' : 'Save Payroll'}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setShowAddEarningColumn(true)}>
+                      <Plus className="text-green-600" />
+                      Add Earnings Column
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setShowAddDeductionColumn(true)}>
                       <Plus className="text-red-600" />
@@ -2151,6 +2433,12 @@ const EmployeeSheet = () => {
                     <>
                       {' '}
                       (not deducted from net)
+                    </>
+                  )}
+                  {customEarningColumns.length > 0 && (
+                    <>
+                      {' · '}
+                      Additional earnings included in gross and taxed
                     </>
                   )}
                   {savedPayrollRunId && (
@@ -2232,7 +2520,9 @@ const EmployeeSheet = () => {
                         col.key === 'name'
                           ? `sm:sticky ${STICKY_NAME_LEFT} z-30 min-w-[150px] bg-[#f3f3f3] shadow-[4px_0_6px_-2px_rgba(0,0,0,0.08)]`
                           : ''
-                      } ${col.isDeductionInput ? 'bg-red-50 text-red-800 min-w-[110px]' : ''} ${
+                      } ${col.isEarningInput ? 'bg-green-50 text-green-800 min-w-[110px]' : ''} ${
+                        col.isDeductionInput ? 'bg-red-50 text-red-800 min-w-[110px]' : ''
+                      } ${
                         col.isActions ? 'sm:sticky right-0 z-30 bg-violet-50 text-violet-800 min-w-[120px]' : ''
                       }`}
                       style={{ textAlign: col.align }}
@@ -2241,6 +2531,49 @@ const EmployeeSheet = () => {
                         <div className="flex flex-col gap-0.5">
                           <span>{col.label}</span>
                           <span className="text-[10px] font-normal text-violet-600">View · Download · Send</span>
+                        </div>
+                      ) : col.isEarningInput ? (
+                        <div className="flex flex-col gap-1">
+                          <div
+                            className={`inline-flex items-center gap-1 ${
+                              col.align === 'right' ? 'justify-end' : 'justify-start'
+                            }`}
+                          >
+                            <input
+                              type="text"
+                              value={col.label}
+                              onChange={(e) =>
+                                handleCustomEarningLabelChange(col.earningColumn.id, e.target.value)
+                              }
+                              className="w-24 px-1 py-0.5 text-xs font-semibold border border-transparent hover:border-green-200 focus:border-green-300 rounded bg-transparent focus:bg-white focus:outline-none"
+                              title="Edit column name"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveCustomEarningColumn(col.earningColumn.id)}
+                              className="inline-flex items-center justify-center rounded p-0.5 text-green-700 hover:bg-green-100 hover:text-green-900"
+                              aria-label={`Remove ${col.label} column`}
+                              title="Remove column"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                          <input
+                            type="text"
+                            value={earningHeaderInputs[col.earningColumn.id] || ''}
+                            onChange={(e) =>
+                              handleColumnHeaderEarningChange(col.earningColumn.id, e.target.value)
+                            }
+                            placeholder={
+                              col.earningColumn.calculationType === 'percent' ? 'All: 0%' : 'All: 0.00'
+                            }
+                            title="Apply this value to all employees"
+                            className="w-full px-2 py-0.5 text-[11px] border border-green-200 rounded text-right bg-white focus:outline-none focus:ring-1 focus:ring-green-400 font-normal"
+                          />
+                          <span className="text-[10px] font-normal text-green-600">
+                            ({col.earningColumn.calculationType === 'percent' ? '% of base gross' : 'Fixed $'}
+                            {' · added to gross · taxable · applies to all'})
+                          </span>
                         </div>
                       ) : col.isDeductionInput ? (
                         <div className="flex flex-col gap-1">
@@ -2418,6 +2751,22 @@ const EmployeeSheet = () => {
                             >
                               {cellValue(row, col.key)}
                             </span>
+                          ) : col.isEarningInput ? (
+                            <div className="flex flex-col items-end gap-0.5">
+                              <input
+                                type="text"
+                                value={earningInputs[row.id]?.[col.earningColumn.id] || ''}
+                                onChange={(e) =>
+                                  handleEarningInputChange(row.id, col.earningColumn.id, e.target.value)
+                                }
+                                placeholder={col.earningColumn.calculationType === 'percent' ? '0%' : '0.00'}
+                                disabled={row.computeError || row.baseGrossPay == null}
+                                className="w-20 px-2 py-0.5 text-xs border border-green-200 rounded text-right focus:outline-none focus:ring-1 focus:ring-green-400 disabled:bg-gray-100 disabled:text-gray-400"
+                              />
+                              <span className="text-[10px] font-semibold text-green-700">
+                                {formatCurrency(row.additionalEarningsBreakdown?.[col.earningColumn.id] ?? 0)}
+                              </span>
+                            </div>
                           ) : col.isDeductionInput ? (
                             <div className="flex flex-col items-end gap-0.5">
                               <input
@@ -2477,6 +2826,8 @@ const EmployeeSheet = () => {
                         {col.key === 'ptoHours' && formatHours(hoursTotals.pto)}
                         {col.key === 'totalPunchHours' && formatHours(hoursTotals.totalPunch)}
                         {col.key === 'grossPay' && formatCurrency(salaryTotals.gross)}
+                        {col.isEarningInput &&
+                          formatCurrency(salaryTotals.earningTotals?.[col.earningColumn.id] ?? 0)}
                         {col.isDeductionInput &&
                           formatCurrency(salaryTotals.deductionTotals[col.deductionType.id] ?? 0)}
                         {col.isTax && formatCurrency(salaryTotals.taxTotals[col.breakdownKey] ?? 0)}
@@ -2669,6 +3020,73 @@ const EmployeeSheet = () => {
                   onClick={() => {
                     setShowAddDeductionColumn(false);
                     setNewCustomDeduction({ label: '', calculationType: 'fixed' });
+                  }}
+                  className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+          </ModalPortal>
+        )}
+
+        {showAddEarningColumn && (
+          <ModalPortal>
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <div
+              className="absolute inset-0 bg-black/50"
+              onClick={() => {
+                setShowAddEarningColumn(false);
+                setNewCustomEarning({ label: '', calculationType: 'fixed' });
+              }}
+            />
+            <div className="relative bg-white rounded-xl p-6 w-full max-w-md shadow-2xl">
+              <h3 className="text-xl font-bold mb-1 text-gray-900">Add Earnings Column</h3>
+              <p className="text-sm text-gray-500 mb-4">
+                Adds taxable pay to gross before taxes — commission, bonus, and similar.
+                This sheet only, not company settings. A percentage is of base gross
+                (hours and salary), before this column.
+              </p>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Column name</label>
+                  <input
+                    type="text"
+                    value={newCustomEarning.label}
+                    onChange={(e) =>
+                      setNewCustomEarning((prev) => ({ ...prev, label: e.target.value }))
+                    }
+                    placeholder="e.g., Commission, Bonus"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Value type</label>
+                  <select
+                    value={newCustomEarning.calculationType}
+                    onChange={(e) =>
+                      setNewCustomEarning((prev) => ({ ...prev, calculationType: e.target.value }))
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  >
+                    <option value="fixed">Fixed amount ($)</option>
+                    <option value="percent">Percentage of base gross (%)</option>
+                  </select>
+                </div>
+              </div>
+              <div className="mt-6 flex gap-3">
+                <button
+                  onClick={handleAddCustomEarningColumn}
+                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+                >
+                  Add Column
+                </button>
+                <button
+                  onClick={() => {
+                    setShowAddEarningColumn(false);
+                    setNewCustomEarning({ label: '', calculationType: 'fixed' });
                   }}
                   className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400"
                 >
