@@ -4,6 +4,7 @@
 // had grown into their own domain (5 cards) inside an already-2900-line file.
 
 import { useEffect, useState, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   AlertCircle, Archive, ArchiveRestore, Award, Calendar, Check, ChevronDown, CreditCard, Download, Edit3, FileText, Info, Loader2,
   Plus, RefreshCw, Save, Settings, ShieldAlert, Timer, Trash2, TrendingUp, User, Users,
@@ -1822,7 +1823,7 @@ export default function LeaveSettings() {
   const [loadingSettings,  setLoadingSettings]  = useState(true);
   const [savingSettings,   setSavingSettings]   = useState(false);
   const [refreshing,       setRefreshing]       = useState(false);
-  const [reportOpen,       setReportOpen]       = useState(false); // BB-098 leave reports
+  const [reportOpen,       setReportOpen]       = useState(false); // BB-106 leave report workbook
 
   // ── Stats ────────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
@@ -1904,6 +1905,14 @@ export default function LeaveSettings() {
     if (token) { loadSettings(); loadData(); }
   }, [token]);
 
+  // BB-115: ?section=leave-types | leave-credits scrolls to that card (setup guide links).
+  // Waits for the first load so the layout above it has settled.
+  const sectionParam = useSearchParams().get("section");
+  useEffect(() => {
+    if (!sectionParam || loadingSettings || loadingMatrix) return;
+    document.getElementById(sectionParam)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [sectionParam, loadingSettings, loadingMatrix]);
+
   // ── Render ───────────────────────────────────────────────────────────────
   return (
     <div className="p-4 sm:p-6 space-y-5 max-w-6xl mx-auto">
@@ -1962,6 +1971,7 @@ export default function LeaveSettings() {
       </div>
 
       {/* Sections */}
+      <div id="leave-credits" className="scroll-mt-4">
       <LeaveCreditsSettingsCard
         loading={loadingSettings} settings={draft} token={token} API={API}
         onSettingsChange={(patch) => setDraft((o) => ({ ...o, ...patch }))}
@@ -1971,9 +1981,12 @@ export default function LeaveSettings() {
           loadData();
         }}
       />
+      </div>
       <LeaveApprovalCard loading={loadingSettings} draft={draft} setDraft={setDraft} />
       <LeaveConflictCard loading={loadingSettings} draft={draft} setDraft={setDraft} />
-      <LeaveTypesCard API={API} token={token} policies={policies} reload={loadData} />
+      <div id="leave-types" className="scroll-mt-4">
+        <LeaveTypesCard API={API} token={token} policies={policies} reload={loadData} />
+      </div>
       <LeaveCreditsAccordionCard
         token={token} API={API} matrix={matrix} leaveTypes={leaveTypes} policies={policies}
         loadingMatrix={loadingMatrix} errorMessage={errorMessage} reload={loadData}

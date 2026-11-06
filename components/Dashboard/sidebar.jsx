@@ -11,6 +11,7 @@ import { X, Lock, ChevronDown, Building2, User, Pin, PinOff, Headset } from "luc
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import SetupGuideCard from "@/components/Dashboard/SetupGuide/SetupGuideCard";
 
 // ---------------------------------------------------------------------------
 // Navigation config
@@ -683,6 +684,13 @@ export default function Sidebar({ isSidebarOpen, closeSidebar, onNavigateStart, 
 
   const toggle = (id) => setOpenDropdown(openDropdown === id ? null : id);
 
+  // BB-115: setup guide is for admin / superadmin (incl. B. Buddy); the API 403s anyone else.
+  const showSetupGuide = ["admin", "superadmin"].includes(roleLower);
+  const setupGuideLock = (navId) => {
+    const c = lockChildByPlan({ id: navId }, plan);
+    return c.locked ? { requiredPlan: c.requiredPlan } : null;
+  };
+
   if (!token) return null;
 
   return (
@@ -721,6 +729,11 @@ export default function Sidebar({ isSidebarOpen, closeSidebar, onNavigateStart, 
               <SidebarUserInfo profileData={profileData} plan={plan} />
 
               <div className="flex-1 overflow-y-auto px-2 sm:px-3 lg:px-4 py-3 sm:py-4 lg:py-6 space-y-3 sm:space-y-4 lg:space-y-6 scrollbar-thin scrollbar-thumb-neutral-300 dark:scrollbar-thumb-neutral-600">
+
+                {/* BB-115 setup guide */}
+                {showSetupGuide && (
+                  <SetupGuideCard enabled={showSetupGuide} isLocked={setupGuideLock} onNavigate={navigate} />
+                )}
 
                 {/* Employee Panel */}
                 {features.length > 0 && (

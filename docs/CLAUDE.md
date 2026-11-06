@@ -199,6 +199,7 @@ components/
 │   ├── Navbar/
 │   └── Footer.jsx
 │
+├── Dashboard/SetupGuide/       # "Set up your business" checklist: sidebar card + sheet, page→route map (BB-115)
 ├── system-admin/               # System-admin dashboard UI (BB-110)
 │   ├── SystemAdminNav.jsx      # One-row nav, More menu, account menu
 │   ├── SystemAdminContext.jsx  # Signed-in admin (useSystemAdmin)
@@ -244,6 +245,7 @@ lib/
 ├── notificationApi.js          # Notification API calls
 ├── prisma.js                   # Prisma ORM client instance
 ├── socketService.js            # Socket.io connection and event handlers
+├── companySetupApi.js          # Setup guide checklist calls: get, skip, review, dismiss, reopen (BB-115)
 ├── systemAdminFetch.js         # All system-admin API calls: Bearer token, 401 → sign-in (BB-110)
 ├── systemAgent.js              # B. Buddy (isSystemAgent) helpers: route guard lists, 403 messages (BB-110)
 ├── timezones.js                # Time-zone list: Company Configurations, Add company (BB-107)

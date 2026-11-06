@@ -114,9 +114,15 @@ export default function HealthCard({ active, onRateLimited }) {
     serverErrors: m.serverErrors,
   }));
 
-  const version = [data?.instance?.commit && `Version ${data.instance.commit}`, data?.instance?.branch && `on ${data.instance.branch}`]
+  // BB-118: "Running since" reference label. Commit and branch are null off Render.
+  const commit = data?.instance?.commit;
+  const branch = data?.instance?.branch;
+  const runningSince = [
+    proc?.startedAt && formatDateTime(proc.startedAt),
+    commit && `commit ${commit}${branch ? ` (${branch})` : ""}`,
+  ]
     .filter(Boolean)
-    .join(" ");
+    .join(" · ");
 
   return (
     <Card className="min-w-0">
@@ -201,7 +207,11 @@ export default function HealthCard({ active, onRateLimited }) {
           )}
         </div>
 
-        {version && <p className="text-xs text-muted-foreground">{version}</p>}
+        {proc?.startedAt && !error && (
+          <p className="text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">Running since</span> {runningSince}
+          </p>
+        )}
       </CardContent>
     </Card>
   );
