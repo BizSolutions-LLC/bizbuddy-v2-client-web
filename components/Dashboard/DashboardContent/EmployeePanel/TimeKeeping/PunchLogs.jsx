@@ -83,12 +83,6 @@ export const safeTime = (d, tz) =>
   d ? new Date(d).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true, ...(tz ? { timeZone: tz } : {}) }) : "—";
 export const safeDateTime = (d, tz) => (d ? `${safeDate(d, tz)} ${safeTime(d, tz)}` : "—");
 const getTimezoneName = (tz) => { const p = (tz || "UTC").split("/"); return p[p.length - 1].replace(/_/g, " "); };
-const getTzAbbr = (d, tz) => {
-  try {
-    const parts = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "short" }).formatToParts(new Date(d));
-    return parts.find((p) => p.type === "timeZoneName")?.value || tz;
-  } catch { return tz; }
-};
 /** Extract YYYY-MM-DD in the given timezone (avoids UTC-slice bugs) */
 const toLocalDateStr = (d, tz) => d ? new Date(d).toLocaleDateString("en-CA", { timeZone: tz || "UTC" }) : null;
 /** Convert an ISO timestamp to minutes-since-midnight in the given timezone */
@@ -349,7 +343,6 @@ export default function PunchLogs() {
   const [locList,          setLocList]          = useState([]);
   const [userShifts,       setUserShifts]       = useState([]);
   const [companyTimezone,  setCompanyTimezone]  = useState("UTC");
-  const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   const tzInitialized = useRef(false);
   const [queryParams,   setQueryParams]   = useState({ from: getDefaultFrom(), to: getDefaultTo(), status: "all", punchType: "all", page: 1, limit: 10 });
   const [pendingDates,  setPendingDates]  = useState({ from: getDefaultFrom(), to: getDefaultTo() });
@@ -1262,14 +1255,9 @@ export default function PunchLogs() {
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs text-muted-foreground">{filteredSorted.length} shown · {serverSummary.total} total</span>
               {companyTimezone !== "UTC" && (
-                <>
-                  <span className="text-[11px] rounded-full px-2 py-0.5" style={{ background: "#faeeda", color: "#633806" }}>
-                    {getTimezoneName(companyTimezone)}
-                  </span>
-                  {userTimezone !== companyTimezone && (
-                    <span className="text-[11px] text-muted-foreground">· Detected: {getTimezoneName(userTimezone)}</span>
-                  )}
-                </>
+                <span className="text-[11px] rounded-full px-2 py-0.5" style={{ background: "#faeeda", color: "#633806" }}>
+                  {getTimezoneName(companyTimezone)}
+                </span>
               )}
             </div>
           </div>
@@ -1400,13 +1388,13 @@ export default function PunchLogs() {
 
                             {/* Clock In */}
                             <TableCell className="py-4">
-                              <DualTime value={log.dayApprovedClockIn ?? log.timeIn} companyTz={companyTimezone} userTz={userTimezone} />
+                              <CompanyTime value={log.dayApprovedClockIn ?? log.timeIn} companyTz={companyTimezone} />
                             </TableCell>
 
                             {/* Clock Out */}
                             <TableCell className="py-4">
                               {(log.dayApprovedClockOut ?? log.timeOut)
-                                ? <DualTime value={log.dayApprovedClockOut ?? log.timeOut} companyTz={companyTimezone} userTz={userTimezone} />
+                                ? <CompanyTime value={log.dayApprovedClockOut ?? log.timeOut} companyTz={companyTimezone} />
                                 : <span className="text-xs text-muted-foreground italic">—</span>
                               }
                             </TableCell>
@@ -2425,20 +2413,10 @@ function OTBanner({ otType, dailyThreshold, weeklyThreshold, cutoffThreshold, th
   );
 }
 
-// ── DualTime ───────────────────────────────────────────────────────────────────
-function DualTime({ value, companyTz, userTz }) {
+// ── CompanyTime ────────────────────────────────────────────────────────────────
+function CompanyTime({ value, companyTz }) {
   if (!value) return <span>—</span>;
-  const companyTime = safeTime(value, companyTz);
-  const showDual = companyTz && userTz && companyTz !== userTz;
-  if (!showDual) return <span className="text-sm font-medium">{companyTime}</span>;
-  const userTime = safeTime(value, userTz);
-  const userAbbr = getTzAbbr(value, userTz);
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-sm font-medium">{companyTime}</span>
-      <span className="text-xs text-muted-foreground">{userTime} {userAbbr}</span>
-    </div>
-  );
+  return <span className="text-sm font-medium">{safeTime(value, companyTz)}</span>;
 }
 
 // ── ScheduleDialog ─────────────────────────────────────────────────────────────

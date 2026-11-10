@@ -16,7 +16,6 @@ import {
   RefreshCw,
   Timer,
   TrendingUp,
-  MapPin,
   Building,
   Users,
   Globe,
@@ -43,10 +42,6 @@ const getTimezoneAbbreviation = (timezone) => {
     console.error('Error getting timezone abbreviation:', error);
     return timezone.split('/').pop();
   }
-};
-
-const getUserTimezone = () => {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone;
 };
 
 const formatNaiveTime = (dateString) => {
@@ -120,22 +115,12 @@ function TimezoneBadge({ timezone, compact = false }) {
 
 
 // Enhanced Shift Card Component with Timezone
-function ShiftCard({ shift, index, compact = false, showLocalTime = false }) {
+function ShiftCard({ shift, index, compact = false }) {
   const timezone = shift.shift?.timeZone || 'UTC';
-  const userTimezone = getUserTimezone();
-  const isDifferentTimezone = timezone !== userTimezone;
 
   const startTime = formatNaiveTime(shift.shift.startTime, timezone, 'HH:mm');
   const endTime = formatNaiveTime(shift.shift.endTime, timezone, 'HH:mm');
   const duration = hoursBetween(shift.shift.startTime, shift.shift.endTime, timezone);
-
-  // Calculate local time if needed
-  const localStartTime = showLocalTime && isDifferentTimezone 
-    ? formatNaiveTime(shift.shift.startTime, userTimezone, 'HH:mm')
-    : null;
-  const localEndTime = showLocalTime && isDifferentTimezone
-    ? formatNaiveTime(shift.shift.endTime, userTimezone, 'HH:mm')
-    : null;
 
   if (compact) {
     return (
@@ -164,19 +149,6 @@ function ShiftCard({ shift, index, compact = false, showLocalTime = false }) {
           <ArrowRight className="h-3 w-3 mx-2 flex-shrink-0" />
           <span className="font-mono">{endTime}</span>
         </div>
-
-        {/* Local time if different */}
-        {showLocalTime && isDifferentTimezone && (
-          <div className="flex items-center text-xs text-blue-600 dark:text-blue-400 mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
-            <MapPin className="h-3 w-3 mr-1 flex-shrink-0" />
-            <span className="font-mono">{localStartTime}</span>
-            <ArrowRight className="h-3 w-3 mx-2 flex-shrink-0" />
-            <span className="font-mono">{localEndTime}</span>
-            <Badge variant="outline" className="text-xs ml-2">
-              {getTimezoneAbbreviation(userTimezone)}
-            </Badge>
-          </div>
-        )}
       </motion.div>
     );
   }
@@ -210,21 +182,6 @@ function ShiftCard({ shift, index, compact = false, showLocalTime = false }) {
         </div>
       </div>
 
-      {/* Local time conversion */}
-      {showLocalTime && isDifferentTimezone && (
-        <div className="mt-3 pt-3 border-t border-orange-200 dark:border-orange-800">
-          <div className="flex items-center text-xs text-muted-foreground mb-1">
-            <MapPin className="h-3 w-3 mr-1" />
-            <span>Your local time ({getTimezoneAbbreviation(userTimezone)}):</span>
-          </div>
-          <div className="flex items-center text-sm text-blue-600 dark:text-blue-400 font-mono">
-            <span>{localStartTime}</span>
-            <ArrowRight className="h-3 w-3 mx-2" />
-            <span>{localEndTime}</span>
-          </div>
-        </div>
-      )}
-      
       {shift.shift.description && (
         <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
           {shift.shift.description}
@@ -241,8 +198,6 @@ export default function ModernSchedule() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [allShifts, setAllShifts] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [showLocalTime, setShowLocalTime] = useState(true);
-  const userTimezone = getUserTimezone();
 
   const fetchShifts = useCallback(async () => {
     if (!token) return;
@@ -398,16 +353,7 @@ export default function ModernSchedule() {
                       {i < uniqueTimezones.length - 1 && ', '}
                     </span>
                   ))}
-                  {' '}| Your timezone: <strong>{getTimezoneAbbreviation(userTimezone)}</strong>
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setShowLocalTime(!showLocalTime)}
-                  className="text-xs"
-                >
-                  {showLocalTime ? 'Hide' : 'Show'} Local Times
-                </Button>
               </div>
             </AlertDescription>
           </Alert>
@@ -579,7 +525,6 @@ export default function ModernSchedule() {
                         shift={shift} 
                         index={index} 
                         compact 
-                        showLocalTime={showLocalTime}
                       />
                     ))}
                   </div>

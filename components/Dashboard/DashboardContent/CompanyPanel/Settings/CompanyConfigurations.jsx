@@ -1718,6 +1718,7 @@ export default function ModernCompanyConfigurations() {
   const [departmentLoading,       setDepartmentLoading]       = useState({});
   const [loadingDepartments,      setLoadingDepartments]      = useState(true);
   const [draft,                   setDraft]                   = useState(null);
+  const savedTimezoneRef = useRef(null); // BB-119: the zone as last loaded or saved
   const [loadingSettings,         setLoadingSettings]         = useState(true);
   const [savingSettings,          setSavingSettings]          = useState(false);
   const [refreshing,              setRefreshing]              = useState(false);
@@ -1752,7 +1753,10 @@ export default function ModernCompanyConfigurations() {
         fetch(`${API}/api/company/me`,        { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       const [settingsJson, profileJson] = await Promise.all([settingsRes.json(), profileRes.json()]);
-      if (settingsRes.ok) setDraft(settingsJson.data || {});
+      if (settingsRes.ok) {
+        savedTimezoneRef.current = settingsJson.data?.timezone ?? null;
+        setDraft(settingsJson.data || {});
+      }
       else toast.error(settingsJson.message || "Failed to load settings");
       if (profileRes.ok) setCompanyId(profileJson.data?.id || null);
     } catch { toast.error("Network error loading settings"); }
@@ -1898,14 +1902,19 @@ export default function ModernCompanyConfigurations() {
   const saveSettings = async () => {
     setSavingSettings(true);
     try {
+      // BB-119: send the zone only when it was changed here, so an old copy can't overwrite it.
+      const { timezone, ...rest } = draft || {};
+      const timezoneChanged = timezone !== savedTimezoneRef.current;
       const r = await fetch(`${API}/api/company-settings`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify(draft),
+        body: JSON.stringify(timezoneChanged ? { ...rest, timezone } : rest),
       });
       const j = await r.json();
-      if (r.ok) toast.success("Settings saved successfully!");
-      else toast.error(j.message || "Failed to save settings");
+      if (r.ok) {
+        if (timezoneChanged) savedTimezoneRef.current = timezone;
+        toast.success("Settings saved successfully!");
+      } else toast.error(j.message || "Failed to save settings");
     } catch { toast.error("Network error saving settings"); }
     setSavingSettings(false);
   };

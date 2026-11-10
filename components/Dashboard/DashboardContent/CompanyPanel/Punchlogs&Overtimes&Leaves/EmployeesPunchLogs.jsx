@@ -47,6 +47,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { toast, Toaster } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
+import { DEFAULT_TIMEZONE } from "@/lib/timezones";
 import YearlyTotalHoursReportTrigger from "./YearlyTotalHoursReportTrigger";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -414,29 +415,13 @@ const TimeDisplayWithTooltip = ({ time, type, className = "" }) => {
 };
 
 // ── Dual time display ──────────────────────────────────────────────────────────
-const DualTimeDisplay = ({ datetime, userTz, companyTz }) => {
+const CompanyTimeDisplay = ({ datetime, companyTz }) => {
   if (!datetime) return <span className="text-muted-foreground text-xs">—</span>;
-  if (userTz === companyTz) return (
-    <div className="text-xs">
-      <div className="font-mono font-semibold">{safeDate(datetime, userTz)}</div>
-      <div className="font-mono">{safeTime(datetime, userTz)}</div>
-    </div>
-  );
   return (
-    <TooltipProvider delayDuration={200}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <div className="text-xs cursor-help">
-            <div className="font-mono font-semibold text-primary">{safeDate(datetime, companyTz)} {safeTime(datetime, companyTz)}</div>
-            <div className="font-mono text-muted-foreground text-[10px]">Detected time: {safeTime(datetime, userTz)}</div>
-          </div>
-        </TooltipTrigger>
-        <TooltipContent className="text-xs">
-          <div><strong>Company HQ ({getTimezoneName(companyTz)}):</strong> {safeDate(datetime, companyTz)} {safeTime(datetime, companyTz)}</div>
-          <div className="text-muted-foreground">Detected time ({getTimezoneName(userTz)}): {safeDate(datetime, userTz)} {safeTime(datetime, userTz)}</div>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <div className="text-xs">
+      <div className="font-mono font-semibold">{safeDate(datetime, companyTz)}</div>
+      <div className="font-mono">{safeTime(datetime, companyTz)}</div>
+    </div>
   );
 };
 
@@ -1477,7 +1462,6 @@ export default function EmployeesPunchLogs() {
   const { token } = useAuthStore();
   const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
-  const [userTimezone,    setUserTimezone]    = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
   const [companyTimezone, setCompanyTimezone] = useState("UTC");
 
   const [companyId, setCompanyId] = useState(null);
@@ -1738,7 +1722,6 @@ export default function EmployeesPunchLogs() {
         setCurrentUserEmail(user.email || "");
         setCurrentUserRole(user.role  || "");
         setCurrentUserName(user.fullName || `${profObj.firstName ?? ""} ${profObj.lastName ?? ""}`.trim() || user.email || "");
-        setUserTimezone(user.timezone || pJ.data?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
       }
 
       if (eJ?.data) setEmployees(eJ.data);
@@ -1955,9 +1938,25 @@ export default function EmployeesPunchLogs() {
     return j;
   };
 
+  // BB-119: reports read the zone at generation, not from page-load state, so a tab
+  // left open can't print an old zone. No usable response stops the report: never UTC.
+  // An empty zone uses the same default as the server's own calculations.
+  const fetchCompanyTimezone = async () => {
+    const res = await fetch(`${API_URL}/api/company-settings/`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    }).catch(() => null);
+    const j = res?.ok ? await res.json().catch(() => null) : null;
+    if (!j?.data) throw new Error("Couldn't load the company time zone. Please try again.");
+    return j.data.timezone || DEFAULT_TIMEZONE;
+  };
+
   const handleGenerateReport = async ({ type, from, to, columns, cutoffId, cutoffPeriodIds }) => {
     setGenerating(true);
     try {
+      const reportTimezone = await fetchCompanyTimezone();
+      setCompanyTimezone(reportTimezone);
+
       const selectedPeriods = (cutoffPeriodIds || [])
         .map((id) => cutoffPeriods.find((p) => p.id === id))
         .filter(Boolean);
@@ -1994,7 +1993,7 @@ export default function EmployeesPunchLogs() {
         ]);
 
         for (const j of approvalResults) {
-          rawRows.push(...buildRowsFromApprovals(j, companyTimezone));
+          rawRows.push(...buildRowsFromApprovals(j, reportTimezone));
           freshOtBlocks.push(...(j.otBlocks || []));
           approvalLeaves.push(...buildLeavesFromApprovals(j));
           fixedHours.push(...(j.fixedHours || []));
@@ -2029,7 +2028,7 @@ export default function EmployeesPunchLogs() {
       }
 
       let enriched = enrichTimelogs(rawRows, {
-        companyTimezone, isDayCare: freshIsDayCare, otBasis, locMap, defaultHours,
+        companyTimezone: reportTimezone, isDayCare: freshIsDayCare, otBasis, locMap, defaultHours,
       });
 
       // Prefer the employee-record employeeId (authoritative) over whatever came embedded
@@ -2090,7 +2089,7 @@ export default function EmployeesPunchLogs() {
         const { exportEmployeePunchLogsPDF } = await import("@/lib/exports/employeePunchLogs");
         const result = await exportEmployeePunchLogsPDF({
           data: enriched, visibleColumns: columns, columnMap: columnMapForExport,
-          filters: exportFilters, userTimezone, companyTimezone, isDayCare: freshIsDayCare,
+          filters: exportFilters, companyTimezone: reportTimezone, isDayCare: freshIsDayCare,
           bncOtBlocks: freshOtBlocks, bncDailyOtThreshold: freshOtThreshold,
           otBasis, cutoffOtThreshold, employeeNameMap,
         });
@@ -2099,7 +2098,7 @@ export default function EmployeesPunchLogs() {
         const { exportEmployeePunchLogsCSV } = await import("@/lib/exports/employeePunchLogs");
         const result = await exportEmployeePunchLogsCSV({
           data: enriched, visibleColumns: columns, columnMap: columnMapForExport,
-          filters: exportFilters, userTimezone, companyTimezone, isDayCare: freshIsDayCare,
+          filters: exportFilters, companyTimezone: reportTimezone, isDayCare: freshIsDayCare,
           bncOtBlocks: freshOtBlocks, bncDailyOtThreshold: freshOtThreshold,
           otBasis, cutoffOtThreshold, employeeNameMap, fixedHours,
         });
@@ -2107,7 +2106,7 @@ export default function EmployeesPunchLogs() {
       } else if (type === "csv-payroll") {
         const { exportEmployeePunchLogsCSV_v2 } = await import("@/lib/exports/employeePunchLogs");
         const result = await exportEmployeePunchLogsCSV_v2({
-          data: enriched, companyTimezone, employeeNameMap,
+          data: enriched, companyTimezone: reportTimezone, employeeNameMap,
           approvedLeaves: finalApprovedLeaves, defaultShiftHours: defaultHours,
           fromDate: from, toDate: to,
           cutoffOtThreshold,
@@ -2333,9 +2332,6 @@ export default function EmployeesPunchLogs() {
               {companyTimezone !== "UTC" && (
                 <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">
                   {getTimezoneName(companyTimezone)}
-                  {userTimezone !== companyTimezone && (
-                    <span className="ml-1 opacity-60">· Detected Time Zone: {getTimezoneName(userTimezone)}</span>
-                  )}
                 </span>
               )}
             </div>
@@ -2642,14 +2638,10 @@ export default function EmployeesPunchLogs() {
                   <div className="flex items-center gap-2 text-xs cursor-help">
                     <Globe className="w-3 h-3" />
                     <span className="font-medium text-primary">{getTimezoneName(companyTimezone)}</span>
-                    {userTimezone !== companyTimezone && (
-                      <span className="text-muted-foreground opacity-60">· Detected: {getTimezoneName(userTimezone)}</span>
-                    )}
                   </div>
                 </TooltipTrigger>
                 <TooltipContent className="text-xs">
-                  <div>Company HQ: {companyTimezone}</div>
-                  <div className="text-muted-foreground">Detected timezone: {userTimezone}</div>
+                  <div>Company timezone: {companyTimezone}</div>
                 </TooltipContent>
               </Tooltip></TooltipProvider>
             </div>
@@ -2769,7 +2761,7 @@ export default function EmployeesPunchLogs() {
                             return (
                               <TableCell key="dateTimeIn" className="text-center">
                                 <div className="flex flex-col items-center gap-1">
-                                  <DualTimeDisplay datetime={t.dayApprovedClockIn ?? t.timeIn} userTz={userTimezone} companyTz={companyTimezone} />
+                                  <CompanyTimeDisplay datetime={t.dayApprovedClockIn ?? t.timeIn} companyTz={companyTimezone} />
                                   {SHOW_TOO_EARLY_FLAG && t.isTooEarlyPunch && (
                                     <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
                                       Too Early
@@ -2779,7 +2771,7 @@ export default function EmployeesPunchLogs() {
                               </TableCell>
                             );
                           case "dateTimeOut":
-                            return <TableCell key="dateTimeOut" className="text-center"><DualTimeDisplay datetime={t.dayApprovedClockOut ?? t.timeOut} userTz={userTimezone} companyTz={companyTimezone} /></TableCell>;
+                            return <TableCell key="dateTimeOut" className="text-center"><CompanyTimeDisplay datetime={t.dayApprovedClockOut ?? t.timeOut} companyTz={companyTimezone} /></TableCell>;
                           case "duration":
                             return <TableCell key="duration" className="text-center text-sm font-medium"><TimeDisplayWithTooltip time={t.duration} type="duration" /></TableCell>;
                           case "gross":

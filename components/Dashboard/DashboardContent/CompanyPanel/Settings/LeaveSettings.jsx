@@ -1881,7 +1881,8 @@ export default function LeaveSettings() {
   const saveSettings = async () => {
     setSavingSettings(true);
     try {
-      const body = Object.fromEntries(Object.entries(draft || {}).filter(([k]) => !LEAVE_CREDIT_KEYS.includes(k)));
+      // BB-119: the time zone belongs to Company Configurations, so an old copy here can't overwrite it.
+      const body = Object.fromEntries(Object.entries(draft || {}).filter(([k]) => !LEAVE_CREDIT_KEYS.includes(k) && k !== "timezone"));
       const r = await fetch(`${API}/api/company-settings`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
