@@ -7,18 +7,24 @@ import useAuthStore from '@/store/useAuthStore';
 import {
   computeEmployeePayroll,
   calculateDeductionValue,
-  calculateAdditionalEarning,
-  calculateTaxes,
   calculateFutaDeduction,
   calculateEmployerWageBaseTax,
-  getFederalTaxDetail,
-  getStateTaxDetail,
   round2,
   DEFAULT_TAX_RATES,
   DEFAULT_FUTA_WAGE_CAP,
   DEFAULT_SUI_RATE,
   DEFAULT_ETT_RATE,
 } from '@/lib/payrollCompute';
+import {
+  QTY_RATE_CALC_TYPE,
+  calculateSheetAdditionalEarning,
+  canAddQuantityRateColumn,
+  federalTaxDetailForSheetRun,
+  isQuantityRateColumn,
+  prefillQtyRateFromEmployee,
+  stateTaxDetailForSheetRun,
+  taxesForSheetRun,
+} from '@/lib/employeeSheetExtensions';
 import {
   viewPayslipPdf,
   downloadPayslipPdf,
@@ -107,9 +113,16 @@ const FUTA_DEDUCTION_COLUMN = { key: 'futaDeduction', label: 'FUTA', align: 'rig
 const SUI_EMPLOYER_COLUMN = { key: 'suiDeduction', label: 'CA SUI', align: 'right', isEmployerCost: true };
 const ETT_EMPLOYER_COLUMN = { key: 'ettDeduction', label: 'CA ETT', align: 'right', isEmployerCost: true };
 
-function employerCostForRow(row, suiSettings, ettSettings) {
+function employerCostForRow(row, suiSettings, ettSettings, taxesDisabledForRun = false) {
   if (row.grossPay == null || row.computeError) {
     return { suiDeduction: null, ettDeduction: null };
+  }
+
+  if (taxesDisabledForRun) {
+    return {
+      suiDeduction: suiSettings?.enabled ? 0 : null,
+      ettDeduction: ettSettings?.enabled ? 0 : null,
+    };
   }
 
   return {
@@ -320,8 +333,9 @@ function BracketTaxCellTooltip({ detail, children, taxLabel, configureHint, taxF
           <p className="font-semibold text-white mb-1.5">{taxLabel}</p>
           {isExempt ? (
             <p className="text-amber-300 text-[11px]">
-              This employee is exempt on the Employees tab — $0 withheld. Additional withholding
-              amounts still apply if set.
+              {detail.isRunDisabled
+                ? 'Taxes disabled for this payroll run — $0 withheld.'
+                : 'This employee is exempt on the Employees tab — $0 withheld. Additional withholding amounts still apply if set.'}
             </p>
           ) : isCustomRate ? (
             <>
@@ -581,12 +595,14 @@ const EmployeeSheet = () => {
   const [customEarningColumns, setCustomEarningColumns] = useState([]);
   const [deductionInputs, setDeductionInputs] = useState({});
   const [earningInputs, setEarningInputs] = useState({});
+  const [qtyRateInputs, setQtyRateInputs] = useState({});
   const [columnHeaderInputs, setColumnHeaderInputs] = useState({});
   const [earningHeaderInputs, setEarningHeaderInputs] = useState({});
   const [showAddDeductionColumn, setShowAddDeductionColumn] = useState(false);
   const [showAddEarningColumn, setShowAddEarningColumn] = useState(false);
   const [newCustomDeduction, setNewCustomDeduction] = useState({ label: '', calculationType: 'fixed' });
   const [newCustomEarning, setNewCustomEarning] = useState({ label: '', calculationType: 'fixed' });
+  const [taxesDisabledForRun, setTaxesDisabledForRun] = useState(false);
   const [checkNumber, setCheckNumber] = useState('');
   const [savedPayrollRunId, setSavedPayrollRunId] = useState(null);
   const [paidEmployeeIds, setPaidEmployeeIds] = useState(() => new Set());
@@ -806,7 +822,8 @@ const EmployeeSheet = () => {
       inputsByType = {},
       columns = allDeductionColumns,
       futaOverride = futaSettings,
-      employerSettings = { sui: suiSettings, ett: ettSettings }
+      employerSettings = { sui: suiSettings, ett: ettSettings },
+      disableTaxesForRun = taxesDisabledForRun
     ) => {
       if (row.grossPay == null || row.taxes == null || row.computeError) {
         return { ...row, suiDeduction: null, ettDeduction: null };
@@ -825,9 +842,13 @@ const EmployeeSheet = () => {
       let futaDeduction = null;
 
       if (futaOverride?.enabled) {
-        const balance = row.payrollDetails?.futaBalance ?? DEFAULT_FUTA_WAGE_CAP;
-        futaDeduction = calculateFutaDeduction(row.grossPay, balance, futaOverride.rate);
-        totalDeductions += futaDeduction;
+        if (disableTaxesForRun) {
+          futaDeduction = 0;
+        } else {
+          const balance = row.payrollDetails?.futaBalance ?? DEFAULT_FUTA_WAGE_CAP;
+          futaDeduction = calculateFutaDeduction(row.grossPay, balance, futaOverride.rate);
+          totalDeductions += futaDeduction;
+        }
       }
 
       totalDeductions += row.taxes;
@@ -839,10 +860,10 @@ const EmployeeSheet = () => {
         futaDeduction,
         deductions,
         netPay: round2(row.grossPay - deductions),
-        ...employerCostForRow(row, employerSettings.sui, employerSettings.ett),
+        ...employerCostForRow(row, employerSettings.sui, employerSettings.ett, disableTaxesForRun),
       };
     },
-    [allDeductionColumns, futaSettings, suiSettings, ettSettings]
+    [allDeductionColumns, futaSettings, suiSettings, ettSettings, taxesDisabledForRun]
   );
 
   const applyEarningsToRow = useCallback(
@@ -855,7 +876,9 @@ const EmployeeSheet = () => {
       futaOverride = futaSettings,
       employerSettings = { sui: suiSettings, ett: ettSettings },
       activeTaxRates = taxRates,
-      payFrequency = companyConfig?.payFrequency
+      payFrequency = companyConfig?.payFrequency,
+      disableTaxesForRun = taxesDisabledForRun,
+      qtyRateByEmployee = qtyRateInputs
     ) => {
       if (row.baseGrossPay == null || row.computeError) {
         return { ...row, suiDeduction: null, ettDeduction: null };
@@ -863,8 +886,14 @@ const EmployeeSheet = () => {
 
       let additionalTotal = 0;
       const additionalEarningsBreakdown = {};
+      const rowQtyRate = qtyRateByEmployee[row.id] ?? {};
       earningColumns.forEach((col) => {
-        const amount = calculateAdditionalEarning(col, earningInputsByType[col.id] ?? '', row.baseGrossPay);
+        const amount = calculateSheetAdditionalEarning(
+          col,
+          earningInputsByType[col.id] ?? '',
+          row.baseGrossPay,
+          rowQtyRate
+        );
         additionalEarningsBreakdown[col.id] = amount;
         additionalTotal += amount;
       });
@@ -874,19 +903,27 @@ const EmployeeSheet = () => {
         payrollDetails: row.payrollDetails,
         earningRates: row.earningRates || {},
       };
-      const taxBreakdown = calculateTaxes(employee, grossPay, activeTaxRates, payFrequency);
-      const federalTaxDetail = getFederalTaxDetail(
+      const taxBreakdown = taxesForSheetRun({
         employee,
         grossPay,
-        activeTaxRates.federalBrackets,
-        payFrequency
-      );
-      const stateTaxDetail = getStateTaxDetail(
+        taxRates: activeTaxRates,
+        payFrequency,
+        taxesDisabledForRun: disableTaxesForRun,
+      });
+      const federalTaxDetail = federalTaxDetailForSheetRun({
         employee,
         grossPay,
-        activeTaxRates.stateBrackets,
-        payFrequency
-      );
+        federalBrackets: activeTaxRates.federalBrackets,
+        payFrequency,
+        taxesDisabledForRun: disableTaxesForRun,
+      });
+      const stateTaxDetail = stateTaxDetailForSheetRun({
+        employee,
+        grossPay,
+        stateBrackets: activeTaxRates.stateBrackets,
+        payFrequency,
+        taxesDisabledForRun: disableTaxesForRun,
+      });
 
       const earningsBreakdown = { ...(row.baseEarningsBreakdown || {}) };
       earningColumns.forEach((col) => {
@@ -907,7 +944,8 @@ const EmployeeSheet = () => {
         deductionInputsByType,
         deductionColumns,
         futaOverride,
-        employerSettings
+        employerSettings,
+        disableTaxesForRun
       );
     },
     [
@@ -916,9 +954,11 @@ const EmployeeSheet = () => {
       companyConfig?.payFrequency,
       customEarningColumns,
       futaSettings,
+      qtyRateInputs,
       suiSettings,
       ettSettings,
       taxRates,
+      taxesDisabledForRun,
     ]
   );
 
@@ -1048,12 +1088,30 @@ const EmployeeSheet = () => {
       return;
     }
 
+    if (
+      newCustomEarning.calculationType === QTY_RATE_CALC_TYPE &&
+      !canAddQuantityRateColumn(customEarningColumns)
+    ) {
+      toast.error('Only one Quantity × rate column is allowed on this sheet.');
+      return;
+    }
+
     const newColumn = {
       id: createCustomEarningId(),
       label,
       calculationType: newCustomEarning.calculationType,
       isCustom: true,
     };
+
+    const isQtyRate = isQuantityRateColumn(newColumn);
+    let nextQtyRateInputs = qtyRateInputs;
+    if (isQtyRate) {
+      nextQtyRateInputs = { ...qtyRateInputs };
+      rows.forEach((row) => {
+        nextQtyRateInputs[row.id] = prefillQtyRateFromEmployee(row);
+      });
+      setQtyRateInputs(nextQtyRateInputs);
+    }
 
     setCustomEarningColumns((prev) => [...prev, newColumn]);
     setShowAddEarningColumn(false);
@@ -1068,7 +1126,13 @@ const EmployeeSheet = () => {
             deductionInputs[row.id] ?? {},
             { ...earningInputs[row.id], [newColumn.id]: '' },
             allDeductionColumns,
-            updatedColumns
+            updatedColumns,
+            futaSettings,
+            { sui: suiSettings, ett: ettSettings },
+            taxRates,
+            companyConfig?.payFrequency,
+            taxesDisabledForRun,
+            nextQtyRateInputs
           )
         )
       );
@@ -1109,6 +1173,7 @@ const EmployeeSheet = () => {
   };
 
   const handleRemoveCustomEarningColumn = (columnId) => {
+    const removed = customEarningColumns.find((col) => col.id === columnId);
     const remainingColumns = customEarningColumns.filter((col) => col.id !== columnId);
 
     setCustomEarningColumns(remainingColumns);
@@ -1117,12 +1182,18 @@ const EmployeeSheet = () => {
       return rest;
     });
 
+    if (isQuantityRateColumn(removed)) {
+      setQtyRateInputs({});
+    }
+
     setEarningInputs((prev) => {
       const next = {};
       Object.entries(prev).forEach(([employeeId, inputs]) => {
         const { [columnId]: _removed, ...rest } = inputs;
         next[employeeId] = rest;
       });
+
+      const clearedQtyRate = isQuantityRateColumn(removed) ? {} : qtyRateInputs;
 
       setRows((currentRows) =>
         currentRows.map((row) =>
@@ -1131,7 +1202,13 @@ const EmployeeSheet = () => {
             deductionInputs[row.id] ?? {},
             next[row.id] ?? {},
             allDeductionColumns,
-            remainingColumns
+            remainingColumns,
+            futaSettings,
+            { sui: suiSettings, ett: ettSettings },
+            taxRates,
+            companyConfig?.payFrequency,
+            taxesDisabledForRun,
+            clearedQtyRate
           )
         )
       );
@@ -1141,6 +1218,101 @@ const EmployeeSheet = () => {
 
     toast.success('Earnings column removed');
   };
+
+  const handleQtyRateInputChange = useCallback(
+    (employeeId, field, value) => {
+      invalidateSavedPayroll();
+      setQtyRateInputs((prev) => {
+        const nextEmployee = {
+          quantity: '',
+          rate: '',
+          ...prev[employeeId],
+          [field]: value,
+        };
+        const next = {
+          ...prev,
+          [employeeId]: nextEmployee,
+        };
+
+        setRows((currentRows) =>
+          currentRows.map((row) =>
+            row.id === employeeId
+              ? applyEarningsToRow(
+                  row,
+                  deductionInputs[employeeId] ?? {},
+                  earningInputs[employeeId] ?? {},
+                  allDeductionColumns,
+                  customEarningColumns,
+                  futaSettings,
+                  { sui: suiSettings, ett: ettSettings },
+                  taxRates,
+                  companyConfig?.payFrequency,
+                  taxesDisabledForRun,
+                  next
+                )
+              : row
+          )
+        );
+
+        return next;
+      });
+    },
+    [
+      allDeductionColumns,
+      applyEarningsToRow,
+      companyConfig?.payFrequency,
+      customEarningColumns,
+      deductionInputs,
+      earningInputs,
+      futaSettings,
+      invalidateSavedPayroll,
+      suiSettings,
+      ettSettings,
+      taxRates,
+      taxesDisabledForRun,
+    ]
+  );
+
+  const handleTaxesDisabledForRunChange = useCallback(
+    (checked) => {
+      invalidateSavedPayroll();
+      setTaxesDisabledForRun(checked);
+      if (!salaryComputed) return;
+
+      setRows((currentRows) =>
+        currentRows.map((row) =>
+          applyEarningsToRow(
+            row,
+            deductionInputs[row.id] ?? {},
+            earningInputs[row.id] ?? {},
+            allDeductionColumns,
+            customEarningColumns,
+            futaSettings,
+            { sui: suiSettings, ett: ettSettings },
+            taxRates,
+            companyConfig?.payFrequency,
+            checked,
+            qtyRateInputs
+          )
+        )
+      );
+    },
+    [
+      allDeductionColumns,
+      applyEarningsToRow,
+      companyConfig?.payFrequency,
+      customEarningColumns,
+      deductionInputs,
+      earningInputs,
+      futaSettings,
+      invalidateSavedPayroll,
+      qtyRateInputs,
+      salaryComputed,
+      suiSettings,
+      ettSettings,
+      taxRates,
+    ]
+  );
 
   const handleEarningInputChange = useCallback(
     (employeeId, columnId, value) => {
@@ -1183,7 +1355,13 @@ const EmployeeSheet = () => {
         payrollDetails: row.payrollDetails,
         earningRates: row.earningRates || {},
       };
-      const taxes = calculateTaxes(employee, row.grossPay, taxRates, companyConfig?.payFrequency);
+      const taxes = taxesForSheetRun({
+        employee,
+        grossPay: row.grossPay,
+        taxRates,
+        payFrequency: companyConfig?.payFrequency,
+        taxesDisabledForRun,
+      });
 
       return {
         id: row.id,
@@ -1200,8 +1378,16 @@ const EmployeeSheet = () => {
         },
         taxes,
         netPayAfterTaxes: row.netPay,
-        suiDeduction: row.suiDeduction ?? null,
-        ettDeduction: row.ettDeduction ?? null,
+        suiDeduction: taxesDisabledForRun
+          ? row.suiDeduction == null
+            ? null
+            : 0
+          : row.suiDeduction ?? null,
+        ettDeduction: taxesDisabledForRun
+          ? row.ettDeduction == null
+            ? null
+            : 0
+          : row.ettDeduction ?? null,
       };
     });
 
@@ -1267,6 +1453,7 @@ const EmployeeSheet = () => {
     earningTypes,
     getEligiblePayrollRows,
     taxRates,
+    taxesDisabledForRun,
     token,
   ]);
 
@@ -1622,6 +1809,8 @@ const EmployeeSheet = () => {
       setRows((prev) => {
         const rebuiltInputs = {};
         const rebuiltEarningInputs = {};
+        const rebuiltQtyRateInputs = {};
+        const hasQtyRateColumn = earningCols.some((col) => isQuantityRateColumn(col));
 
         const updatedRows = prev.map((row) => {
           const detail = detailById[row.id];
@@ -1645,6 +1834,18 @@ const EmployeeSheet = () => {
               ettDeduction: null,
               earningsBreakdown: null,
               baseEarningsBreakdown: null,
+            };
+          }
+
+          if (hasQtyRateColumn) {
+            const existingQtyRate = qtyRateInputs[row.id];
+            const prefill = prefillQtyRateFromEmployee(detail);
+            rebuiltQtyRateInputs[row.id] = {
+              quantity: existingQtyRate?.quantity ?? '',
+              rate:
+                existingQtyRate?.rate !== undefined && existingQtyRate?.rate !== ''
+                  ? existingQtyRate.rate
+                  : prefill.rate,
             };
           }
 
@@ -1697,19 +1898,27 @@ const EmployeeSheet = () => {
 
           computedCount++;
 
-          const taxBreakdown = calculateTaxes(employee, result.grossPay, activeTaxRates, payFrequency);
-          const federalTaxDetail = getFederalTaxDetail(
+          const taxBreakdown = taxesForSheetRun({
             employee,
-            result.grossPay,
-            activeTaxRates.federalBrackets,
-            payFrequency
-          );
-          const stateTaxDetail = getStateTaxDetail(
+            grossPay: result.grossPay,
+            taxRates: activeTaxRates,
+            payFrequency,
+            taxesDisabledForRun,
+          });
+          const federalTaxDetail = federalTaxDetailForSheetRun({
             employee,
-            result.grossPay,
-            activeTaxRates.stateBrackets,
-            payFrequency
-          );
+            grossPay: result.grossPay,
+            federalBrackets: activeTaxRates.federalBrackets,
+            payFrequency,
+            taxesDisabledForRun,
+          });
+          const stateTaxDetail = stateTaxDetailForSheetRun({
+            employee,
+            grossPay: result.grossPay,
+            stateBrackets: activeTaxRates.stateBrackets,
+            payFrequency,
+            taxesDisabledForRun,
+          });
 
           const baseRow = {
             ...row,
@@ -1752,12 +1961,19 @@ const EmployeeSheet = () => {
             activeFutaSettings,
             { sui: activeSuiSettings, ett: activeEttSettings },
             activeTaxRates,
-            payFrequency
+            payFrequency,
+            taxesDisabledForRun,
+            hasQtyRateColumn ? rebuiltQtyRateInputs : qtyRateInputs
           );
         });
 
         setDeductionInputs(rebuiltInputs);
         setEarningInputs(rebuiltEarningInputs);
+        if (hasQtyRateColumn) {
+          setQtyRateInputs(rebuiltQtyRateInputs);
+        } else {
+          setQtyRateInputs({});
+        }
         return updatedRows;
       });
 
@@ -1914,20 +2130,34 @@ const EmployeeSheet = () => {
           isCustomDeduction: !!dt.isCustom,
         });
       });
-      if (futaSettings.enabled) {
-        cols.push(FUTA_DEDUCTION_COLUMN);
+      // When taxes are disabled for the run, hide tax / employer-tax columns (amounts stay $0 in compute/save).
+      if (!taxesDisabledForRun) {
+        if (futaSettings.enabled) {
+          cols.push(FUTA_DEDUCTION_COLUMN);
+        }
+        cols.push(...TAX_COLUMNS, TAX_TOTAL_COLUMN);
       }
-      cols.push(...TAX_COLUMNS, TAX_TOTAL_COLUMN);
       cols.push(
         { key: 'deductions', label: 'Total Deductions', align: 'right' },
         { key: 'netPay', label: 'Net Pay', align: 'right' },
       );
-      if (suiSettings.enabled) cols.push(SUI_EMPLOYER_COLUMN);
-      if (ettSettings.enabled) cols.push(ETT_EMPLOYER_COLUMN);
+      if (!taxesDisabledForRun) {
+        if (suiSettings.enabled) cols.push(SUI_EMPLOYER_COLUMN);
+        if (ettSettings.enabled) cols.push(ETT_EMPLOYER_COLUMN);
+      }
       cols.push({ key: 'actions', label: 'Payslip', align: 'center', isActions: true });
     }
     return cols;
-  }, [hoursLoaded, salaryComputed, allDeductionColumns, customEarningColumns, futaSettings.enabled, suiSettings.enabled, ettSettings.enabled]);
+  }, [
+    hoursLoaded,
+    salaryComputed,
+    allDeductionColumns,
+    customEarningColumns,
+    futaSettings.enabled,
+    suiSettings.enabled,
+    ettSettings.enabled,
+    taxesDisabledForRun,
+  ]);
 
   const filteredRows = useMemo(() => {
     let result = rows;
@@ -2411,34 +2641,40 @@ const EmployeeSheet = () => {
                   Salary employees: annual pay ÷ periods per year
                   {' · '}
                   Hourly employees: rate × loaded punch hours
-                  {futaSettings.enabled && (
+                  {futaSettings.enabled && !taxesDisabledForRun && (
                     <>
                       {' · '}
                       FUTA enabled at <span className="font-medium">{futaSettings.rate}%</span> (deducted from gross)
                     </>
                   )}
-                  {suiSettings.enabled && (
+                  {suiSettings.enabled && !taxesDisabledForRun && (
                     <>
-                      {' · '}
-                      CA SUI <span className="font-medium">{suiSettings.rate}%</span> employer cost
+                      {' · '}                      CA SUI <span className="font-medium">{suiSettings.rate}%</span> employer cost
                     </>
                   )}
-                  {ettSettings.enabled && (
+                  {ettSettings.enabled && !taxesDisabledForRun && (
                     <>
                       {' · '}
                       CA ETT <span className="font-medium">{ettSettings.rate}%</span> employer cost
                     </>
                   )}
-                  {(suiSettings.enabled || ettSettings.enabled) && (
+                  {!taxesDisabledForRun && (suiSettings.enabled || ettSettings.enabled) && (
                     <>
                       {' '}
                       (not deducted from net)
                     </>
                   )}
+                  {taxesDisabledForRun && (
+                    <>
+                      {' · '}
+                      <span className="font-medium text-amber-800">Tax deductions hidden for this run</span>
+                    </>
+                  )}
                   {customEarningColumns.length > 0 && (
                     <>
                       {' · '}
-                      Additional earnings included in gross and taxed
+                      Additional earnings included in gross
+                      {!taxesDisabledForRun && ' and taxed'}
                     </>
                   )}
                   {savedPayrollRunId && (
@@ -2449,9 +2685,22 @@ const EmployeeSheet = () => {
                   )}
                 </p>
               </div>
-              <div className="text-left sm:text-right shrink-0">
-                <p className="text-xs text-green-700 uppercase tracking-wide">Total Net Payroll</p>
-                <p className="text-xl sm:text-2xl font-bold text-green-800">{formatCurrency(salaryTotals.net)}</p>
+              <div className="flex flex-col sm:items-end gap-2 shrink-0">
+                <label
+                  className="inline-flex items-center gap-2 rounded-md border border-green-300 bg-white px-3 py-1.5 text-sm text-gray-800 cursor-pointer shadow-sm"
+                  title="This run only. Zeros and hides employee tax withholdings and FUTA/SUI/ETT. Benefit/other deduction columns stay. Does not change Employees-tab exempt flags."
+                >
+                  <input
+                    type="checkbox"
+                    checked={taxesDisabledForRun}
+                    onChange={(e) => handleTaxesDisabledForRunChange(e.target.checked)}
+                  />
+                  <span className="font-medium whitespace-nowrap">Hide tax deductions</span>
+                </label>
+                <div className="text-left sm:text-right">
+                  <p className="text-xs text-green-700 uppercase tracking-wide">Total Net Payroll</p>
+                  <p className="text-xl sm:text-2xl font-bold text-green-800">{formatCurrency(salaryTotals.net)}</p>
+                </div>
               </div>
             </div>
           </div>
@@ -2558,22 +2807,30 @@ const EmployeeSheet = () => {
                               <X className="w-3 h-3" />
                             </button>
                           </div>
-                          <input
-                            type="text"
-                            value={earningHeaderInputs[col.earningColumn.id] || ''}
-                            onChange={(e) =>
-                              handleColumnHeaderEarningChange(col.earningColumn.id, e.target.value)
-                            }
-                            placeholder={
-                              col.earningColumn.calculationType === 'percent' ? 'All: 0%' : 'All: 0.00'
-                            }
-                            title="Apply this value to all employees"
-                            className="w-full px-2 py-0.5 text-[11px] border border-green-200 rounded text-right bg-white focus:outline-none focus:ring-1 focus:ring-green-400 font-normal"
-                          />
-                          <span className="text-[10px] font-normal text-green-600">
-                            ({col.earningColumn.calculationType === 'percent' ? '% of base gross' : 'Fixed $'}
-                            {' · added to gross · taxable · applies to all'})
-                          </span>
+                          {isQuantityRateColumn(col.earningColumn) ? (
+                            <span className="text-[10px] font-normal text-green-600 text-right">
+                              (Qty × rate · per row · added to gross · taxable)
+                            </span>
+                          ) : (
+                            <>
+                              <input
+                                type="text"
+                                value={earningHeaderInputs[col.earningColumn.id] || ''}
+                                onChange={(e) =>
+                                  handleColumnHeaderEarningChange(col.earningColumn.id, e.target.value)
+                                }
+                                placeholder={
+                                  col.earningColumn.calculationType === 'percent' ? 'All: 0%' : 'All: 0.00'
+                                }
+                                title="Apply this value to all employees"
+                                className="w-full px-2 py-0.5 text-[11px] border border-green-200 rounded text-right bg-white focus:outline-none focus:ring-1 focus:ring-green-400 font-normal"
+                              />
+                              <span className="text-[10px] font-normal text-green-600">
+                                ({col.earningColumn.calculationType === 'percent' ? '% of base gross' : 'Fixed $'}
+                                {' · added to gross · taxable · applies to all'})
+                              </span>
+                            </>
+                          )}
                         </div>
                       ) : col.isDeductionInput ? (
                         <div className="flex flex-col gap-1">
@@ -2752,21 +3009,56 @@ const EmployeeSheet = () => {
                               {cellValue(row, col.key)}
                             </span>
                           ) : col.isEarningInput ? (
-                            <div className="flex flex-col items-end gap-0.5">
-                              <input
-                                type="text"
-                                value={earningInputs[row.id]?.[col.earningColumn.id] || ''}
-                                onChange={(e) =>
-                                  handleEarningInputChange(row.id, col.earningColumn.id, e.target.value)
-                                }
-                                placeholder={col.earningColumn.calculationType === 'percent' ? '0%' : '0.00'}
-                                disabled={row.computeError || row.baseGrossPay == null}
-                                className="w-20 px-2 py-0.5 text-xs border border-green-200 rounded text-right focus:outline-none focus:ring-1 focus:ring-green-400 disabled:bg-gray-100 disabled:text-gray-400"
-                              />
-                              <span className="text-[10px] font-semibold text-green-700">
-                                {formatCurrency(row.additionalEarningsBreakdown?.[col.earningColumn.id] ?? 0)}
-                              </span>
-                            </div>
+                            isQuantityRateColumn(col.earningColumn) ? (
+                              <div className="flex flex-col items-end gap-0.5 min-w-[120px]">
+                                <div className="flex items-center gap-1">
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={qtyRateInputs[row.id]?.quantity || ''}
+                                    onChange={(e) =>
+                                      handleQtyRateInputChange(row.id, 'quantity', e.target.value)
+                                    }
+                                    placeholder="Qty"
+                                    disabled={row.computeError || row.baseGrossPay == null}
+                                    className="w-14 px-1.5 py-0.5 text-xs border border-green-200 rounded text-right focus:outline-none focus:ring-1 focus:ring-green-400 disabled:bg-gray-100 disabled:text-gray-400"
+                                    title="Quantity (e.g. calls)"
+                                  />
+                                  <span className="text-[10px] text-green-700">×</span>
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={qtyRateInputs[row.id]?.rate || ''}
+                                    onChange={(e) =>
+                                      handleQtyRateInputChange(row.id, 'rate', e.target.value)
+                                    }
+                                    placeholder="Rate"
+                                    disabled={row.computeError || row.baseGrossPay == null}
+                                    className="w-14 px-1.5 py-0.5 text-xs border border-green-200 rounded text-right focus:outline-none focus:ring-1 focus:ring-green-400 disabled:bg-gray-100 disabled:text-gray-400"
+                                    title="Rate for this sheet only — does not update employee profile"
+                                  />
+                                </div>
+                                <span className="text-[10px] font-semibold text-green-700">
+                                  {formatCurrency(row.additionalEarningsBreakdown?.[col.earningColumn.id] ?? 0)}
+                                </span>
+                              </div>
+                            ) : (
+                              <div className="flex flex-col items-end gap-0.5">
+                                <input
+                                  type="text"
+                                  value={earningInputs[row.id]?.[col.earningColumn.id] || ''}
+                                  onChange={(e) =>
+                                    handleEarningInputChange(row.id, col.earningColumn.id, e.target.value)
+                                  }
+                                  placeholder={col.earningColumn.calculationType === 'percent' ? '0%' : '0.00'}
+                                  disabled={row.computeError || row.baseGrossPay == null}
+                                  className="w-20 px-2 py-0.5 text-xs border border-green-200 rounded text-right focus:outline-none focus:ring-1 focus:ring-green-400 disabled:bg-gray-100 disabled:text-gray-400"
+                                />
+                                <span className="text-[10px] font-semibold text-green-700">
+                                  {formatCurrency(row.additionalEarningsBreakdown?.[col.earningColumn.id] ?? 0)}
+                                </span>
+                              </div>
+                            )
                           ) : col.isDeductionInput ? (
                             <div className="flex flex-col items-end gap-0.5">
                               <input
@@ -3044,9 +3336,9 @@ const EmployeeSheet = () => {
             <div className="relative bg-white rounded-xl p-6 w-full max-w-md shadow-2xl">
               <h3 className="text-xl font-bold mb-1 text-gray-900">Add Earnings Column</h3>
               <p className="text-sm text-gray-500 mb-4">
-                Adds taxable pay to gross before taxes — commission, bonus, and similar.
+                Adds taxable pay to gross before taxes — commission, bonus, calls × rate, and similar.
                 This sheet only, not company settings. A percentage is of base gross
-                (hours and salary), before this column.
+                (hours and salary), before this column. Only one Quantity × rate column is allowed.
               </p>
               <div className="space-y-4">
                 <div>
@@ -3057,7 +3349,7 @@ const EmployeeSheet = () => {
                     onChange={(e) =>
                       setNewCustomEarning((prev) => ({ ...prev, label: e.target.value }))
                     }
-                    placeholder="e.g., Commission, Bonus"
+                    placeholder="e.g., Calls, Commission, Bonus"
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                     autoFocus
                   />
@@ -3073,7 +3365,14 @@ const EmployeeSheet = () => {
                   >
                     <option value="fixed">Fixed amount ($)</option>
                     <option value="percent">Percentage of base gross (%)</option>
+                    <option value={QTY_RATE_CALC_TYPE}>Quantity × rate</option>
                   </select>
+                  {newCustomEarning.calculationType === QTY_RATE_CALC_TYPE && (
+                    <p className="mt-2 text-xs text-gray-500">
+                      Enter quantity and rate per employee. Rate prefills from the employee pay rate
+                      and stays on this sheet only.
+                    </p>
+                  )}
                 </div>
               </div>
               <div className="mt-6 flex gap-3">
