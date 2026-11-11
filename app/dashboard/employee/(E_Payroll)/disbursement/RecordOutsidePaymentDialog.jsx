@@ -27,6 +27,7 @@ import {
   markRecipientPaymentSent,
   PAYMENT_METHOD_LABELS,
 } from "@/lib/disbursementApi";
+import { PAYSLIP_REMARK_PERSISTENCE_ENABLED } from "@/lib/employeeSheetExtensions";
 import { isAllowedProofFile, PROOF_ACCEPT, PROOF_MAX_BYTES } from "./disbursementUi";
 
 export default function RecordOutsidePaymentDialog({
@@ -39,6 +40,7 @@ export default function RecordOutsidePaymentDialog({
   onSaved,
 }) {
   const [paymentMethod, setPaymentMethod] = useState("CHECK");
+  const [remark, setRemark] = useState("");
   const [proofFile, setProofFile] = useState(null);
   const [proofDragActive, setProofDragActive] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
@@ -47,6 +49,7 @@ export default function RecordOutsidePaymentDialog({
   useEffect(() => {
     if (!open) return;
     setPaymentMethod("CHECK");
+    setRemark("");
     setProofFile(null);
     setProofDragActive(false);
   }, [open, recipient?.id]);
@@ -82,6 +85,7 @@ export default function RecordOutsidePaymentDialog({
         await markRecipientPaymentSent(apiUrl, token, detail.id, recipient.id, {
           paymentMethod,
           file: proofFile,
+          remark,
         });
         toast.success(`Payment recorded for ${recipient.employeeName}. No bank transfer was made.`);
       } else {
@@ -145,6 +149,24 @@ export default function RecordOutsidePaymentDialog({
               </SelectContent>
             </Select>
           </div>
+
+          {recipient ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="outside-payslip-remark">Remarks (optional)</Label>
+              <textarea
+                id="outside-payslip-remark"
+                value={remark}
+                onChange={(e) => setRemark(e.target.value)}
+                className="w-full min-h-[88px] rounded-md border border-input bg-background px-3 py-2 text-sm"
+                placeholder="Shown on this employee’s PDF payslip"
+              />
+              <p className="text-xs text-muted-foreground">
+                {PAYSLIP_REMARK_PERSISTENCE_ENABLED
+                  ? "Saved with this payment and included on the PDF payslip."
+                  : "Not saved to the server yet."}
+              </p>
+            </div>
+          ) : null}
 
           <div className="space-y-1.5">
             <Label htmlFor="outside-payment-proof">Proof of payment</Label>

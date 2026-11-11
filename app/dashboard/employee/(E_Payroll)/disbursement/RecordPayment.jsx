@@ -21,6 +21,7 @@ import {
   markRecipientPaymentSent,
   PAYMENT_METHOD_LABELS,
 } from "@/lib/disbursementApi";
+import { PAYSLIP_REMARK_PERSISTENCE_ENABLED } from "@/lib/employeeSheetExtensions";
 import {
   DisbursementFrame,
   isAllowedProofFile,
@@ -38,6 +39,7 @@ export default function RecordPayment({ batchId }) {
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(true);
   const [paymentMethod, setPaymentMethod] = useState("CHECK");
+  const [remark, setRemark] = useState("");
   const [proofFile, setProofFile] = useState(null);
   const [proofDragActive, setProofDragActive] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
@@ -98,6 +100,7 @@ export default function RecordPayment({ batchId }) {
         await markRecipientPaymentSent(apiUrl, token, detail.id, recipient.id, {
           paymentMethod,
           file: proofFile,
+          remark,
         });
         toast.success(`Payment marked as sent for ${recipient.employeeName}. No bank transfer was made from this app.`);
       } else {
@@ -176,6 +179,25 @@ export default function RecordPayment({ batchId }) {
                   </SelectContent>
                 </Select>
               </div>
+              {recipient && (
+                <div className="space-y-2 max-w-lg">
+                  <label className="text-sm font-medium" htmlFor="payslip-remark">
+                    Remarks (optional)
+                  </label>
+                  <textarea
+                    id="payslip-remark"
+                    value={remark}
+                    onChange={(e) => setRemark(e.target.value)}
+                    className="w-full min-h-[96px] rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    placeholder="Shown on this employee’s PDF payslip"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {PAYSLIP_REMARK_PERSISTENCE_ENABLED
+                      ? "Saved with this payment and included when the PDF payslip is generated or downloaded again."
+                      : "Not saved to the server yet. Do not rely on this field for production payslips until the server remark endpoint ships."}
+                  </p>
+                </div>
+              )}
               <div className="space-y-1">
                 <label className="text-sm font-medium" htmlFor="payment-proof">Screenshot / proof</label>
                 <div

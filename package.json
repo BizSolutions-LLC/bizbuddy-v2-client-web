@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "node --experimental-default-type=module --test lib/payrollReportPeriod.test.js lib/exportPayrollSummary.test.js"
+    "test": "node --test lib/payrollReportPeriod.test.js lib/exportPayrollSummary.test.js lib/employeeSheetExtensions.test.js"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
