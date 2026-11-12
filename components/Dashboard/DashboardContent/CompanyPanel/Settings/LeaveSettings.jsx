@@ -6,7 +6,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import {
-  AlertCircle, Archive, ArchiveRestore, Award, Calendar, Check, ChevronDown, CreditCard, Download, Edit3, FileText, Info, Loader2,
+  AlertCircle, Archive, ArchiveRestore, Award, Calendar, Check, ChevronDown, CreditCard, Edit3, FileSpreadsheet, FileText, Info, Loader2,
   Plus, RefreshCw, Save, Settings, ShieldAlert, Timer, Trash2, TrendingUp, User, Users,
 } from "lucide-react";
 import { toast, Toaster } from "sonner";
@@ -1881,7 +1881,8 @@ export default function LeaveSettings() {
   const saveSettings = async () => {
     setSavingSettings(true);
     try {
-      const body = Object.fromEntries(Object.entries(draft || {}).filter(([k]) => !LEAVE_CREDIT_KEYS.includes(k)));
+      // BB-119: the time zone belongs to Company Configurations, so an old copy here can't overwrite it.
+      const body = Object.fromEntries(Object.entries(draft || {}).filter(([k]) => !LEAVE_CREDIT_KEYS.includes(k) && k !== "timezone"));
       const r = await fetch(`${API}/api/company-settings`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -1943,7 +1944,7 @@ export default function LeaveSettings() {
             <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? "animate-spin" : ""}`} /> Refresh
           </Button>
           <Button variant="outline" onClick={() => setReportOpen(true)} disabled={loadingMatrix} className="border-orange-200 text-orange-600 hover:bg-orange-50">
-            <Download className="w-4 h-4 mr-2" /> Generate Report
+            <FileSpreadsheet className="w-4 h-4 mr-2" /> Generate Report
           </Button>
           <Button onClick={saveSettings} disabled={savingSettings || loadingSettings} className="bg-orange-500 hover:bg-orange-600 text-white">
             {savingSettings ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}

@@ -47,6 +47,7 @@ const DataTable = ({
   sortable = true,
   selectable = false,
   showFilterButton = true,
+  toolbarExtra = null, // optional controls shown next to Filters (e.g. a column picker)
 }) => {
   const [search, setSearch] = useState("");
   const [pageSize, setPageSize] = useState(initialPageSize);
@@ -204,6 +205,8 @@ const DataTable = ({
                 </Tooltip>
               </TooltipProvider>
             )}
+
+            {toolbarExtra}
 
             {showFilterButton && (
               <Button

@@ -676,9 +676,9 @@ export default function Sidebar({ isSidebarOpen, closeSidebar, onNavigateStart, 
     ? CompanyPanelItems.map((g) => ({ ...g, children: g.children.filter((c) => c.id !== "company/deletion") }))
     : CompanyPanelItems;
 
-  // Payroll Management is company-wide, so B. Buddy keeps it (but not My Payslip)
-  const agentFeatures = [{ ...payrollItem, children: payrollItem.children.filter((c) => c.id === "employee/payroll") }];
-  const features  = applyPlanLock(isSystemAgent ? agentFeatures : employeePanelWithPayroll, plan);
+  // BB-120: B. Buddy has no payroll access (it kept Payroll Management under BB-110),
+  // so it gets no Employee Panel section at all
+  const features  = applyPlanLock(isSystemAgent ? [] : employeePanelWithPayroll, plan);
   const settings  = applyPlanLock(filterCompanyPanelByRole(companyItems, roleLower), plan);
   const bizbuddy  = getBizBuddyItems(role);
 
@@ -740,7 +740,7 @@ export default function Sidebar({ isSidebarOpen, closeSidebar, onNavigateStart, 
                 <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
                   <h2 className="mb-1 sm:mb-2 px-1 sm:px-2 text-[10px] sm:text-xs font-bold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 flex items-center gap-1 sm:gap-2">
                     <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-orange-500 rounded-full flex-shrink-0" />
-                    <span className="truncate">{isSystemAgent ? "Payroll" : "Employee Panel"}</span>
+                    <span className="truncate">Employee Panel</span>
                   </h2>
                   <ul className="space-y-0.5 sm:space-y-1">
                     {features.map((g, index) => (

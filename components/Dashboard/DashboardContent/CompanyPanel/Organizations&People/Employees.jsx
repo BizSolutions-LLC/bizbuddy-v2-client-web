@@ -10,7 +10,7 @@ import {
   Building,
   User,
   UserCog,
-  Download,
+  FileSpreadsheet,
   UploadCloud,
   Info,
   FileText,
@@ -33,6 +33,7 @@ import { toast, Toaster } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
 import DataTable from "@/components/common/DataTable";
 import ColumnSelector from "@/components/common/ColumnSelector";
+import IconBtn from "@/components/common/IconBtn";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -135,8 +136,6 @@ export default function ModernEmployees() {
   const [createLoading, setCreateLoading] = useState(false);
   const [showCreatePassword, setShowCreatePassword] = useState(false);
 
-  const [pageSize, setPageSize] = useState(10);
-  const [showAllRows, setShowAllRows] = useState(false);
 
   const [showEditModal, setShowEditModal] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -218,7 +217,8 @@ export default function ModernEmployees() {
   // Calculate stats
   const stats = useMemo(() => {
     const total = employees.length;
-    const active = employees.filter(e => e.employmentDetail?.employmentStatus === "full_time" || e.employmentDetail?.employmentStatus === "part_time").length;
+    // BB-119: account status, matching "Active accounts" in the Employees report
+    const active = employees.filter(e => e.status === "active").length;
     const departments = [...new Set(employees.map(e => e.department?.name).filter(Boolean))].length;
     const supervisors = employees.filter(e => e.role === "supervisor").length;
     return { total, active, departments, supervisors };
@@ -715,7 +715,7 @@ export default function ModernEmployees() {
   };
 
   // Export functions (preserving original logic)
-  const downloadCSV = async () => {
+  const downloadExcel = async () => {
     if (processedEmployees.length === 0) {
       toast.error("No data to export");
       return;
@@ -724,16 +724,15 @@ export default function ModernEmployees() {
     setExporting(true);
     
     try {
-      const { exportEmployeesCSV } = await import("@/lib/exports/employees");
-      const result = await exportEmployeesCSV({
-        data: processedEmployees,
-        visibleColumns: visibleCols,
-        columnMap: headerMap,
+      // BB-119: the server builds the report (whole company, or a supervisor's team)
+      const { downloadServerReport } = await import("@/lib/reportDownload");
+      const filename = await downloadServerReport({
+        apiUrl: API,
+        token,
+        path: "/api/reports/employees?format=xlsx",
+        fallbackFilename: "BizBuddy_Employees.xlsx",
       });
-      
-      if (result.success) {
-        toast.success(`${result.filename}`);
-      }
+      toast.success(filename);
     } catch (error) {
       toast.error(`Export failed: ${error.message}`);
     } finally {
@@ -750,16 +749,15 @@ export default function ModernEmployees() {
     setPdfExporting(true);
     
     try {
-      const { exportEmployeesPDF } = await import("@/lib/exports/employees");
-      const result = await exportEmployeesPDF({
-        data: processedEmployees,
-        visibleColumns: visibleCols,
-        columnMap: headerMap,
+      // BB-119: the server builds the report (whole company, or a supervisor's team)
+      const { downloadServerReport } = await import("@/lib/reportDownload");
+      const filename = await downloadServerReport({
+        apiUrl: API,
+        token,
+        path: "/api/reports/employees?format=pdf",
+        fallbackFilename: "BizBuddy_Employees.pdf",
       });
-      
-      if (result.success) {
-        toast.success(`${result.filename}`);
-      }
+      toast.success(filename);
     } catch (error) {
       toast.error(`Export failed: ${error.message}`);
     } finally {
@@ -868,22 +866,22 @@ export default function ModernEmployees() {
             <p className="text-muted-foreground">Manage your workforce and employee information</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
-            <Button
-              variant="outline"
-              onClick={() => setShowInfoDialog(true)}
+            <IconBtn icon={Info} tooltip="Import Guide" onClick={() => setShowInfoDialog(true)} className="border-orange-200 text-orange-600 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-900/20" />
+            <IconBtn icon={UploadCloud} tooltip="Import CSV" onClick={() => fileRef.current?.click()} className="border-orange-200 text-orange-600 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-900/20" />
+            <IconBtn
+              icon={FileSpreadsheet}
+              tooltip={exporting ? "Exporting…" : "Export Excel: every employee you can see, all fields"}
+              onClick={downloadExcel}
+              disabled={exporting}
               className="border-orange-200 text-orange-600 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-900/20"
-            >
-              <Info className="h-4 w-4 mr-2" />
-              Import Guide
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => fileRef.current?.click()}
+            />
+            <IconBtn
+              icon={FileText}
+              tooltip={pdfExporting ? "Exporting…" : "Export PDF: every employee you can see"}
+              onClick={downloadPDF}
+              disabled={pdfExporting}
               className="border-orange-200 text-orange-600 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-900/20"
-            >
-              <UploadCloud className="h-4 w-4 mr-2" />
-              Import CSV
-            </Button>
+            />
             <Button
               onClick={() => setShowCreateModal(true)}
               className="bg-orange-500 hover:bg-orange-600 text-white"
@@ -945,73 +943,6 @@ export default function ModernEmployees() {
           </Card>
         </div>
 
-        {/* Advanced Controls */}
-        <Card className="bg-orange-50/50 dark:bg-orange-900/10 border-orange-200 dark:border-orange-800">
-          <CardContent className="p-4">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-              {/* Left side - Column & Export controls */}
-              <div className="flex items-center gap-2 flex-wrap">
-                <ColumnSelector
-                  options={columnOptions}
-                  visible={visibleCols}
-                  setVisible={setVisibleCols}
-                />
-                
-                {/* Export Options */}
-                <Button
-                  variant="outline"
-                  onClick={downloadCSV}
-                  disabled={exporting}
-                  className="border-orange-200 text-orange-600 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-900/20"
-                >
-                  <Download className="h-4 w-4 mr-2" />
-                  {exporting ? "Exporting..." : "CSV"}
-                </Button>
-
-                <Button
-                  variant="outline"
-                  onClick={downloadPDF}
-                  disabled={pdfExporting}
-                  className="border-orange-200 text-orange-600 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-900/20"
-                >
-                  <FileText className="h-4 w-4 mr-2" />
-                  {pdfExporting ? "Exporting..." : "PDF"}
-                </Button>
-              </div>
-
-              {/* Right side - Page size selector */}
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground whitespace-nowrap">Rows per page:</span>
-                <Select 
-                  value={showAllRows ? "all" : pageSize.toString()} 
-                  onValueChange={(value) => {
-                    if (value === "all") {
-                      setShowAllRows(true);
-                    } else {
-                      setShowAllRows(false);
-                      setPageSize(parseInt(value));
-                    }
-                  }}
-                >
-                  <SelectTrigger className="w-full sm:w-[100px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="10">10</SelectItem>
-                    <SelectItem value="25">25</SelectItem>
-                    <SelectItem value="50">50</SelectItem>
-                    <SelectItem value="100">100</SelectItem>
-                    <SelectItem value="all">All ({processedEmployees.length})</SelectItem>
-                  </SelectContent>
-                </Select>
-                <div className="text-xs text-muted-foreground italic">
-                  Exports include all {processedEmployees.length} rows
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
         {/* Main Table */}
         <Card>
           <CardHeader>
@@ -1029,7 +960,13 @@ export default function ModernEmployees() {
               actions={actions}
               searchPlaceholder="Search employees by name, email, or ID..."
               onRowClick={(employee) => openDetailsModal(employee)}
-              pageSize={showAllRows ? processedEmployees.length : pageSize}
+              toolbarExtra={
+                <ColumnSelector
+                  options={columnOptions}
+                  visible={visibleCols}
+                  setVisible={setVisibleCols}
+                />
+              }
             />
           </CardContent>
         </Card>

@@ -19,6 +19,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import useAuthStore from "@/store/useAuthStore";
 import { CompanyPanelItems, filterCompanyPanelByRole, lockChildByPlan } from "@/components/Dashboard/sidebar";
+import { isSystemAgentToken, isBlockedForSystemAgent } from "@/lib/systemAgent";
 import docsContent from "./docsContent";
 import companyDocsContent from "./companyDocsContent";
 import settingsDocsContent from "./settingsDocsContent";
@@ -57,6 +58,9 @@ const TABS = [
     content: settingsDocsContent,
   },
 ];
+
+const SUPPORT_COMPANY_DESCRIPTION =
+  "Manage your people, review requests and punch logs, run cutoffs, and set up shifts, schedules and locations.";
 
 const COMPANY_TYPE_LABELS = { DAYCARE: "PadPro", BNC: "B&C" };
 
@@ -295,17 +299,21 @@ export default function Documentation() {
 
   const loading = role === null || companyType === undefined;
   const showTypeLabels = !loading && companyType === null;
+  // BB-120: B. Buddy (support account) gets no Employee guide and no guides for pages it
+  // can't open (payroll, disbursement, company deletion); it opens on the Company Panel tab.
+  const isSupport = isSystemAgentToken(token);
 
   const visibleTabs = useMemo(() => {
     if (loading) return [];
     const allowedGroups = new Set(filterCompanyPanelByRole(CompanyPanelItems, role).map((g) => g.id));
     const canSeePayrollDocs = ["admin", "supervisor", "superadmin"].includes(String(role || "").toLowerCase());
 
-    return TABS.map((tab) => {
+    return TABS.filter((tab) => !(isSupport && tab.id === "employee")).map((tab) => {
       const sections = tab.content
         // Employee guide is ungrouped; company/settings sections follow the sidebar's role filter.
         // Payroll is documented here even though those pages live on the Employee Panel.
         .filter((s) => !s.groupId || allowedGroups.has(s.groupId) || (s.groupId === "payroll" && canSeePayrollDocs))
+        .filter((s) => !(isSupport && s.routeId && isBlockedForSystemAgent(`/dashboard/${s.routeId}`)))
         .filter((s) => matchesCompanyType(s, companyType))
         .map((s) => ({
           ...s,
@@ -314,9 +322,11 @@ export default function Documentation() {
           lock: s.routeId ? lockChildByPlan({ id: s.routeId }, plan) : null,
         }))
         .filter((s) => s.topics.length > 0);
+      // BB-120: B. Buddy has no payroll guides, so its description leaves payroll out
+      if (isSupport && tab.id === "company") return { ...tab, sections, description: SUPPORT_COMPANY_DESCRIPTION };
       return { ...tab, sections };
     }).filter((tab) => tab.id === "employee" || tab.sections.some((s) => s.groupId));
-  }, [loading, role, plan, companyType]);
+  }, [loading, role, plan, companyType, isSupport]);
 
   const activeTab = visibleTabs.find((t) => t.id === requestedTab) || visibleTabs[0];
   const groups = activeTab ? groupSections(activeTab.sections) : [];

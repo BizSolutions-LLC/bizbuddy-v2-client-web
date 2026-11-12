@@ -36,7 +36,7 @@ import {
   AlertTriangle,
   Car,
   UserCheck,
-  LayoutTemplate,
+  FileSpreadsheet,
   Trash2,
   Tag,
   X,
@@ -64,6 +64,7 @@ import MultiSelect from "@/components/common/MultiSelect";
 import ColumnSelector from "@/components/common/ColumnSelector";
 import CutoffDateRangeFilter, { periodRangeKey, groupPeriodsByRange, groupStatus } from "@/components/common/CutoffDateRangeFilter";
 import TableSkeleton from "@/components/common/TableSkeleton";
+import { downloadServerReport } from "@/lib/reportDownload";
 import { Textarea } from "@/components/ui/textarea";
 import { fromZonedTime } from "date-fns-tz";
 import ImportPunchLogs from "./ImportPunchLogs";
@@ -414,29 +415,13 @@ const TimeDisplayWithTooltip = ({ time, type, className = "" }) => {
 };
 
 // ── Dual time display ──────────────────────────────────────────────────────────
-const DualTimeDisplay = ({ datetime, userTz, companyTz }) => {
+const CompanyTimeDisplay = ({ datetime, companyTz }) => {
   if (!datetime) return <span className="text-muted-foreground text-xs">—</span>;
-  if (userTz === companyTz) return (
-    <div className="text-xs">
-      <div className="font-mono font-semibold">{safeDate(datetime, userTz)}</div>
-      <div className="font-mono">{safeTime(datetime, userTz)}</div>
-    </div>
-  );
   return (
-    <TooltipProvider delayDuration={200}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <div className="text-xs cursor-help">
-            <div className="font-mono font-semibold text-primary">{safeDate(datetime, companyTz)} {safeTime(datetime, companyTz)}</div>
-            <div className="font-mono text-muted-foreground text-[10px]">Detected time: {safeTime(datetime, userTz)}</div>
-          </div>
-        </TooltipTrigger>
-        <TooltipContent className="text-xs">
-          <div><strong>Company HQ ({getTimezoneName(companyTz)}):</strong> {safeDate(datetime, companyTz)} {safeTime(datetime, companyTz)}</div>
-          <div className="text-muted-foreground">Detected time ({getTimezoneName(userTz)}): {safeDate(datetime, userTz)} {safeTime(datetime, userTz)}</div>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <div className="text-xs">
+      <div className="font-mono font-semibold">{safeDate(datetime, companyTz)}</div>
+      <div className="font-mono">{safeTime(datetime, companyTz)}</div>
+    </div>
   );
 };
 
@@ -899,18 +884,6 @@ const ScheduleDialog = ({ open, onOpenChange, scheduleList }) => {
   );
 };
 
-// ── Module-level export column map (shared by main + modal) ───────────────────
-const COLUMN_MAP_FOR_EXPORT = {
-  id: "Log ID", schedule: "Scheduled", locationRestricted: "Location Required",
-  employee: "Employee", dateTimeIn: "Time In", dateTimeOut: "Time Out",
-  duration: "Duration", gross: "Gross Hours", coffee: "Coffee Break", lunch: "Lunch Break",
-  ot: "Overtime", otStatus: "OT Status", late: "Late Hours", undertime: "Undertime Hours",
-  deviceIn: "Device In", deviceOut: "Device Out",
-  locationIn: "Location In", locationOut: "Location Out",
-  period: "Period Hours", status: "Status", punchType: "Punch Type",
-  cutoffApproval: "Cutoff Status",
-};
-
 // ── Timelog enrichment (shared by fetchTimelogs + handleGenerateReport) ────────
 function enrichTimelogs(rawData, { companyTimezone, isDayCare, otBasis, locMap, defaultHours }) {
   return rawData.map((t) => {
@@ -974,8 +947,7 @@ function enrichTimelogs(rawData, { companyTimezone, isDayCare, otBasis, locMap, 
     return {
       ...t,
       // Raw /api/timelogs rows carry the HR employee code as `employeeCode` (server-side
-      // alias); normalize to `employeeId` here so both this path and buildRowsFromApprovals
-      // feed the report's "ID" column the same field name.
+      // alias); normalize to `employeeId` here so the table reads one field name.
       employeeId: t.employeeId ?? t.employeeCode ?? t.userId,
       dateKey, punchType,
       isDA, isDA_AM, isDA_PM, isAnyDA,
@@ -1014,168 +986,19 @@ function enrichTimelogs(rawData, { companyTimezone, isDayCare, otBasis, locMap, 
   });
 }
 
-// ── Approved-cutoff report rows ─────────────────────────────────────────────
-// Builds rows shaped like raw /api/timelogs records from GET /cutoff-periods/:id/approvals,
-// so they can be fed through the same enrichTimelogs() + export functions used for the
-// live path — no downstream changes needed. Only approval.status === "approved" (or
-// "resolved", the punch-vs-leave-conflict outcome) segments/punches count toward hours;
-// "excluded" contribute 0. This is what makes a locked cutoff's report match what was
-// actually reviewed, instead of re-deriving live/raw punch data that doesn't reflect
-// exclusions, overrides, or OT decisions made during review.
-//
-// approvalsData can be a single fetch's envelope, or a manually merged one (data/otBlocks
-// concatenated across every department's approvals for the same pay period).
-function buildRowsFromApprovals(approvalsData, companyTimezone) {
-  const groups = new Map(); // `${userId}|${dateKey}` -> accumulator
-
-  for (const approval of approvalsData.data || []) {
-    const tl     = approval.timeLog || {};
-    const user   = tl.user;
-    const userId = user?.id;
-    if (!userId || !tl.timeIn) continue;
-
-    const dateKey = toLocalDateStr(tl.timeIn, companyTimezone);
-    const key = `${userId}|${dateKey}`;
-    if (!groups.has(key)) {
-      groups.set(key, {
-        userId,
-        timeIn:  tl.timeIn,
-        timeOut: tl.timeOut,
-        employeeName: `${user.profile?.firstName || ""} ${user.profile?.lastName || user.username || ""}`.trim() || user.email || userId,
-        // The canonical field on the User record is `employeeId` (see Employees.jsx,
-        // "Company Employee ID") — `employeeCode` (used by the raw /api/timelogs path)
-        // is an alias that endpoint adds, not a field on the User object itself, so it's
-        // never present here. Reading the wrong name silently fell back to the raw
-        // userId (a UUID), which is why only approved-path employees looked like they
-        // were "missing" their ID.
-        employeeId: user.employeeId ?? user.employeeCode ?? userId,
-        employeeRole: user.role || "—",
-        punchType: tl.punchType || "REGULAR",
-        netWorkedHours: 0,
-        driverAmSegmentHours: null,
-        regularSegmentHours:  null,
-        driverPmSegmentHours: null,
-        // BB-089 rework: actual hours of fixed-hours (SV) scheduled-day punches. The server
-        // excludes them (covered by the flat hours), so they never reach netWorkedHours —
-        // kept separate so only the payroll grid's daily cells read them.
-        fixedHoursScheduledHours: 0,
-        isOffDay: false,
-      });
-    }
-    const g = groups.get(key);
-    if (approval.isFixedHoursEmployee && approval.isOffDay) g.isOffDay = true;
-    if (tl.timeOut && (!g.timeOut || new Date(tl.timeOut) > new Date(g.timeOut))) g.timeOut = tl.timeOut;
-
-    const isApproved   = approval.status === "approved" || approval.status === "resolved";
-    const calc         = approval.calculatedData || {};
-    const payroll      = approval.payrollSummary || {};
-    const payableHours = isApproved ? (payroll.totalPayableHours ?? calc.payableHours ?? 0) : 0;
-    // Exclusion only flips the status — the calculated hours are still on the approval.
-    if (approval.isFixedHoursEmployee && !approval.isOffDay && approval.status === "excluded") {
-      g.fixedHoursScheduledHours += parseFloat(payroll.totalPayableHours ?? calc.payableHours ?? 0) || 0;
-    }
-
-    if (approval.segmentType) {
-      // Any DA punchType is enough to make enrichTimelogs() treat this as a driver/aide row
-      // and read the three *SegmentHours fields below.
-      g.punchType = "DRIVER_AIDE";
-      if (approval.segmentType === "driver_am") g.driverAmSegmentHours = (g.driverAmSegmentHours || 0) + payableHours;
-      if (approval.segmentType === "regular")   g.regularSegmentHours  = (g.regularSegmentHours  || 0) + payableHours;
-      if (approval.segmentType === "driver_pm") g.driverPmSegmentHours = (g.driverPmSegmentHours || 0) + payableHours;
-    } else {
-      g.netWorkedHours += payableHours;
-      // A day can have more than one non-segment approval record; if any of them is a
-      // Training punch, the whole day must be classified Training regardless of which
-      // record happened to be processed first — otherwise whichever record created the
-      // group "wins" arbitrarily and Training hours silently get counted as Regular.
-      if (tl.punchType === "TRAINING") g.punchType = "TRAINING";
-      else if (g.punchType !== "TRAINING" && g.punchType !== "DRIVER_AIDE") g.punchType = tl.punchType || "REGULAR";
-    }
-  }
-
-  // OT approval lives on otBlocks (approved/excluded per employee via the Cutoff Review
-  // page's "Approve OT" action), NOT on each punch/segment approval's calculatedData —
-  // that field is only a display tag ("this day has OT"), not the actual approval state.
-  const approvedOtUserIds = new Set(
-    (approvalsData.otBlocks || [])
-      .filter((b) => b.status === "approved")
-      .map((b) => b.userId)
-  );
-
-  return Array.from(groups.values()).map((g) => {
-    const isDA = g.punchType === "DRIVER_AIDE";
-    const segTotal = (g.driverAmSegmentHours || 0) + (g.regularSegmentHours || 0) + (g.driverPmSegmentHours || 0);
-    return {
-      ...g,
-      netWorkedHours: isDA ? segTotal : g.netWorkedHours,
-      otStatus: approvedOtUserIds.has(g.userId) ? "Approved" : "—",
-    };
-  });
-}
-
-// The approvals envelope's own `leaves` array — standalone approved-leave days for this
-// specific cutoff (no punch on that day) — is the authoritative, period-scoped source for
-// SL, not the generic company-wide GET /api/leaves list the payroll CSV was using before.
-// Same shape exportEmployeePunchLogsCSV_v2 already expects for a Leave record; omitting
-// requestedHours lets it fall back to defaultShiftHours for this single day, same as the
-// Cutoff Review page's own 8h default for a standalone leave card.
-//
-// isPaid/actualPaidHours are synthesized here (same payableHours ?? scheduledHours default
-// CutoffReview.jsx already uses for its own Paid/Unpaid tag) so the CSV's paid-only SL filter
-// can read this record the same way it reads a raw GET /api/leaves record.
-function buildLeavesFromApprovals(approvalsData) {
-  return (approvalsData.leaves || [])
-    .filter((leaveRow) => leaveRow.user?.id && leaveRow.leaveDate && leaveRow.leave?.leaveType)
-    .map((leaveRow) => {
-      const scheduledHours = leaveRow.hours ?? 8;
-      const payableHours   = leaveRow.payableHours ?? scheduledHours;
-      return {
-        leaveType: leaveRow.leave.leaveType,
-        userId:    leaveRow.user.id,
-        startDate: leaveRow.leaveDate,
-        endDate:   leaveRow.leaveDate,
-        status:          "approved",
-        isPaid:          payableHours > 0,
-        actualPaidHours: payableHours,
-      };
-    });
-}
-
 // ── GenerateReportModal ────────────────────────────────────────────────────────
-const REPORT_EXCLUDED_COLS = new Set(["deviceIn", "deviceOut", "locationIn", "locationOut", "locationRestricted"]);
-
-const REPORT_GROUPS = [
-  { key: "basic",    label: "Basic Info" },
-  { key: "schedule", label: "Schedule"   },
-  { key: "time",     label: "Time"       },
-  { key: "breaks",   label: "Breaks"     },
-  { key: "location", label: "Location"   },
-  { key: "device",   label: "Device"     },
-  { key: "meta",     label: "Other"      },
-];
-
-const BNC_FORCED_COLS = [
-  { value: "ot",         label: "OT (Daily)"  },
-  { value: "lunchStart", label: "Lunch Start" },
-  { value: "lunchEnd",   label: "Lunch End"   },
-];
-
 const GenerateReportModal = ({
   open, onOpenChange,
-  isDayCare,
-  columnOptions,
   defaultFrom,
   defaultTo,
-  defaultColumns,
   defaultCutoffId = "all",
   cutoffPeriods = [],
   generating,
   onGenerate,
 }) => {
-  const [reportType,    setReportType]    = useState("csv-detail");
+  const [reportType,    setReportType]    = useState("xlsx-detail");
   const [reportFrom,    setReportFrom]    = useState(defaultFrom);
   const [reportTo,      setReportTo]      = useState(defaultTo);
-  const [selectedCols,  setSelectedCols]  = useState(defaultColumns || []);
   const [cutoffId,      setCutoffId]      = useState(defaultCutoffId); // periodRangeKey, or "all"
 
   const cutoffGroups = useMemo(() => groupPeriodsByRange(cutoffPeriods), [cutoffPeriods]);
@@ -1186,8 +1009,7 @@ const GenerateReportModal = ({
 
   useEffect(() => {
     if (open) {
-      setReportType("csv-detail");
-      setSelectedCols((defaultColumns || []).filter((v) => !REPORT_EXCLUDED_COLS.has(v)));
+      setReportType("xlsx-detail");
       // Inherit whatever cutoff the main table is currently filtered to — the report's
       // own dropdown used to always reset to "all", silently ignoring a locked cutoff
       // the admin had already selected on the page, which was the actual bug: the report
@@ -1220,28 +1042,6 @@ const GenerateReportModal = ({
     return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString("en-US", { month: "short", day: "numeric" });
   };
 
-  const selectableCols = useMemo(
-    () => columnOptions.filter((c) => c.value !== "actions" && !REPORT_EXCLUDED_COLS.has(c.value)),
-    [columnOptions]
-  );
-
-  const forcedCols = isDayCare ? [] : BNC_FORCED_COLS;
-
-  const toggleCol = (val) =>
-    setSelectedCols((prev) =>
-      prev.includes(val) ? prev.filter((x) => x !== val) : [...prev, val]
-    );
-
-  const toggleGroup = (groupKey) => {
-    const vals = selectableCols.filter((c) => c.group === groupKey).map((c) => c.value);
-    const allOn = vals.every((v) => selectedCols.includes(v));
-    setSelectedCols((prev) =>
-      allOn ? prev.filter((v) => !vals.includes(v)) : [...new Set([...prev, ...vals])]
-    );
-  };
-
-  const isPayroll = reportType === "csv-payroll";
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg border-2 dark:border-white/10">
@@ -1266,9 +1066,9 @@ const GenerateReportModal = ({
               <Select value={reportType} onValueChange={setReportType}>
                 <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="csv-detail">
+                  <SelectItem value="xlsx-detail">
                     <span className="flex items-center gap-2">
-                      <Download className="h-3.5 w-3.5 text-green-600" /> CSV — Detail
+                      <FileSpreadsheet className="h-3.5 w-3.5 text-green-600" /> Excel — Detail
                     </span>
                   </SelectItem>
                   <SelectItem value="pdf">
@@ -1276,18 +1076,13 @@ const GenerateReportModal = ({
                       <FileText className="h-3.5 w-3.5 text-red-500" /> PDF
                     </span>
                   </SelectItem>
-                  <SelectItem value="csv-payroll">
+                  <SelectItem value="xlsx-payroll">
                     <span className="flex items-center gap-2">
-                      <LayoutTemplate className="h-3.5 w-3.5 text-blue-500" /> CSV — Payroll Grid
+                      <FileSpreadsheet className="h-3.5 w-3.5 text-blue-500" /> Excel — Payroll Grid
                     </span>
                   </SelectItem>
                 </SelectContent>
               </Select>
-              {isPayroll && (
-                <p className="text-xs bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded px-2 py-1.5">
-                  Payroll Grid uses a fixed format — column selection does not apply.
-                </p>
-              )}
             </div>
 
             {/* Date Range */}
@@ -1351,97 +1146,6 @@ const GenerateReportModal = ({
               </div>
             </div>
 
-            {/* Column Selection */}
-            {!isPayroll && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                    <Eye className="w-3.5 h-3.5" /> Columns to Include
-                  </p>
-                  <div className="flex gap-2 text-xs">
-                    <button
-                      onClick={() => setSelectedCols(selectableCols.map((c) => c.value))}
-                      className="text-orange-600 hover:text-orange-700 hover:underline"
-                    >
-                      All
-                    </button>
-                    <span className="text-muted-foreground">·</span>
-                    <button
-                      onClick={() => setSelectedCols(selectableCols.filter((c) => c.essential).map((c) => c.value))}
-                      className="text-orange-600 hover:text-orange-700 hover:underline"
-                    >
-                      Essential only
-                    </button>
-                  </div>
-                </div>
-
-                <div className="border rounded-lg overflow-hidden divide-y">
-                  {REPORT_GROUPS.map((g) => {
-                    const cols = selectableCols.filter((c) => c.group === g.key);
-                    if (!cols.length) return null;
-                    const allGroupOn = cols.every((c) => selectedCols.includes(c.value));
-                    return (
-                      <div key={g.key} className="px-3 py-2.5">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{g.label}</span>
-                          <button
-                            onClick={() => toggleGroup(g.key)}
-                            className="text-[10px] text-orange-600 hover:text-orange-700 hover:underline"
-                          >
-                            {allGroupOn ? "Deselect all" : "Select all"}
-                          </button>
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {cols.map((c) => {
-                            const on = selectedCols.includes(c.value);
-                            return (
-                              <button
-                                key={c.value}
-                                onClick={() => toggleCol(c.value)}
-                                className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border transition-all ${
-                                  on
-                                    ? "bg-orange-100 border-orange-300 text-orange-700 dark:bg-orange-950/40 dark:border-orange-700 dark:text-orange-300"
-                                    : "bg-transparent border-muted-foreground/30 text-muted-foreground hover:border-orange-300 hover:text-orange-600"
-                                }`}
-                              >
-                                {on && <CheckCircle className="w-2.5 h-2.5" />}
-                                {c.label}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  {/* BNC forced columns */}
-                  {forcedCols.length > 0 && (
-                    <div className="px-3 py-2.5 bg-muted/20">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Always Included</span>
-                        <span className="text-[10px] text-muted-foreground">Required for BNC</span>
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {forcedCols.map((c) => (
-                          <span
-                            key={c.value}
-                            className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-950/30 dark:border-blue-700 dark:text-blue-300 cursor-not-allowed opacity-80"
-                          >
-                            <CheckCircle className="w-2.5 h-2.5" />
-                            {c.label}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <p className="text-xs text-muted-foreground">
-                  {selectedCols.length} of {selectableCols.length} columns selected
-                  {forcedCols.length > 0 && ` · +${forcedCols.length} always included`}
-                </p>
-              </div>
-            )}
           </div>
         </ScrollArea>
 
@@ -1455,7 +1159,7 @@ const GenerateReportModal = ({
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => onOpenChange(false)} disabled={generating}>Cancel</Button>
             <Button
-              onClick={() => onGenerate({ type: reportType, from: reportFrom, to: reportTo, columns: selectedCols, cutoffId, cutoffPeriodIds: selectedGroup?.periods.map((p) => p.id) })}
+              onClick={() => onGenerate({ type: reportType, from: reportFrom, to: reportTo, cutoffId, cutoffPeriodIds: selectedGroup?.periods.map((p) => p.id) })}
               disabled={generating || !reportFrom || !reportTo}
               className="bg-orange-500 hover:bg-orange-600 text-white"
             >
@@ -1477,17 +1181,13 @@ export default function EmployeesPunchLogs() {
   const { token } = useAuthStore();
   const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
-  const [userTimezone,    setUserTimezone]    = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
   const [companyTimezone, setCompanyTimezone] = useState("UTC");
 
   const [companyId, setCompanyId] = useState(null);
   const [companyType, setCompanyType] = useState(null);
   const isDayCare = companyType === "DAYCARE";
-  const [bncOtBlocks,         setBncOtBlocks]         = useState([]);
-  const [bncDailyOtThreshold, setBncDailyOtThreshold] = useState(8);
   const [cutoffPeriods,    setCutoffPeriods]    = useState([]);
   const [selectedCutoffId, setSelectedCutoffId] = useState("all");
-  const [approvedLeaves,   setApprovedLeaves]   = useState([]);
 
   const [timelogs,       setTimelogs]       = useState([]);
   const [departments,    setDepartments]    = useState([]);
@@ -1498,7 +1198,6 @@ export default function EmployeesPunchLogs() {
   const [otBasis,          setOtBasis]          = useState("daily");
   const [dailyOtThreshold, setDailyOtThreshold] = useState(8);
   const [weeklyOtThreshold,setWeeklyOtThreshold]= useState(40);
-  const [cutoffOtThreshold,setCutoffOtThreshold]= useState(80);
   // ── G-2: Grace period from company settings ────────────────────────────────
   const [gracePeriodMins,        setGracePeriodMins]        = useState(15);
   const [earlyClockInGraceMins,  setEarlyClockInGraceMins]  = useState(0);
@@ -1624,30 +1323,6 @@ export default function EmployeesPunchLogs() {
     return map;
   }, [employees]);
 
-  // GET /api/employee?all=1 (same source as the Employees list page) is the authoritative
-  // record for the HR employee code — the `employeeId` embedded on a timelog/approval's
-  // nested `user` isn't always populated, which silently fell back to the raw userId in
-  // the report's "ID" column even though the real code exists on the employee record.
-  const employeeIdMap = useMemo(() => {
-    const map = {};
-    employees.forEach((e) => {
-      if (e.id && e.employeeId) map[e.id] = e.employeeId;
-    });
-    return map;
-  }, [employees]);
-
-  // Job title (position), not the auth account role — needed because the locked-cutoff
-  // report path's `user.role` is "admin"/"employee"/etc, not a job title. Same source
-  // (`GET /api/employee?all=1`) the Employees list page reads `employmentDetail.jobTitle`
-  // from, so this is authoritative for both the live and locked-cutoff report paths.
-  const employeeRoleMap = useMemo(() => {
-    const map = {};
-    employees.forEach((e) => {
-      if (e.id && e.employmentDetail?.jobTitle) map[e.id] = e.employmentDetail.jobTitle;
-    });
-    return map;
-  }, [employees]);
-
   // ── Column config ─────────────────────────────────────────────────────────────
   const columnOptions = useMemo(() => [
     { value: "employee",           label: "Employee",           essential: true,  group: "basic"    },
@@ -1677,7 +1352,6 @@ export default function EmployeesPunchLogs() {
     { value: "actions",            label: "Actions",            essential: true,  group: "basic"    },
   ], [isDayCare]);
 
-  const columnMapForExport = COLUMN_MAP_FOR_EXPORT;
 
   const [columnVisibility, setColumnVisibility] = useState(
     columnOptions.filter((c) => c.essential).map((c) => c.value)
@@ -1728,7 +1402,6 @@ export default function EmployeesPunchLogs() {
         setOtBasis(cJ.data?.otBasis ?? "daily");
         setDailyOtThreshold(parseFloat(cJ.data?.dailyOtThresholdHours  ?? 8));
         setWeeklyOtThreshold(parseFloat(cJ.data?.weeklyOtThresholdHours ?? 40));
-        setCutoffOtThreshold(parseFloat(cJ.data?.cutoffOtThresholdHours ?? 80));
       }
 
       if (pJ?.data?.company?.name) setCompanyName(pJ.data.company.name.replace(/\s+/g, "_"));
@@ -1738,7 +1411,6 @@ export default function EmployeesPunchLogs() {
         setCurrentUserEmail(user.email || "");
         setCurrentUserRole(user.role  || "");
         setCurrentUserName(user.fullName || `${profObj.firstName ?? ""} ${profObj.lastName ?? ""}`.trim() || user.email || "");
-        setUserTimezone(user.timezone || pJ.data?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
       }
 
       if (eJ?.data) setEmployees(eJ.data);
@@ -1789,17 +1461,6 @@ export default function EmployeesPunchLogs() {
       // for display via groupPeriodsByRange(), but report generation needs every
       // sibling id to pull all departments' approved data, not just one.
       if (res.ok) setCutoffPeriods((j.data || []).sort((a, b) => new Date(b.periodStart) - new Date(a.periodStart)));
-    } catch { /* silent */ }
-  }, [token, API_URL]);
-
-  const fetchApprovedLeaves = useCallback(async () => {
-    if (!token) return;
-    try {
-      const res = await fetch(`${API_URL}/api/leaves`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const j = await res.json();
-      if (res.ok) setApprovedLeaves((j.data || []).filter((l) => l.status === "approved"));
     } catch { /* silent */ }
   }, [token, API_URL]);
 
@@ -1866,8 +1527,6 @@ export default function EmployeesPunchLogs() {
         const tlJ = await tlRes.json();
         if (!tlRes.ok) throw new Error(tlJ.error || "Punch Logs fetch failed");
         if (tlJ.companyType) setCompanyType(tlJ.companyType);
-        setBncOtBlocks(tlJ.otBlocks || []);
-        if (tlJ.dailyOtThresholdHours != null) setBncDailyOtThreshold(tlJ.dailyOtThresholdHours);
 
         const enriched = enrichTimelogs(tlJ.data || [], {
           companyTimezone, isDayCare, otBasis, locMap, defaultHours,
@@ -1882,8 +1541,8 @@ export default function EmployeesPunchLogs() {
   );
 
   useEffect(() => {
-    if (token) { bootstrap(); fetchPendingRequests(); fetchCutoffPeriods(); fetchApprovedLeaves(); }
-  }, [token, bootstrap, fetchPendingRequests, fetchCutoffPeriods, fetchApprovedLeaves]);
+    if (token) { bootstrap(); fetchPendingRequests(); fetchCutoffPeriods(); }
+  }, [token, bootstrap, fetchPendingRequests, fetchCutoffPeriods]);
 
   useEffect(() => {
     if (!token) return;
@@ -1938,189 +1597,21 @@ export default function EmployeesPunchLogs() {
   );
 
   // ── Generate report (modal handler) ──────────────────────────────────────────
-  // Plain /api/timelogs fetch — shared by the "no cutoff selected" path and the
-  // per-department fallback for cutoffs that aren't locked yet within a mixed group.
-  const fetchRawTimelogs = async ({ departmentId, from, to, employeeId, status }) => {
-    const qs = new URLSearchParams();
-    qs.append("page", 1);
-    qs.append("limit", 10000);
-    if (departmentId && departmentId !== "all") qs.append("departmentId", departmentId);
-    if (from) qs.append("from", from);
-    if (to)   qs.append("to",   to);
-    if (status && status !== "all") qs.append("status", status);
-    if (employeeId) qs.append("employeeId", employeeId);
-    const res = await fetch(`${API_URL}/api/timelogs?${qs.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
-    const j = await res.json();
-    if (!res.ok) throw new Error(j.error || "Fetch failed");
-    return j;
-  };
-
-  const handleGenerateReport = async ({ type, from, to, columns, cutoffId, cutoffPeriodIds }) => {
+  const handleGenerateReport = async ({ type, from, to, cutoffId, cutoffPeriodIds }) => {
     setGenerating(true);
     try {
-      const selectedPeriods = (cutoffPeriodIds || [])
-        .map((id) => cutoffPeriods.find((p) => p.id === id))
-        .filter(Boolean);
-      const lockedPeriods = selectedPeriods.filter((p) => ["locked", "processed"].includes(p.status));
-      const openPeriods   = selectedPeriods.filter((p) => !["locked", "processed"].includes(p.status));
-
-      let rawRows = [], freshOtBlocks = [], freshOtThreshold, freshIsDayCare;
-      // SL: leave rows sourced from the locked cutoff's own approvals (period-scoped,
-      // authoritative), replacing the generic company-wide list for whichever employees
-      // are covered by a locked department — so it never double-counts the same leave.
-      let approvalLeaves = [];
-      const lockedUserIds = new Set();
-      // BB-089: fixed-hours (SV) totals from locked cutoffs — open cutoffs don't carry them
-      let fixedHours = [];
-
-      if (cutoffId && cutoffId !== "all" && selectedPeriods.length) {
-        // One cutoff period per department can share the same pay-period range — pull
-        // approved data for every department that's locked, and fall back to live data
-        // (scoped to just that department) for any that aren't, so the report always
-        // covers every department in the period instead of only whichever record the
-        // dropdown happened to resolve to.
-        const [approvalResults, rawResults] = await Promise.all([
-          Promise.all(lockedPeriods.map((p) =>
-            fetch(`${API_URL}/api/cutoff-periods/${p.id}/approvals`, { headers: { Authorization: `Bearer ${token}` } })
-              .then(async (res) => {
-                const j = await res.json();
-                if (!res.ok) throw new Error(j.message || `Failed to fetch approved data for one department`);
-                return j;
-              })
-          )),
-          Promise.all(openPeriods.map((p) =>
-            fetchRawTimelogs({ departmentId: p.departmentId, from: p.periodStart.slice(0, 10), to: p.periodEnd.slice(0, 10) })
-          )),
-        ]);
-
-        for (const j of approvalResults) {
-          rawRows.push(...buildRowsFromApprovals(j, companyTimezone));
-          freshOtBlocks.push(...(j.otBlocks || []));
-          approvalLeaves.push(...buildLeavesFromApprovals(j));
-          fixedHours.push(...(j.fixedHours || []));
-          for (const approval of j.data || []) {
-            const uid = approval.timeLog?.user?.id;
-            if (uid) lockedUserIds.add(uid);
-          }
-        }
-        for (const j of rawResults) {
-          rawRows.push(...(j.data || []));
-          freshOtBlocks.push(...(j.otBlocks || []));
-        }
-
-        const envelope       = approvalResults[0] || rawResults[0] || {};
-        freshOtThreshold = envelope.dailyOtThresholdHours ?? bncDailyOtThreshold;
-        freshIsDayCare   = approvalResults[0]
-          ? (approvalResults[0].isBNC != null ? approvalResults[0].isBNC === false : isDayCare)
-          : (rawResults[0]?.companyType ? rawResults[0].companyType === "DAYCARE" : isDayCare);
-
-        if (openPeriods.length) {
-          toast.message(`${openPeriods.length} of ${selectedPeriods.length} department(s) for this period aren't locked yet — using live data for those.`);
-        }
-      } else {
-        const j = await fetchRawTimelogs({
-          departmentId: filters.departmentId, from, to, status: filters.status,
-          employeeId: filters.employeeIds.length === 1 && filters.employeeIds[0] !== "all" ? filters.employeeIds[0] : null,
-        });
-        rawRows          = j.data || [];
-        freshOtBlocks    = j.otBlocks || [];
-        freshOtThreshold = j.dailyOtThresholdHours ?? bncDailyOtThreshold;
-        freshIsDayCare   = j.companyType ? j.companyType === "DAYCARE" : isDayCare;
-      }
-
-      let enriched = enrichTimelogs(rawRows, {
-        companyTimezone, isDayCare: freshIsDayCare, otBasis, locMap, defaultHours,
-      });
-
-      // Prefer the employee-record employeeId (authoritative) over whatever came embedded
-      // on the timelog/approval row, which can be missing for some employees. Same for
-      // employeeRole: the locked-cutoff path's `employeeRole` is the auth account role
-      // (e.g. "employee"), not a job title — employeeRoleMap (job title) is authoritative
-      // for both report paths.
-      enriched = enriched.map((t) => ({
-        ...t,
-        employeeId:   employeeIdMap[t.userId]   ?? t.employeeId,
-        employeeRole: employeeRoleMap[t.userId] ?? t.employeeRole,
-      }));
-
-      if (!filters.employeeIds.includes("all"))
-        enriched = enriched.filter((t) => filters.employeeIds.includes(t.userId));
-      if (filters.search) {
-        const q = filters.search.toLowerCase();
-        enriched = enriched.filter((t) =>
-          t.employeeName?.toLowerCase().includes(q) || t.email?.toLowerCase().includes(q)
-        );
-      }
-
-      // BB-089: same employee/search filters as `enriched`
-      if (!filters.employeeIds.includes("all"))
-        fixedHours = fixedHours.filter((fh) => filters.employeeIds.includes(fh.userId || fh.user?.id));
-      if (filters.search) {
-        const q = filters.search.toLowerCase();
-        fixedHours = fixedHours.filter((fh) => {
-          const p = fh.user?.profile;
-          const name = `${p?.firstName || ""} ${p?.lastName || fh.user?.username || ""}`.trim();
-          return name.toLowerCase().includes(q) || fh.user?.email?.toLowerCase().includes(q);
-        });
-      }
-
-      // Sort: Last name → First name → date asc
-      enriched.sort((a, b) => {
-        const aN = employeeNameMap[a.userId] ?? {};
-        const bN = employeeNameMap[b.userId] ?? {};
-        const aLast  = (aN.lastName  || "").toLowerCase();
-        const bLast  = (bN.lastName  || "").toLowerCase();
-        const aFirst = (aN.firstName || "").toLowerCase();
-        const bFirst = (bN.firstName || "").toLowerCase();
-        if (aLast  !== bLast)  return aLast.localeCompare(bLast);
-        if (aFirst !== bFirst) return aFirst.localeCompare(bFirst);
-        return new Date(a.timeIn || 0) - new Date(b.timeIn || 0);
-      });
-
-      const exportFilters = { ...filters, from, to };
-      // Company-wide approvedLeaves still covers open-department/no-cutoff employees;
-      // drop entries for anyone whose leave already came from a locked cutoff's own
-      // approvals above so the same day can't be counted twice.
-      const finalApprovedLeaves = [
-        ...approvedLeaves.filter((l) => !lockedUserIds.has(l.userId || l.requester?.id || l.User?.id)),
-        ...approvalLeaves,
-      ];
-
-      if (type === "pdf") {
-        const { exportEmployeePunchLogsPDF } = await import("@/lib/exports/employeePunchLogs");
-        const result = await exportEmployeePunchLogsPDF({
-          data: enriched, visibleColumns: columns, columnMap: columnMapForExport,
-          filters: exportFilters, userTimezone, companyTimezone, isDayCare: freshIsDayCare,
-          bncOtBlocks: freshOtBlocks, bncDailyOtThreshold: freshOtThreshold,
-          otBasis, cutoffOtThreshold, employeeNameMap,
-        });
-        if (result.success) toast.success(result.filename);
-      } else if (type === "csv-detail") {
-        const { exportEmployeePunchLogsCSV } = await import("@/lib/exports/employeePunchLogs");
-        const result = await exportEmployeePunchLogsCSV({
-          data: enriched, visibleColumns: columns, columnMap: columnMapForExport,
-          filters: exportFilters, userTimezone, companyTimezone, isDayCare: freshIsDayCare,
-          bncOtBlocks: freshOtBlocks, bncDailyOtThreshold: freshOtThreshold,
-          otBasis, cutoffOtThreshold, employeeNameMap, fixedHours,
-        });
-        if (result.success) toast.success(result.filename);
-      } else if (type === "csv-payroll") {
-        const { exportEmployeePunchLogsCSV_v2 } = await import("@/lib/exports/employeePunchLogs");
-        const result = await exportEmployeePunchLogsCSV_v2({
-          data: enriched, companyTimezone, employeeNameMap,
-          approvedLeaves: finalApprovedLeaves, defaultShiftHours: defaultHours,
-          fromDate: from, toDate: to,
-          cutoffOtThreshold,
-          otBlocks: freshOtBlocks, // BB-089 rework: approved SV off-day OT blocks
-          // BB-089: ID / job title from the same maps as the punch rows, for SV rows with no punches
-          fixedHours: fixedHours.map((fh) => {
-            const uid = fh.userId || fh.user?.id;
-            return { ...fh, employeeId: employeeIdMap[uid] ?? fh.user?.employeeId, employeeRole: employeeRoleMap[uid] };
-          }),
-        });
-        if (result.success) toast.success(result.filename);
-      }
-
+      // BB-119: every report is built on the server in the company time zone.
+      const format = type === "pdf" ? "pdf" : type === "xlsx-payroll" ? "payroll" : "xlsx";
+      const p = new URLSearchParams({ format, scope: "team" });
+      if (cutoffId && cutoffId !== "all" && cutoffPeriodIds?.length) p.set("cutoffPeriodIds", cutoffPeriodIds.join(","));
+      else { p.set("from", from); p.set("to", to); }
+      if (filters.departmentId !== "all") p.set("departmentId", filters.departmentId);
+      const ids = (filters.employeeIds || []).filter((id) => id !== "all");
+      if (ids.length) p.set("employeeIds", ids.join(","));
+      if (filters.punchType !== "all") p.set("punchType", filters.punchType);
+      if (filters.status    !== "all") p.set("status",    filters.status);
+      const filename = await downloadServerReport({ apiUrl: API_URL, token, path: `/api/reports/punch-logs?${p}`, fallbackFilename: format === "pdf" ? "punch-logs.pdf" : format === "xlsx" ? "punch-logs.xlsx" : "punch-logs-payroll.xlsx" });
+      toast.success(filename);
       setGenerateModalOpen(false);
     } catch (e) {
       toast.error(`Report generation failed: ${e.message}`);
@@ -2333,9 +1824,6 @@ export default function EmployeesPunchLogs() {
               {companyTimezone !== "UTC" && (
                 <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">
                   {getTimezoneName(companyTimezone)}
-                  {userTimezone !== companyTimezone && (
-                    <span className="ml-1 opacity-60">· Detected Time Zone: {getTimezoneName(userTimezone)}</span>
-                  )}
                 </span>
               )}
             </div>
@@ -2642,14 +2130,10 @@ export default function EmployeesPunchLogs() {
                   <div className="flex items-center gap-2 text-xs cursor-help">
                     <Globe className="w-3 h-3" />
                     <span className="font-medium text-primary">{getTimezoneName(companyTimezone)}</span>
-                    {userTimezone !== companyTimezone && (
-                      <span className="text-muted-foreground opacity-60">· Detected: {getTimezoneName(userTimezone)}</span>
-                    )}
                   </div>
                 </TooltipTrigger>
                 <TooltipContent className="text-xs">
-                  <div>Company HQ: {companyTimezone}</div>
-                  <div className="text-muted-foreground">Detected timezone: {userTimezone}</div>
+                  <div>Company timezone: {companyTimezone}</div>
                 </TooltipContent>
               </Tooltip></TooltipProvider>
             </div>
@@ -2769,7 +2253,7 @@ export default function EmployeesPunchLogs() {
                             return (
                               <TableCell key="dateTimeIn" className="text-center">
                                 <div className="flex flex-col items-center gap-1">
-                                  <DualTimeDisplay datetime={t.dayApprovedClockIn ?? t.timeIn} userTz={userTimezone} companyTz={companyTimezone} />
+                                  <CompanyTimeDisplay datetime={t.dayApprovedClockIn ?? t.timeIn} companyTz={companyTimezone} />
                                   {SHOW_TOO_EARLY_FLAG && t.isTooEarlyPunch && (
                                     <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
                                       Too Early
@@ -2779,7 +2263,7 @@ export default function EmployeesPunchLogs() {
                               </TableCell>
                             );
                           case "dateTimeOut":
-                            return <TableCell key="dateTimeOut" className="text-center"><DualTimeDisplay datetime={t.dayApprovedClockOut ?? t.timeOut} userTz={userTimezone} companyTz={companyTimezone} /></TableCell>;
+                            return <TableCell key="dateTimeOut" className="text-center"><CompanyTimeDisplay datetime={t.dayApprovedClockOut ?? t.timeOut} companyTz={companyTimezone} /></TableCell>;
                           case "duration":
                             return <TableCell key="duration" className="text-center text-sm font-medium"><TimeDisplayWithTooltip time={t.duration} type="duration" /></TableCell>;
                           case "gross":
@@ -3236,11 +2720,8 @@ export default function EmployeesPunchLogs() {
       <GenerateReportModal
         open={generateModalOpen}
         onOpenChange={setGenerateModalOpen}
-        isDayCare={isDayCare}
-        columnOptions={columnOptions}
         defaultFrom={filters.from}
         defaultTo={filters.to}
-        defaultColumns={columnOptions.filter((c) => c.value !== "actions").map((c) => c.value)}
         defaultCutoffId={selectedCutoffId}
         cutoffPeriods={cutoffPeriods}
         generating={generating}

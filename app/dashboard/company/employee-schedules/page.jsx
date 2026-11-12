@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { format, isSameDay, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isToday } from "date-fns";
-import { toZonedTime, fromZonedTime } from 'date-fns-tz';
 import useAuthStore from "@/store/useAuthStore";
 import { toast, Toaster } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
@@ -16,7 +15,6 @@ import {
   TrendingUp, 
   ChevronLeft, 
   ChevronRight,
-  MapPin,
   Building,
   Users,
   Globe,
@@ -196,40 +194,6 @@ const formatNaiveTime = (dateString) => {
   }
 };
 
-// Convert shift time to user's local timezone if different
-const convertToUserTimezone = (dateString, shiftTimezone, userTimezone) => {
-  try {
-    if (!dateString || !shiftTimezone || !userTimezone) return null;
-    if (shiftTimezone === userTimezone) return null; // Same timezone, no conversion
-    
-    // Extract naive hours and minutes
-    const date = new Date(dateString);
-    const hours = date.getUTCHours();
-    const minutes = date.getUTCMinutes();
-    
-    // Create a date object representing this time TODAY in the shift timezone
-    const today = new Date();
-    const dateStr = format(today, 'yyyy-MM-dd');
-    const timeStr = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:00`;
-    const dateTimeStr = `${dateStr}T${timeStr}`;
-    
-    // Interpret this time as being in the shift timezone
-    const shiftTime = fromZonedTime(dateTimeStr, shiftTimezone);
-    
-    // Convert to user timezone
-    const userTime = toZonedTime(shiftTime, userTimezone);
-    
-    // Format in user timezone
-    const localHours = userTime.getHours().toString().padStart(2, '0');
-    const localMinutes = userTime.getMinutes().toString().padStart(2, '0');
-    
-    return `${localHours}:${localMinutes}`;
-  } catch (error) {
-    console.error('Error converting to user timezone:', error);
-    return null;
-  }
-};
-
 // Timezone utility functions
 const getTimezoneAbbreviation = (timezone) => {
   try {
@@ -244,10 +208,6 @@ const getTimezoneAbbreviation = (timezone) => {
   } catch (error) {
     return timezone.split('/').pop();
   }
-};
-
-const getUserTimezone = () => {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone;
 };
 
 const toLocalDate = (dateStr) => {
@@ -691,23 +651,13 @@ function ModernCalendar({
 }
 
 // Shift Card Component with Smart Timezone Handling
-function ShiftCard({ shift, index, showLocalTime = false }) {
+function ShiftCard({ shift, index }) {
   const shiftTimezone = shift.shift?.timeZone || 'UTC';
-  const userTimezone = getUserTimezone();
-  const isDifferentTimezone = shiftTimezone !== userTimezone;
 
   // Always show shift time in its native timezone (naive)
   const startTime = formatNaiveTime(shift.shift.startTime);
   const endTime = formatNaiveTime(shift.shift.endTime);
   const duration = hoursBetween(shift.shift.startTime, shift.shift.endTime);
-
-  // Only convert if timezones are different AND showLocalTime is enabled
-  const localStartTime = showLocalTime && isDifferentTimezone 
-    ? convertToUserTimezone(shift.shift.startTime, shiftTimezone, userTimezone)
-    : null;
-  const localEndTime = showLocalTime && isDifferentTimezone
-    ? convertToUserTimezone(shift.shift.endTime, shiftTimezone, userTimezone)
-    : null;
 
   return (
     <motion.div
@@ -737,17 +687,6 @@ function ShiftCard({ shift, index, showLocalTime = false }) {
       </div>
 
       {/* Local time conversion (only if different timezone) */}
-      {showLocalTime && isDifferentTimezone && localStartTime && localEndTime && (
-        <div className="flex items-center text-xs text-blue-600 dark:text-blue-400 mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
-          <MapPin className="h-3 w-3 mr-1 flex-shrink-0" />
-          <span className="font-mono">{localStartTime}</span>
-          <ArrowRight className="h-3 w-3 mx-2 flex-shrink-0" />
-          <span className="font-mono">{localEndTime}</span>
-          <Badge variant="outline" className="text-xs ml-2">
-            {getTimezoneAbbreviation(userTimezone)}
-          </Badge>
-        </div>
-      )}
     </motion.div>
   );
 }
@@ -763,9 +702,6 @@ export default function AdminSchedule() {
   const [allShifts, setAllShifts] = useState([]);
   const [loadingEmployees, setLoadingEmployees] = useState(false);
   const [loadingShifts, setLoadingShifts] = useState(false);
-  const [showLocalTime, setShowLocalTime] = useState(true);
-  
-  const userTimezone = getUserTimezone();
 
   useEffect(() => {
     if (!token) return;
@@ -988,16 +924,7 @@ export default function AdminSchedule() {
                           {i < uniqueTimezones.length - 1 && ', '}
                         </span>
                       ))}
-                      {' '}| Your timezone: <strong>{getTimezoneAbbreviation(userTimezone)}</strong>
                     </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setShowLocalTime(!showLocalTime)}
-                      className="text-xs"
-                    >
-                      {showLocalTime ? 'Hide' : 'Show'} Local Times
-                    </Button>
                   </div>
                 </AlertDescription>
               </Alert>
@@ -1141,7 +1068,6 @@ export default function AdminSchedule() {
                             key={shift.id} 
                             shift={shift} 
                             index={index}
-                            showLocalTime={showLocalTime}
                           />
                         ))}
                       </div>
@@ -1190,9 +1116,6 @@ export default function AdminSchedule() {
                           <TableHead>Timezone</TableHead>
                           <TableHead>Start Time</TableHead>
                           <TableHead>End Time</TableHead>
-                          {showLocalTime && hasMultipleTimezones && (
-                            <TableHead>Local Time</TableHead>
-                          )}
                           <TableHead className="text-right">Total Hours</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -1200,7 +1123,7 @@ export default function AdminSchedule() {
                         {loadingShifts ? (
                           Array(3).fill(0).map((_, i) => (
                             <TableRow key={i}>
-                              <TableCell colSpan={showLocalTime && hasMultipleTimezones ? 7 : 6}>
+                              <TableCell colSpan={6}>
                                 <Skeleton className="h-8 w-full" />
                               </TableCell>
                             </TableRow>
@@ -1209,17 +1132,9 @@ export default function AdminSchedule() {
                           <AnimatePresence>
                             {shiftsToday.map((shift, index) => {
                               const shiftTimezone = shift.shift?.timeZone || 'UTC';
-                              const isDifferentTz = shiftTimezone !== userTimezone;
                               
                               const startTime = formatNaiveTime(shift.shift.startTime);
                               const endTime = formatNaiveTime(shift.shift.endTime);
-                              
-                              const localStartTime = isDifferentTz 
-                                ? convertToUserTimezone(shift.shift.startTime, shiftTimezone, userTimezone)
-                                : null;
-                              const localEndTime = isDifferentTz
-                                ? convertToUserTimezone(shift.shift.endTime, shiftTimezone, userTimezone)
-                                : null;
                               
                               return (
                                 <motion.tr
@@ -1244,20 +1159,6 @@ export default function AdminSchedule() {
                                   <TableCell className="font-mono text-sm">
                                     {endTime}
                                   </TableCell>
-                                  {showLocalTime && hasMultipleTimezones && (
-                                    <TableCell className="text-sm">
-                                      {isDifferentTz && localStartTime && localEndTime ? (
-                                        <div className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
-                                          <MapPin className="h-3 w-3" />
-                                          <span className="font-mono">
-                                            {localStartTime} - {localEndTime}
-                                          </span>
-                                        </div>
-                                      ) : (
-                                        <span className="text-gray-400">—</span>
-                                      )}
-                                    </TableCell>
-                                  )}
                                   <TableCell className="text-right">
                                     <Badge variant="secondary">
                                       {hoursBetween(shift.shift.startTime, shift.shift.endTime)} hrs
@@ -1269,7 +1170,7 @@ export default function AdminSchedule() {
                           </AnimatePresence>
                         ) : (
                           <TableRow>
-                            <TableCell colSpan={showLocalTime && hasMultipleTimezones ? 7 : 6} className="py-12 text-center">
+                            <TableCell colSpan={6} className="py-12 text-center">
                               <div className="flex flex-col items-center justify-center">
                                 <div className="w-12 h-12 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mb-3">
                                   <Clock className="h-6 w-6 text-gray-400" />

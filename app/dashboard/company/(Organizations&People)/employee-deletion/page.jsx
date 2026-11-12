@@ -14,7 +14,7 @@ import {
   CheckCircle,
   XCircle,
   FileText,
-  Download,
+  FileSpreadsheet,
   Eye,
   Mail,
   Building,
@@ -414,7 +414,7 @@ export default function EmployeeAccountDeletion() {
         </div>
         <div className="flex gap-2">
           <IconBtn icon={RefreshCw} tooltip="Refresh table" spinning={refreshing} onClick={refreshData} />
-          <IconBtn icon={Download} tooltip="Export CSV" spinning={exporting} onClick={exportCSV} disabled={!list.length} />
+          <IconBtn icon={FileSpreadsheet} tooltip="Export CSV" spinning={exporting} onClick={exportCSV} disabled={!list.length} />
           <IconBtn icon={FileText} tooltip="Export PDF" spinning={pdfExporting} onClick={exportPDF} disabled={!list.length} />
         </div>
       </div>

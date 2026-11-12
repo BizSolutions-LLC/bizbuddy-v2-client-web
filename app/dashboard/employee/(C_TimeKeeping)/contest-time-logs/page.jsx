@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo, useCallback } from "react";
 import { format, parseISO } from "date-fns";
 import Link from "next/link";
 import useAuthStore from "@/store/useAuthStore";
+import { DEFAULT_TIMEZONE } from "@/lib/timezones";
 import { toast, Toaster } from "sonner";
 import {
   Clock,
@@ -14,6 +15,7 @@ import {
   AlertCircle,
   Download,
   FileText,
+  FileSpreadsheet,
   Calendar,
   Activity,
   ChevronDown,
@@ -173,6 +175,13 @@ function V2SkeletonRow() {
 }
 
 
+// BB-119: a contest's punch date is the day of its original clock-in (or the requested
+// clock-in when there was none) in the company's time zone, the same as the report.
+const punchDateOf = (c, tz) => {
+  const iso = c.currentClockIn || c.originalClockIn || c.requestedClockIn || c.correctClockIn;
+  return iso ? new Date(iso).toLocaleDateString("en-CA", { timeZone: tz }) : null;
+};
+
 export default function ContestTimeLogs() {
   const { token } = useAuthStore();
   const API_URL = process.env.NEXT_PUBLIC_API_URL;
@@ -188,6 +197,17 @@ export default function ContestTimeLogs() {
   const [selectedLogV2, setSelectedLogV2] = useState(null);
   const [cutoffPeriods, setCutoffPeriods] = useState([]);
   const [selectedCutoffId, setSelectedCutoffId] = useState("all");
+  const [companyTimezone, setCompanyTimezone] = useState(DEFAULT_TIMEZONE);
+  const [exporting, setExporting] = useState(false);
+
+  // Company zone for the punch-date filter
+  useEffect(() => {
+    if (!token) return;
+    fetch(`${API_URL}/api/company-settings/`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (j?.data?.timezone) setCompanyTimezone(j.data.timezone); })
+      .catch(() => {});
+  }, [token, API_URL]);
 
   // /api/employment-details/me embeds `cutoffPeriods` (employee's department + company-
   // wide, newest first) alongside `data` — feeds the Date Range filter's quick-select
@@ -229,17 +249,26 @@ export default function ContestTimeLogs() {
         queryParams.append("status", statusFilter.toUpperCase());
       }
 
-      const res = await fetch(
-        `${API_URL}/api/contest-policy/view-contestTimeLogs?${queryParams.toString()}`,
-        { method: "GET", headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      const data = await res.json();
-      if (res.ok) {
-        setContestLogs(data.data?.contestLogs || []);
-      } else {
-        toast.error(data.message || "Failed to fetch contest logs.");
+      // BB-119: the server returns 50 at a time by default, so page through all of them
+      const all = [];
+      for (let offset = 0; ; ) {
+        queryParams.set("limit", "200");
+        queryParams.set("offset", String(offset));
+        const res = await fetch(
+          `${API_URL}/api/contest-policy/view-contestTimeLogs?${queryParams.toString()}`,
+          { method: "GET", headers: { Authorization: `Bearer ${token}` } }
+        );
+        const data = await res.json();
+        if (!res.ok) {
+          toast.error(data.message || "Failed to fetch contest logs.");
+          return;
+        }
+        const batch = data.data?.contestLogs || [];
+        all.push(...batch);
+        if (!data.data?.pagination?.hasMore || batch.length === 0) break;
+        offset += batch.length;
       }
+      setContestLogs(all);
     } catch (err) {
       console.error("Error fetching contest logs:", err);
       toast.error("Failed to fetch contest logs.");
@@ -267,21 +296,16 @@ export default function ContestTimeLogs() {
       );
     }
 
-    if (dateFrom) {
+    // Punch date, both days fully included (YYYY-MM-DD strings compare as dates)
+    if (dateFrom || dateTo) {
       filtered = filtered.filter(log => {
-        const logDate = parseISO(log.contestDate || log.createdAt);
-        return logDate >= new Date(dateFrom);
-      });
-    }
-    if (dateTo) {
-      filtered = filtered.filter(log => {
-        const logDate = parseISO(log.contestDate || log.createdAt);
-        return logDate <= new Date(dateTo);
+        const d = punchDateOf(log, companyTimezone);
+        return d && (!dateFrom || d >= dateFrom) && (!dateTo || d <= dateTo);
       });
     }
 
     return filtered;
-  }, [contestLogs, statusFilter, searchQuery, dateFrom, dateTo]);
+  }, [contestLogs, statusFilter, searchQuery, dateFrom, dateTo, companyTimezone]);
 
   const stats = useMemo(() => {
     const total    = contestLogs.length;
@@ -291,25 +315,27 @@ export default function ContestTimeLogs() {
     return { total, pending, approved, rejected };
   }, [contestLogs]);
 
-  const exportToCSV = async () => {
+  // BB-119: the server builds the report from your own contests, the date range
+  // (punch date) and the status filter. It ignores the search box.
+  const exportReport = async (format) => {
     if (filteredLogs.length === 0) return toast.error("No data to export");
+    setExporting(true);
     try {
-      const { exportContestLogsCSV } = await import("@/lib/exports/contestLogs");
-      const result = await exportContestLogsCSV({ data: filteredLogs });
-      if (result.success) toast.success(`${result.filename}`);
+      const params = new URLSearchParams({ format, scope: "mine", status: statusFilter || "all" });
+      if (dateFrom) params.set("from", dateFrom);
+      if (dateTo) params.set("to", dateTo);
+      const { downloadServerReport } = await import("@/lib/reportDownload");
+      const filename = await downloadServerReport({
+        apiUrl: API_URL,
+        token,
+        path: `/api/reports/contests?${params}`,
+        fallbackFilename: `BizBuddy_Contests.${format}`,
+      });
+      toast.success(filename);
     } catch (error) {
       toast.error(`Export failed: ${error.message}`);
-    }
-  };
-
-  const exportToPDF = async () => {
-    if (filteredLogs.length === 0) return toast.error("No data to export");
-    try {
-      const { exportContestLogsPDF } = await import("@/lib/exports/contestLogs");
-      const result = await exportContestLogsPDF({ data: filteredLogs });
-      if (result.success) toast.success(`${result.filename}`);
-    } catch (error) {
-      toast.error(`Export failed: ${error.message}`);
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -360,19 +386,19 @@ export default function ContestTimeLogs() {
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="hidden sm:inline-flex h-8 text-xs rounded-lg px-2.5 gap-1.5" disabled={filteredLogs.length === 0}>
+                <Button variant="outline" className="hidden sm:inline-flex h-8 text-xs rounded-lg px-2.5 gap-1.5" disabled={filteredLogs.length === 0 || exporting}>
                   <Download className="h-3.5 w-3.5" />
                   Export
                   <ChevronDown className="h-3 w-3 opacity-50" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-[170px]">
-                <DropdownMenuItem onClick={exportToCSV} disabled={filteredLogs.length === 0}>
-                  <Download className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
-                  Export CSV
+                <DropdownMenuItem onClick={() => exportReport("xlsx")} disabled={filteredLogs.length === 0 || exporting}>
+                  <FileSpreadsheet className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                  Export Excel
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={exportToPDF} disabled={filteredLogs.length === 0}>
+                <DropdownMenuItem onClick={() => exportReport("pdf")} disabled={filteredLogs.length === 0 || exporting}>
                   <FileText className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
                   Export PDF
                 </DropdownMenuItem>

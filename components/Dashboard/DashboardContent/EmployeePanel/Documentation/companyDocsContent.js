@@ -58,7 +58,7 @@ const companyDocsContent = [
       },
       {
         title: "Editing, deleting and viewing members",
-        body: "Use the row actions to View Members, Edit or Delete a department. Deleting a department can't be undone. Use the search box or Filter by Supervisor to narrow the list, Toggle Columns to choose what's shown, and CSV or PDF to export.",
+        body: "Use the row actions to View Members, Edit or Delete a department. Deleting a department can't be undone. Use the search box or Filter by Supervisor to narrow the list, Toggle Columns to choose what's shown, and Export Excel (all fields) or Export PDF to download every department you can see.",
       },
     ],
   },
@@ -109,6 +109,10 @@ const companyDocsContent = [
         ],
       },
       {
+        title: "Exporting employees",
+        body: "Use Export Excel (all fields) or Export PDF to download every employee you can see.",
+      },
+      {
         title: "Deleting an employee",
         body: "Use the Delete row action, then type the employee's full name to confirm. This permanently removes their account and login access, profile data and schedule assignments. Time logs are kept for payroll records.",
       },
@@ -154,7 +158,7 @@ const companyDocsContent = [
           "Go to Requests & Logs → Employee Schedule.",
           "Use Select Employee to pick someone and view their shifts, with date, start and end time, timezone and total hours.",
         ],
-        tips: ["If shifts span more than one timezone, a Multiple timezones notice shows the local time for each one."],
+        tips: ["If an employee's shifts span more than one timezone, a Multiple timezones notice lists the zones."],
       },
     ],
   },
@@ -237,7 +241,7 @@ const companyDocsContent = [
       },
       {
         title: "Reports",
-        body: "Use the download icon (Generate Report) to export logs for a cutoff period or custom date range. Use Yearly Total Hours Report to download an Excel summary for a year, grouped Monthly, Quarterly or Yearly, with optional columns such as Leave Hrs and OT Hrs.",
+        body: "Use the download icon (Generate Report) to export logs for a cutoff period or custom date range, as Excel — Detail (one row per log), PDF, or Excel — Payroll Grid (hours per employee per day). The department, employee, status and punch type filters apply. Use Yearly Total Hours Report to download an Excel summary for a year, grouped Monthly, Quarterly or Yearly, with optional columns such as Leave Hrs and OT Hrs.",
       },
     ],
   },
@@ -256,6 +260,7 @@ const companyDocsContent = [
           "Click a request to compare the Original Punch with the Requested Change and read the reason.",
           "Click Approve to apply the corrected times, or Reject to keep the original.",
         ],
+        tips: ["Use Export Excel or Export PDF to download the requests. The date range and status filter apply."],
         statuses: [
           { label: "Pending", tone: "warning", meaning: "Waiting for review. The log hasn't changed." },
           { label: "Approved", tone: "success", meaning: "The corrected times were applied to the log." },
@@ -296,7 +301,7 @@ const companyDocsContent = [
       },
       {
         title: "Calendar view and exports",
-        body: "Switch from the table to the Leave Calendar to see who's on leave each day. Use Generate PDF to export the list.",
+        body: "In the table view, use Generate Excel or Generate PDF to download the requests. Switch to the Leave Calendar to see who's on leave each day, and use Generate PDF there to export the month.",
       },
     ],
   },

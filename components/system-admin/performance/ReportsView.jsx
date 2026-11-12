@@ -8,8 +8,8 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Download, FileText, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Eye, FileText, RefreshCw, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { systemAdminDownload, systemAdminFetch } from "@/lib/systemAdminFetch";
+import { systemAdminDownload, systemAdminFetch, systemAdminPdfUrl } from "@/lib/systemAdminFetch";
 import { formatDateTime, formatNumber } from "../shared";
 import { VerdictBadge } from "./CapacityCards";
 
@@ -84,7 +84,18 @@ export default function ReportsView() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(""); // "baseline" | "current" | "period:N" | "pdf:N"
+  const [busy, setBusy] = useState(""); // "baseline" | "current" | "period:N" | "view:N" | "pdf:N"
+  const [viewer, setViewer] = useState(null); // BB-119: { label, range, url } of the report shown above the table
+  const viewerRef = useRef(null);
+
+  // Scroll the viewer into sight when a report opens; release its address when it's
+  // replaced, closed or the page is left
+  useEffect(() => {
+    if (!viewer) return;
+    viewerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    const { url } = viewer;
+    return () => URL.revokeObjectURL(url);
+  }, [viewer]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -110,6 +121,20 @@ export default function ReportsView() {
     try {
       await systemAdminFetch(path, { method: "POST", body });
       await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy("");
+    }
+  };
+
+  // BB-119: show the PDF above the table; the PDF button still saves a named copy
+  const view = async (r) => {
+    setBusy(`view:${r.number}`);
+    setError("");
+    try {
+      const url = await systemAdminPdfUrl(`${BASE}/${r.number}/pdf`);
+      setViewer({ label: r.label, range: formatRange(r.periodStart, r.plannedEnd, tz), url });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -170,6 +195,23 @@ export default function ReportsView() {
         <div className="rounded-md border border-red-200 bg-red-50 p-3">
           <p className="text-sm text-red-700">{error}</p>
         </div>
+      )}
+
+      {viewer && (
+        <Card ref={viewerRef} className="min-w-0 scroll-mt-4">
+          <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
+            <div>
+              <CardTitle className="text-base">{viewer.label}</CardTitle>
+              <CardDescription>{viewer.range}</CardDescription>
+            </div>
+            <Button variant="ghost" size="icon" onClick={() => setViewer(null)} aria-label="Close report" title="Close">
+              <X />
+            </Button>
+          </CardHeader>
+          <CardContent>
+            <iframe src={viewer.url} title={`${viewer.label} report`} className="h-[80vh] w-full rounded-md border" />
+          </CardContent>
+        </Card>
       )}
 
       {loading && !data ? (
@@ -242,8 +284,11 @@ export default function ReportsView() {
                       {r.generatedBy && <span className="block">by {r.generatedBy}</span>}
                     </TableCell>
                     <TableCell className="px-3 text-right">
+                      <Button variant="outline" size="sm" onClick={() => view(r)} disabled={!!busy} className="mr-2">
+                        <Eye className={busy === `view:${r.number}` ? "animate-pulse" : ""} /> View
+                      </Button>
                       <Button variant="outline" size="sm" onClick={() => download(r.number)} disabled={!!busy}>
-                        <Download className={busy === `pdf:${r.number}` ? "animate-pulse" : ""} /> PDF
+                        <FileText className={busy === `pdf:${r.number}` ? "animate-pulse" : ""} /> PDF
                       </Button>
                     </TableCell>
                   </TableRow>
