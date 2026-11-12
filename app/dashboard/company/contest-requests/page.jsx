@@ -18,9 +18,12 @@ import {
   ChevronUp,
   Building,
   Trash2,
+  FileSpreadsheet,
 } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
+import IconBtn from "@/components/common/IconBtn";
+import { DEFAULT_TIMEZONE } from "@/lib/timezones";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,6 +37,13 @@ import { fmtMMDDYYYY_hhmma } from "@/lib/dateTimeFormatter";
 import MultiSelect from "@/components/common/MultiSelect";
 import ColumnSelector from "@/components/common/ColumnSelector";
 import CutoffDateRangeFilter, { periodRangeKey } from "@/components/common/CutoffDateRangeFilter";
+
+// BB-119: a contest's punch date is the day of its original clock-in (or the requested
+// clock-in when there was none) in the company's time zone, the same as the report.
+const punchDateOf = (c, tz) => {
+  const iso = c.currentClockIn || c.originalClockIn || c.requestedClockIn || c.correctClockIn;
+  return iso ? new Date(iso).toLocaleDateString("en-CA", { timeZone: tz }) : null;
+};
 
 export default function AdminContestRequests() {
   const { token, user } = useAuthStore();
@@ -58,6 +68,18 @@ export default function AdminContestRequests() {
   const [dateTo, setDateTo] = useState("");
   const [pendingFrom, setPendingFrom] = useState("");
   const [pendingTo, setPendingTo] = useState("");
+  const [companyTimezone, setCompanyTimezone] = useState(DEFAULT_TIMEZONE);
+  const [exporting, setExporting] = useState(false);
+  const [pdfExporting, setPdfExporting] = useState(false);
+
+  // Company zone for the punch-date filter
+  useEffect(() => {
+    if (!token) return;
+    fetch(`${API}/api/company-settings/`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (j?.data?.timezone) setCompanyTimezone(j.data.timezone); })
+      .catch(() => {});
+  }, [token, API]);
 
   // Modal / panel states — selectedRequest doubles as "is the detail side panel open"
   const [selectedRequest, setSelectedRequest] = useState(null);
@@ -218,15 +240,15 @@ export default function AdminContestRequests() {
     !!dateFrom || !!dateTo;
 
   const filteredRequests = contestRequests.filter(request => {
-    const submittedDate = request.submittedAt ? request.submittedAt.slice(0, 10) : null;
+    const punchDate = punchDateOf(request, companyTimezone); // BB-119: punch date, like the report
     return (
       (filters.status.includes("all") || filters.status.includes(request.status)) &&
       (filters.employees.includes("all") || filters.employees.includes(request.employee.id)) &&
       (filters.reasons.includes("all") || filters.reasons.some(reason =>
         request.reason.toLowerCase().includes(reason.toLowerCase())
       )) &&
-      (!dateFrom || (submittedDate && submittedDate >= dateFrom)) &&
-      (!dateTo   || (submittedDate && submittedDate <= dateTo))
+      (!dateFrom || (punchDate && punchDate >= dateFrom)) &&
+      (!dateTo   || (punchDate && punchDate <= dateTo))
     );
   }).sort((a, b) => {
     if (!sortConfig.key) return 0;
@@ -318,6 +340,32 @@ export default function AdminContestRequests() {
     }
   };
 
+  // BB-119: the server builds the team report (whole company, or a supervisor's
+  // department plus direct reports) from the date range and status filter. The
+  // employee and reason filters aren't sent.
+  const exportReport = async (format) => {
+    const setBusy = format === "pdf" ? setPdfExporting : setExporting;
+    setBusy(true);
+    try {
+      const status = filters.status.includes("all") ? "all" : filters.status.join(",");
+      const params = new URLSearchParams({ format, scope: "team", status });
+      if (dateFrom) params.set("from", dateFrom);
+      if (dateTo) params.set("to", dateTo);
+      const { downloadServerReport } = await import("@/lib/reportDownload");
+      const filename = await downloadServerReport({
+        apiUrl: API,
+        token,
+        path: `/api/reports/contests?${params}`,
+        fallbackFilename: `BizBuddy_Contests.${format}`,
+      });
+      toast.success(filename);
+    } catch (error) {
+      toast.error(`Export failed: ${error.message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const statusOpts = [
     { value: "pending", label: "Pending" },
     { value: "approved", label: "Approved" },
@@ -377,6 +425,20 @@ export default function AdminContestRequests() {
           <p className="text-muted-foreground mt-1">Review and approve employee time contest requests</p>
         </div>
         <div className="flex gap-2">
+          <IconBtn
+            icon={FileSpreadsheet}
+            tooltip={exporting ? "Exporting…" : "Export Excel: date range and status filter apply"}
+            onClick={() => exportReport("xlsx")}
+            disabled={exporting}
+            className="border-orange-200 text-orange-600 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-900/20"
+          />
+          <IconBtn
+            icon={FileText}
+            tooltip={pdfExporting ? "Exporting…" : "Export PDF: date range and status filter apply"}
+            onClick={() => exportReport("pdf")}
+            disabled={pdfExporting}
+            className="border-orange-200 text-orange-600 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-900/20"
+          />
           <Button onClick={() => window.location.reload()} variant="outline">
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh

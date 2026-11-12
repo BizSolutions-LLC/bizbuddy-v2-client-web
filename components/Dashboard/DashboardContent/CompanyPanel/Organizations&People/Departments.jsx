@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { 
-  Trash2, Edit3, Building, Users, AlertCircle, Download, RefreshCw, 
+  Trash2, Edit3, Building, Users, AlertCircle, FileSpreadsheet, RefreshCw, 
   Filter, FileText, Plus, Search, X, ChevronDown, Check, Briefcase,
   Eye, MoreHorizontal, UserCheck, UserX, Award, Clock
 } from "lucide-react";
@@ -10,6 +10,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { toast, Toaster } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
 import DataTable from "@/components/common/DataTable";
+import IconBtn from "@/components/common/IconBtn";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -66,14 +67,6 @@ export default function Departments() {
     { value: "createdAt", label: "Created At" },
     { value: "updatedAt", label: "Updated At" },
   ];
-  const columnMap = {
-    id: "Department ID",
-    name: "Department Name",
-    supervisor: "Supervisor",
-    userCount: "User Count",
-    createdAt: "Created At",
-    updatedAt: "Updated At",
-  };
   const [columnVisibility, setColumnVisibility] = useState(columnOptions.map((o) => o.value));
 
   const supervisors = allUsers.filter((u) => u.role && u.role.toLowerCase() === "supervisor");
@@ -128,13 +121,8 @@ export default function Departments() {
     if (!departments.length) return;
     const map = {};
     departments.forEach((d) => {
-      const members = allUsers.filter((u) => u.department && u.department.id === d.id);
-      let supExtra = 0;
-      if (d.supervisor) {
-        const supInMembers = members.some((m) => m.id === d.supervisor.id);
-        if (!supInMembers) supExtra = 1;
-      }
-      map[d.id] = members.length + supExtra;
+      // BB-119: employees assigned to the department only, matching "Employees" in the report
+      map[d.id] = allUsers.filter((u) => u.department && u.department.id === d.id).length;
     });
     setUserCounts(map);
   }, [departments, allUsers]);
@@ -182,7 +170,7 @@ export default function Departments() {
 
   const hasActiveFilters = searchQuery || filters.supervisors.length > 0;
 
-  const downloadCSV = async () => {
+  const downloadExcel = async () => {
     if (processedDepartments.length === 0) {
       toast.error("No data to export");
       return;
@@ -191,16 +179,15 @@ export default function Departments() {
     setExporting(true);
     
     try {
-      const { exportDepartmentsCSV } = await import("@/lib/exports/departments");
-      const result = await exportDepartmentsCSV({
-        data: processedDepartments,
-        visibleColumns: columnVisibility,
-        columnMap: columnMap,
+      // BB-119: the server builds the report (every department, or a supervisor's own)
+      const { downloadServerReport } = await import("@/lib/reportDownload");
+      const filename = await downloadServerReport({
+        apiUrl: API_URL,
+        token,
+        path: "/api/reports/departments?format=xlsx",
+        fallbackFilename: "BizBuddy_Departments.xlsx",
       });
-      
-      if (result.success) {
-        toast.success(`${result.filename}`);
-      }
+      toast.success(filename);
     } catch (error) {
       toast.error(`Export failed: ${error.message}`);
     } finally {
@@ -217,16 +204,15 @@ export default function Departments() {
     setPdfExporting(true);
     
     try {
-      const { exportDepartmentsPDF } = await import("@/lib/exports/departments");
-      const result = await exportDepartmentsPDF({
-        data: processedDepartments,
-        visibleColumns: columnVisibility,
-        columnMap: columnMap,
+      // BB-119: the server builds the report (every department, or a supervisor's own)
+      const { downloadServerReport } = await import("@/lib/reportDownload");
+      const filename = await downloadServerReport({
+        apiUrl: API_URL,
+        token,
+        path: "/api/reports/departments?format=pdf",
+        fallbackFilename: "BizBuddy_Departments.pdf",
       });
-      
-      if (result.success) {
-        toast.success(`${result.filename}`);
-      }
+      toast.success(filename);
     } catch (error) {
       toast.error(`Export failed: ${error.message}`);
     } finally {
@@ -461,13 +447,29 @@ export default function Departments() {
             <h1 className="text-2xl font-bold tracking-tight">Company Departments</h1>
             <p className="text-muted-foreground">Manage organizational structure and teams</p>
           </div>
-          <Button
-            onClick={() => setShowCreateModal(true)}
-            className="bg-orange-500 hover:bg-orange-600 text-white self-start sm:self-auto"
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            New Department
-          </Button>
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            <IconBtn
+              icon={FileSpreadsheet}
+              tooltip={exporting ? "Exporting…" : "Export Excel: every department you can see, all fields"}
+              onClick={downloadExcel}
+              disabled={exporting}
+              className="border-orange-200 text-orange-600 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-900/20"
+            />
+            <IconBtn
+              icon={FileText}
+              tooltip={pdfExporting ? "Exporting…" : "Export PDF: every department you can see"}
+              onClick={downloadPDF}
+              disabled={pdfExporting}
+              className="border-orange-200 text-orange-600 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-900/20"
+            />
+            <Button
+              onClick={() => setShowCreateModal(true)}
+              className="bg-orange-500 hover:bg-orange-600 text-white"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              New Department
+            </Button>
+          </div>
         </div>
 
         {/* Stats Cards */}
@@ -577,62 +579,6 @@ export default function Departments() {
                   </PopoverContent>
                 </Popover>
 
-                {/* Column Visibility */}
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="border-orange-200 text-orange-600 hover:bg-orange-50">
-                      <Eye className="h-4 w-4 mr-2" />
-                      Columns
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-56">
-                    <div className="space-y-2">
-                      <h4 className="font-medium">Toggle Columns</h4>
-                      <div className="space-y-2">
-                        {columnOptions.map((col) => (
-                          <div key={col.value} className="flex items-center space-x-2">
-                            <Checkbox
-                              id={col.value}
-                              checked={columnVisibility.includes(col.value)}
-                              onCheckedChange={(checked) => {
-                                if (checked) {
-                                  setColumnVisibility([...columnVisibility, col.value]);
-                                } else {
-                                  setColumnVisibility(columnVisibility.filter(v => v !== col.value));
-                                }
-                              }}
-                            />
-                            <label htmlFor={col.value} className="text-sm cursor-pointer">
-                              {col.label}
-                            </label>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </PopoverContent>
-                </Popover>
-
-                {/* Export Options */}
-                <Button
-                  variant="outline"
-                  onClick={downloadCSV}
-                  disabled={exporting}
-                  className="border-orange-200 text-orange-600 hover:bg-orange-50"
-                >
-                  <Download className="h-4 w-4 mr-2" />
-                  {exporting ? "Exporting..." : "CSV"}
-                </Button>
-
-                <Button
-                  variant="outline"
-                  onClick={downloadPDF}
-                  disabled={pdfExporting}
-                  className="border-orange-200 text-orange-600 hover:bg-orange-50"
-                >
-                  <FileText className="h-4 w-4 mr-2" />
-                  {pdfExporting ? "Exporting..." : "PDF"}
-                </Button>
-
                 {/* Clear Filters */}
                 {hasActiveFilters && (
                   <Button
@@ -667,6 +613,41 @@ export default function Departments() {
               searchPlaceholder="Search departments..."
               onRowClick={(department) => openUsersModal(department)}
               pageSize={10}
+              toolbarExtra={
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" size="sm" className="h-9 border-orange-200 text-orange-600 hover:bg-orange-50">
+                        <Eye className="h-4 w-4 mr-2" />
+                        Columns
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-56">
+                      <div className="space-y-2">
+                        <h4 className="font-medium">Toggle Columns</h4>
+                        <div className="space-y-2">
+                          {columnOptions.map((col) => (
+                            <div key={col.value} className="flex items-center space-x-2">
+                              <Checkbox
+                                id={col.value}
+                                checked={columnVisibility.includes(col.value)}
+                                onCheckedChange={(checked) => {
+                                  if (checked) {
+                                    setColumnVisibility([...columnVisibility, col.value]);
+                                  } else {
+                                    setColumnVisibility(columnVisibility.filter(v => v !== col.value));
+                                  }
+                                }}
+                              />
+                              <label htmlFor={col.value} className="text-sm cursor-pointer">
+                                {col.label}
+                              </label>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+              }
             />
           </CardContent>
         </Card>

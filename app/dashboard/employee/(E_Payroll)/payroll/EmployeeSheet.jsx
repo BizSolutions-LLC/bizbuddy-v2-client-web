@@ -48,7 +48,6 @@ import {
   Save,
   MoreHorizontal,
   RefreshCw,
-  Download,
   Calculator,
   Clock,
   ChevronRight,
@@ -2383,7 +2382,7 @@ const EmployeeSheet = () => {
                   </>
                 )}
                 <DropdownMenuItem onClick={exportToExcel} disabled={filteredRows.length === 0}>
-                  <Download className="text-green-600" />
+                  <FileSpreadsheet className="text-green-600" />
                   Export Excel
                 </DropdownMenuItem>
                 <DropdownMenuItem

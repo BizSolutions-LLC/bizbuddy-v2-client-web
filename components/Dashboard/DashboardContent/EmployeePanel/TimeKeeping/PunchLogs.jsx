@@ -6,7 +6,6 @@ import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import {
   Clock,
   Calendar,
-  Download,
   RefreshCw,
   ChevronUp,
   ChevronDown,
@@ -24,7 +23,6 @@ import {
   CheckCircle,
   XCircle,
   TrendingUp,
-  LayoutTemplate,
   Plus,
   Check,
   Info,
@@ -47,7 +45,6 @@ import Link from "next/link";
 import useAuthStore from "@/store/useAuthStore";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -58,6 +55,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import TableSkeleton from "@/components/common/TableSkeleton";
 import CutoffDateRangeFilter, { periodRangeKey } from "@/components/common/CutoffDateRangeFilter";
+import { downloadServerReport } from "@/lib/reportDownload";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ContestDialog } from "./ContestDialog";
 import FormDialog from "@/components/common/FormDialog";
@@ -870,96 +868,25 @@ export default function PunchLogs() {
     Promise.all(promises).finally(() => setRefreshing(false));
   };
 
-  // Fetches ALL records matching current filters (no pagination cap) for export
-  const fetchExportData = async () => {
-    const p = new URLSearchParams();
-    if (queryParams.from)                        p.set("from",      queryParams.from);
-    if (queryParams.to)                          p.set("to",        queryParams.to);
-    if (queryParams.status    !== "all")         p.set("status",    queryParams.status);
-    if (queryParams.punchType !== "all")         p.set("punchType", queryParams.punchType);
-    p.set("page", "1");
-    p.set("limit", "10000");
-    const res = await fetch(`${API_URL}/api/timelogs/user?${p}`, { headers: { Authorization: `Bearer ${token}` } });
-    const j = await res.json();
-    if (!res.ok) throw new Error(j.error || "Export fetch failed");
-
-    return (j.data || []).map((raw) => {
-      const t   = deepParse(raw);
-      const log = { ...t, coffeeMins: coffeeMinutes(t.coffeeBreaks), lunchMins: lunchMinutesStr(t.lunchBreak), _lunchNum: lunchMinutesNum(t.lunchBreak) };
-
-      const punchType = log.punchType ?? "REGULAR";
-      const isDA      = punchType === "DRIVER_AIDE";
-      const isDA_AM   = punchType === "DRIVER_AIDE_AM";
-      const isDA_PM   = punchType === "DRIVER_AIDE_PM";
-      const isAnyDA   = isDA || isDA_AM || isDA_PM;
-
-      const netWorkedHours  = parseFloat(log.netWorkedHours ?? 0);
-      const rawOtMins       = parseFloat(log.rawOtMinutes ?? 0);
-      const overtimeArr     = Array.isArray(log.overtime) ? log.overtime : [];
-      const approvedOTHours = overtimeArr.filter((ot) => ot.status === "approved").reduce((s, ot) => s + (parseFloat(ot.requestedHours) || 0), 0);
-      const hasPendingOT    = overtimeArr.some((ot) => ot.status === "pending");
-
-      const periodHours = log.scheduledHours != null ? parseFloat(log.scheduledHours).toFixed(2) : "0.00";
-
-      const otHours = (rawOtMins / 60).toFixed(2);
-      const otStatus = log.otStatus != null
-        ? log.otStatus
-        : approvedOTHours > 0 ? `Approved ${approvedOTHours.toFixed(2)}h`
-        : hasPendingOT        ? "Pending"
-        : rawOtMins > 0       ? "No Approval"
-        : "—";
-
-      const driverAideAMHours  = isAnyDA ? (log.driverAmSegmentHours ?? null) : null;
-      const regularHoursForLog = isAnyDA ? (log.regularSegmentHours  ?? null) : null;
-      const driverAidePMHours  = isAnyDA ? (log.driverPmSegmentHours ?? null) : null;
-      const daRawOtHours       = isAnyDA ? rawOtMins / 60 : 0;
-
-      const duration = log.netWorkedHours != null
-        ? parseFloat(log.netWorkedHours).toFixed(2)
-        : log.grossHours != null
-          ? parseFloat(log.grossHours).toFixed(2)
-          : rawDuration(log.timeIn, log.timeOut);
-
-      return { ...log, duration, otHours, otStatus, periodHours, lateHours: log.lateHours != null ? parseFloat(log.lateHours).toFixed(2) : "0.00", driverAideAMHours, driverAidePMHours, regularHoursForLog, daRawOtHours };
-    });
-  };
-
-  const exportCSV = async () => {
-    if (!serverSummary.total) { toast.error("No records to export"); return; }
-    setExporting(true);
-    try {
-      toast.message("Fetching records for export…");
-      const data = await fetchExportData();
-      const { exportPunchLogsCSV } = await import("@/lib/exports/punchLogs");
-      const result = await exportPunchLogsCSV({ data, timezone: companyTimezone });
-      if (result.success) toast.success(result.filename);
-    } catch (e) { toast.error(`Export failed: ${e.message}`); }
-    finally { setExporting(false); }
-  };
-
   const exportPDF = async () => {
     if (!serverSummary.total) { toast.error("No records to export"); return; }
     setExporting(true);
     try {
-      toast.message("Fetching records for export…");
-      const data = await fetchExportData();
-      const { exportPunchLogsPDF } = await import("@/lib/exports/punchLogs");
-      const result = await exportPunchLogsPDF({ data, timezone: companyTimezone });
-      if (result.success) toast.success(result.filename);
+      // BB-119: the PDF is built on the server (same builder as the company report).
+      const p = new URLSearchParams({ format: "pdf", scope: "mine" });
+      // A cutoff picked in the dropdown → send that cutoff's id (own department's, or a
+      // company-wide one), so a locked cutoff prints the reviewed, paid hours.
+      const period = selectedCutoffId !== "all"
+        ? cutoffPeriods.find((cp) => periodRangeKey(cp) === selectedCutoffId &&
+            (cp.departmentId === employeeDeptId || !cp.departmentId))
+        : null;
+      if (period) p.set("cutoffPeriodIds", period.id);
+      else { p.set("from", queryParams.from); p.set("to", queryParams.to); }
+      if (queryParams.status    !== "all") p.set("status",    queryParams.status);
+      if (queryParams.punchType !== "all") p.set("punchType", queryParams.punchType);
+      const filename = await downloadServerReport({ apiUrl: API_URL, token, path: `/api/reports/punch-logs?${p}`, fallbackFilename: "punch-logs.pdf" });
+      toast.success(filename);
     } catch (e) { toast.error(`Export failed: ${e.message}`); }
-    finally { setExporting(false); }
-  };
-
-  const exportGridCSV = async () => {
-    if (!serverSummary.total) { toast.error("No records to export"); return; }
-    setExporting(true);
-    try {
-      toast.message("Fetching records for grid export…");
-      const data = await fetchExportData();
-      const { exportPunchLogsCSV_v2 } = await import("@/lib/exports/punchLogs");
-      const result = await exportPunchLogsCSV_v2({ data, timezone: companyTimezone });
-      if (result.success) toast.success(result.filename);
-    } catch (e) { toast.error(`Grid export failed: ${e.message}`); }
     finally { setExporting(false); }
   };
 
@@ -1016,32 +943,12 @@ export default function PunchLogs() {
               </Button>
             )}
 
-            {/* Export dropdown — desktop only */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="hidden sm:inline-flex h-8 text-xs rounded-lg px-2.5 gap-1.5" disabled={exporting}>
-                  <Download className="h-3.5 w-3.5" />
-                  Export
-                  <ChevronDown className="h-3 w-3 opacity-50" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="min-w-[210px]">
-                <DropdownMenuItem onClick={exportCSV} disabled={exporting}>
-                  <Download className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
-                  Export CSV (Details)
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={exportPDF} disabled={exporting}>
-                  <FileText className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
-                  Export PDF
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={exportGridCSV} disabled={exporting}>
-                  <LayoutTemplate className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
-                  Export Grid CSV (Payroll)
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {/* Export PDF — desktop only (BB-119: server PDF; the CSV exports were removed) */}
+            <Button variant="outline" className="hidden sm:inline-flex h-8 text-xs rounded-lg px-2.5 gap-1.5"
+              onClick={exportPDF} disabled={exporting}>
+              <FileText className="h-3.5 w-3.5" />
+              Export PDF
+            </Button>
 
             {/* Refresh — desktop only */}
             <Button variant="outline" size="icon" className="hidden sm:inline-flex h-8 w-8 rounded-lg"

@@ -9,7 +9,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Download, Eye, FileText, RefreshCw, X } from "lucide-react";
+import { Eye, FileText, RefreshCw, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -288,7 +288,7 @@ export default function ReportsView() {
                         <Eye className={busy === `view:${r.number}` ? "animate-pulse" : ""} /> View
                       </Button>
                       <Button variant="outline" size="sm" onClick={() => download(r.number)} disabled={!!busy}>
-                        <Download className={busy === `pdf:${r.number}` ? "animate-pulse" : ""} /> PDF
+                        <FileText className={busy === `pdf:${r.number}` ? "animate-pulse" : ""} /> PDF
                       </Button>
                     </TableCell>
                   </TableRow>

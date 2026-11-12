@@ -146,7 +146,7 @@ const docsContent = [
           "Go to Time Keeping → Punch logs.",
           "Use Filters & controls to pick a date range (or a custom range) and a cutoff status.",
           "Click any row to open the Log Details panel, which shows times, breaks, overtime, payroll cutoff, schedule, device and location.",
-          "Use Export to download your logs as CSV or PDF.",
+          "On a computer, use Export PDF to download your logs for the selected period and filters.",
         ],
         statuses: [
           { label: "Approved", tone: "success", meaning: "The log is confirmed for payroll in a cutoff period." },
@@ -212,6 +212,7 @@ const docsContent = [
           "Choose the punch log to contest, then enter the corrected clock-in and/or clock-out time.",
           "Select an approver and a reason, add a description, and submit.",
           "Track your contests in Time Keeping → Contest Time Logs. Click a row to compare requested and original times.",
+          "On a computer, use Export → Export Excel or Export PDF to download your contests. The date range and status filter apply.",
         ],
         statuses: [
           { label: "Pending", tone: "warning", meaning: "Your approver hasn't reviewed it yet. Nothing has changed on your log." },
@@ -235,7 +236,7 @@ const docsContent = [
           "In Calendar View, click any date to see the shifts for that day.",
         ],
         tips: [
-          "If your shifts span more than one time zone, a Multi-timezone notice explains which zone each time is in.",
+          "A Multi-timezone badge next to the title means your shifts use more than one time zone.",
           "Your schedule is set by your company. Contact your supervisor if a shift is missing or wrong.",
         ],
       },

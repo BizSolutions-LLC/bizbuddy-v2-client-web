@@ -10,7 +10,7 @@ import {
   Building,
   User,
   UserCog,
-  Download,
+  FileSpreadsheet,
   UploadCloud,
   Info,
   FileText,
@@ -33,6 +33,7 @@ import { toast, Toaster } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
 import DataTable from "@/components/common/DataTable";
 import ColumnSelector from "@/components/common/ColumnSelector";
+import IconBtn from "@/components/common/IconBtn";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -218,11 +219,9 @@ export default function ModernEmployees() {
     const total = employees.length;
     // BB-119: account status, matching "Active accounts" in the Employees report
     const active = employees.filter(e => e.status === "active").length;
-    const fullTime = employees.filter(e => e.employmentDetail?.employmentStatus === "full_time").length;
-    const partTime = employees.filter(e => e.employmentDetail?.employmentStatus === "part_time").length;
     const departments = [...new Set(employees.map(e => e.department?.name).filter(Boolean))].length;
     const supervisors = employees.filter(e => e.role === "supervisor").length;
-    return { total, active, fullTime, partTime, departments, supervisors };
+    return { total, active, departments, supervisors };
   }, [employees]);
 
   // Transform employees for DataTable
@@ -716,7 +715,7 @@ export default function ModernEmployees() {
   };
 
   // Export functions (preserving original logic)
-  const downloadCSV = async () => {
+  const downloadExcel = async () => {
     if (processedEmployees.length === 0) {
       toast.error("No data to export");
       return;
@@ -730,8 +729,8 @@ export default function ModernEmployees() {
       const filename = await downloadServerReport({
         apiUrl: API,
         token,
-        path: "/api/reports/employees?format=csv",
-        fallbackFilename: "BizBuddy_Employees.csv",
+        path: "/api/reports/employees?format=xlsx",
+        fallbackFilename: "BizBuddy_Employees.xlsx",
       });
       toast.success(filename);
     } catch (error) {
@@ -867,42 +866,22 @@ export default function ModernEmployees() {
             <p className="text-muted-foreground">Manage your workforce and employee information</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
-            <Button
-              variant="outline"
-              onClick={() => setShowInfoDialog(true)}
-              className="border-orange-200 text-orange-600 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-900/20"
-            >
-              <Info className="h-4 w-4 mr-2" />
-              Import Guide
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => fileRef.current?.click()}
-              className="border-orange-200 text-orange-600 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-900/20"
-            >
-              <UploadCloud className="h-4 w-4 mr-2" />
-              Import CSV
-            </Button>
-            <Button
-              variant="outline"
-              onClick={downloadCSV}
+            <IconBtn icon={Info} tooltip="Import Guide" onClick={() => setShowInfoDialog(true)} className="border-orange-200 text-orange-600 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-900/20" />
+            <IconBtn icon={UploadCloud} tooltip="Import CSV" onClick={() => fileRef.current?.click()} className="border-orange-200 text-orange-600 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-900/20" />
+            <IconBtn
+              icon={FileSpreadsheet}
+              tooltip={exporting ? "Exporting…" : "Export Excel: every employee you can see, all fields"}
+              onClick={downloadExcel}
               disabled={exporting}
-              title="Exports include every employee you can see, with all fields"
               className="border-orange-200 text-orange-600 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-900/20"
-            >
-              <Download className="h-4 w-4 mr-2" />
-              {exporting ? "Exporting..." : "Export CSV"}
-            </Button>
-            <Button
-              variant="outline"
+            />
+            <IconBtn
+              icon={FileText}
+              tooltip={pdfExporting ? "Exporting…" : "Export PDF: every employee you can see"}
               onClick={downloadPDF}
               disabled={pdfExporting}
-              title="Exports include every employee you can see, with all fields"
               className="border-orange-200 text-orange-600 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-900/20"
-            >
-              <FileText className="h-4 w-4 mr-2" />
-              {pdfExporting ? "Exporting..." : "Export PDF"}
-            </Button>
+            />
             <Button
               onClick={() => setShowCreateModal(true)}
               className="bg-orange-500 hover:bg-orange-600 text-white"
@@ -936,7 +915,6 @@ export default function ModernEmployees() {
             </CardHeader>
             <CardContent>
               <div className="text-lg sm:text-2xl font-bold text-green-600">{stats.active}</div>
-              <p className="text-xs text-muted-foreground mt-1">{stats.fullTime} full-time · {stats.partTime} part-time</p>
             </CardContent>
           </Card>
 

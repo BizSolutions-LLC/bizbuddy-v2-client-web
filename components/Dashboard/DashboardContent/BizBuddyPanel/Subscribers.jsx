@@ -10,7 +10,7 @@ import {
   ChevronUp,
   ChevronDown,
   RefreshCw,
-  Download,
+  FileSpreadsheet,
   CreditCard,
   AlertCircle,
   Check,
@@ -342,7 +342,7 @@ export default function Subscribers() {
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button variant="outline" size="icon" onClick={exportCSV} disabled={exporting || !listed().length}>
-                  <Download className={`h-4 w-4 ${exporting ? "animate-spin" : ""}`} />
+                  <FileSpreadsheet className={`h-4 w-4 ${exporting ? "animate-spin" : ""}`} />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Export CSV</TooltipContent>

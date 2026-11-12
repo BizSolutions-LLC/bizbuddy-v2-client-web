@@ -58,6 +58,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
+import { isSystemAgentToken } from "@/lib/systemAgent";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS
@@ -332,6 +333,8 @@ const DeptConfigPanel = ({
 export default function EmployeeCutoff() {
   const { token } = useAuthStore();
   const router = useRouter();
+  // BB-120: B. Buddy has no payroll access, so the payroll export preview is hidden
+  const isSupport = isSystemAgentToken(token);
 
   // ── Data state ──
   const [departments,         setDepartments]         = useState([]);
@@ -740,14 +743,16 @@ export default function EmployeeCutoff() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          <Button
-            variant="outline"
-            size="icon"
-            title="Preview Payroll Reports"
-            onClick={() => setIsReportPreviewOpen(true)}
-          >
-            <Search className="w-4 h-4" />
-          </Button>
+          {!isSupport && (
+            <Button
+              variant="outline"
+              size="icon"
+              title="Preview Payroll Reports"
+              onClick={() => setIsReportPreviewOpen(true)}
+            >
+              <Search className="w-4 h-4" />
+            </Button>
+          )}
           <Button
             variant="outline"
             className="gap-2"
