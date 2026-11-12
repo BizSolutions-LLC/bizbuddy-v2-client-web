@@ -10,6 +10,11 @@
  *     live as the user edits the time inputs.
  *  4. Delta pill shows net hour impact (+/- from recorded), coloured green/red.
  *  5. Fields grouped into two labelled sections for clarity.
+ *
+ * BB-123: every time here is a wall-clock time in the COMPANY zone (not the viewer's
+ * browser zone). Overnight clock-outs roll to the next day, large moves get a warning,
+ * locked-cutoff punches can't be picked, and 24h+ shifts are blocked before submit.
+ * The zone math lives in lib/contestTimes.js (shared with the approver page).
  */
 
 import {
@@ -38,11 +43,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { safeTime } from "./PunchLogs";
+import {
+  zoneLabel,
+  dateInZone,
+  buildContestTimes,
+  lengthHours,
+  contestChange,
+  fmtSignedHours,
+  fmtHours,
+  isLogInLockedCutoff,
+} from "@/lib/contestTimes";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 /** Format a JS Date (or timestamp string) to "HH:MM" in the given timezone. */
-function toLocalTimeInput(dateStr, tz) {
+export function toLocalTimeInput(dateStr, tz) {
   if (!dateStr) return "";
   const str = new Date(dateStr).toLocaleTimeString("en-US", {
     hour: "2-digit", minute: "2-digit", hour12: false,
@@ -61,23 +76,6 @@ function fmt12(timeStr) {
   return `${String(h12).padStart(2, "0")}:${String(m).padStart(2, "0")} ${ampm}`;
 }
 
-/** Compute net hours between two "HH:MM" strings (same-day assumed). */
-function netHours(inTime, outTime) {
-  if (!inTime || !outTime) return null;
-  const [ih, im] = inTime.split(":").map(Number);
-  const [oh, om] = outTime.split(":").map(Number);
-  return (oh * 60 + om - (ih * 60 + im)) / 60;
-}
-
-/**
- * Reconstruct a UTC ISO string from the log's date (in company tz) + a "HH:MM" string.
- * Uses the company timezone so the date boundary is correct regardless of viewer's locale.
- */
-function buildISO(logTimeIn, timeStr, tz) {
-  if (!logTimeIn || !timeStr) return null;
-  const dateOnly = new Date(logTimeIn).toLocaleDateString("en-CA", { timeZone: tz || "UTC" }); // "YYYY-MM-DD"
-  return new Date(`${dateOnly}T${timeStr}:00`).toISOString();
-}
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
@@ -88,6 +86,7 @@ export function ContestDialog({
 
   // State values (from PunchLogs parent)
   filteredSorted,
+  pendingContestLogIds = new Set(), // BB-123: punches that already have a pending contest
   approvers,
   supervisors = [],
 
@@ -105,21 +104,40 @@ export function ContestDialog({
 }) {
   const selectedLog = filteredSorted.find((l) => l.id === contestLogId) ?? null;
 
-  const origHours = selectedLog
-    ? netHours(toLocalTimeInput(selectedLog.timeIn, companyTimezone), toLocalTimeInput(selectedLog.timeOut, companyTimezone))
-    : null;
-  const reqHours = netHours(contestRequestedClockIn, contestRequestedClockOut);
+  // Requested times as real instants in the company zone (clock-out rolls to the next
+  // day when it's at or before the clock-in — a normal overnight shift).
+  const requested = buildContestTimes(
+    selectedLog?.timeIn, contestRequestedClockIn, contestRequestedClockOut, companyTimezone
+  );
+  const outIsNextDay =
+    !!(requested.clockIn && requested.clockOut) &&
+    dateInZone(requested.clockOut, companyTimezone) !== dateInZone(requested.clockIn, companyTimezone);
+
+  const origHours = selectedLog ? lengthHours(selectedLog.timeIn, selectedLog.timeOut) : null;
+  const reqHours  = requested.hours;
   const delta = origHours !== null && reqHours !== null ? reqHours - origHours : null;
 
   const deltaLabel =
     delta === null
       ? null
-      : delta === 0
+      : Math.abs(delta) < 1 / 60 // both lengths are minute-precision; under a minute = no change
       ? "No change from recorded"
       : `${delta > 0 ? "+" : ""}${delta.toFixed(2)}h from recorded`;
 
+  // Zone label shown with the time fields and the comparison strip — from companyTimezone,
+  // with the abbreviation in effect on the punch's own date (PST vs PDT).
+  const tzLabel = zoneLabel(companyTimezone, selectedLog?.timeIn);
+
+  // Large-move warning: compares the requested clock-in with the recorded clock-in only.
+  const change = selectedLog
+    ? contestChange(
+        { origIn: selectedLog.timeIn, origOut: selectedLog.timeOut, reqIn: requested.clockIn, reqOut: requested.clockOut },
+        companyTimezone
+      )
+    : null;
+
   const deltaColor =
-    delta === null || delta === 0
+    delta === null || Math.abs(delta) < 1 / 60
       ? { bg: "bg-neutral-100 dark:bg-neutral-800", text: "text-neutral-600 dark:text-neutral-400" }
       : delta > 0
       ? { bg: "bg-green-100 dark:bg-green-900/40",  text: "text-green-700 dark:text-green-400" }
@@ -136,9 +154,15 @@ export function ContestDialog({
   };
 
   const handleSubmit = () => {
-    const clockInISO  = buildISO(selectedLog?.timeIn, contestRequestedClockIn,  companyTimezone);
-    const clockOutISO = buildISO(selectedLog?.timeIn, contestRequestedClockOut, companyTimezone);
-    onSubmit(clockInISO, clockOutISO);
+    // Mirrors the server's 400: a shift can't be 24 hours or longer.
+    if (requested.hours != null && requested.hours >= 24) {
+      setContestErrors((e) => ({
+        ...e,
+        clockOut: "A shift can't be 24 hours or longer. Check the clock-in and clock-out times.",
+      }));
+      return;
+    }
+    onSubmit(requested.clockIn, requested.clockOut);
   };
 
   return (
@@ -177,27 +201,38 @@ export function ContestDialog({
                   <SelectValue placeholder="Choose a punch log to contest…" />
                 </SelectTrigger>
                 <SelectContent className="max-h-64">
-                  {filteredSorted.map((l) => (
-                    <SelectItem key={l.id} value={String(l.id)}>
-                      <div className="flex items-center gap-2">
-                        {l.isAnyDA && <Car className="h-3 w-3 text-blue-500 flex-shrink-0" />}
-                        <span>
-                          {l.timeIn
-                            ? new Date(l.timeIn).toLocaleDateString(undefined, {
-                                weekday: "short",
-                                year: "numeric",
-                                month: "short",
-                                day: "numeric",
-                              })
-                            : "—"}
-                          {" · "}
-                          {safeTime(l.timeIn, companyTimezone)} – {safeTime(l.timeOut, companyTimezone)}
-                          {" · "}
-                          {l.duration}h
-                        </span>
-                      </div>
-                    </SelectItem>
-                  ))}
+                  {filteredSorted.map((l) => {
+                    const locked = isLogInLockedCutoff(l);
+                    const pending = !locked && pendingContestLogIds.has(l.id);
+                    return (
+                      <SelectItem key={l.id} value={String(l.id)} disabled={locked || pending}>
+                        <div className="flex items-center gap-2">
+                          {l.isAnyDA && <Car className="h-3 w-3 text-blue-500 flex-shrink-0" />}
+                          <span>
+                            {l.timeIn
+                              ? new Date(l.timeIn).toLocaleDateString("en-US", {
+                                  weekday: "short",
+                                  year: "numeric",
+                                  month: "short",
+                                  day: "numeric",
+                                  ...(companyTimezone ? { timeZone: companyTimezone } : {}),
+                                })
+                              : "—"}
+                            {" · "}
+                            {safeTime(l.timeIn, companyTimezone)} – {safeTime(l.timeOut, companyTimezone)}
+                            {" · "}
+                            {l.duration}h
+                          </span>
+                          {locked && (
+                            <span className="text-xs text-muted-foreground">· Locked (cutoff closed)</span>
+                          )}
+                          {pending && (
+                            <span className="text-xs text-muted-foreground">· Contest pending</span>
+                          )}
+                        </div>
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
               {contestErrors.logId && (
@@ -213,7 +248,7 @@ export function ContestDialog({
               <div className="space-y-3">
                 <div className="rounded-xl border border-border overflow-hidden text-sm">
                   <div className="grid grid-cols-3 bg-muted/60 px-3 py-2 text-xs font-medium text-muted-foreground">
-                    <span />
+                    <span className="truncate" title={`Times in ${tzLabel}`}>{tzLabel}</span>
                     <span>Clock in</span>
                     <span>Clock out</span>
                   </div>
@@ -229,6 +264,9 @@ export function ContestDialog({
                     </span>
                     <span className="font-medium tabular-nums text-orange-700 dark:text-orange-300">
                       {fmt12(contestRequestedClockOut) || "—"}
+                      {outIsNextDay && (
+                        <span className="ml-1 text-[10px] font-medium text-muted-foreground">(next day)</span>
+                      )}
                     </span>
                   </div>
                 </div>
@@ -238,6 +276,24 @@ export function ContestDialog({
                     <span className={`text-xs font-semibold px-3 py-1 rounded-full ${deltaColor.bg} ${deltaColor.text}`}>
                       {deltaLabel}
                     </span>
+                  </div>
+                )}
+
+                {/* Large-move warning — informational, never blocks submit */}
+                {change?.large && (
+                  <div className="flex items-start gap-2 rounded-lg border border-amber-300 dark:border-amber-800 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                    <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                    <div className="space-y-1">
+                      <p>
+                        {change.movesDate
+                          ? "This moves the punch to another day."
+                          : `This moves the clock-in by about ${fmtHours(Math.abs(change.inShift))} (${fmtSignedHours(change.inShift)}).`}
+                        {" "}Check the times are in {tzLabel}.
+                      </p>
+                      {change.movesDate && (
+                        <p>To add a missing day, use Request Punch Log instead of contesting another day&apos;s punch.</p>
+                      )}
+                    </div>
                   </div>
                 )}
 
@@ -283,6 +339,11 @@ export function ContestDialog({
                     )}
                   </div>
                 </div>
+                <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <Clock className="h-3 w-3" />
+                  All times are in the company time zone ({tzLabel}).
+                  {" "}A clock-out earlier than the clock-in counts as the next day.
+                </p>
               </div>
             )}
           </div>

@@ -19,6 +19,8 @@ import {
   Building,
   Trash2,
   FileSpreadsheet,
+  Lock,
+  Globe,
 } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
@@ -33,10 +35,17 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import { fmtMMDDYYYY_hhmma } from "@/lib/dateTimeFormatter";
 import MultiSelect from "@/components/common/MultiSelect";
 import ColumnSelector from "@/components/common/ColumnSelector";
 import CutoffDateRangeFilter, { periodRangeKey } from "@/components/common/CutoffDateRangeFilter";
+import {
+  zoneLabel,
+  dateInZone,
+  contestChange,
+  fmtSignedHours,
+  fmtHours,
+  LOCKED_CUTOFF_STATUSES,
+} from "@/lib/contestTimes";
 
 // BB-119: a contest's punch date is the day of its original clock-in (or the requested
 // clock-in when there was none) in the company's time zone, the same as the report.
@@ -134,6 +143,12 @@ export default function AdminContestRequests() {
           submittedAt: c.submittedAt,
           approvedBy: c.approverDisplayName || null,
           approvedAt: c.approvedAt || null,
+          // BB-123: used to match per-department cutoff periods for the "Cutoff locked"
+          // badge. The list endpoint doesn't return it yet (server follow-up) — until then
+          // only company-wide periods can be matched up front.
+          departmentId: c.departmentId ?? c.timeLog?.user?.departmentId ?? null,
+          // Set when the server refuses an approve with CUTOFF_LOCKED.
+          cutoffLocked: false,
         }));
 
         setContestRequests(mapped);
@@ -293,6 +308,42 @@ export default function AdminContestRequests() {
     return "text-orange-600 dark:text-orange-400";
   };
 
+  // BB-123: a pending request whose punch date (recorded clock-in) or requested date is in
+  // a locked/processed cutoff can't be approved — the server returns CUTOFF_LOCKED. Matches
+  // company-wide periods, plus the employee's department's periods when known.
+  const lockedPeriodFor = (request) => {
+    const days = [
+      dateInZone(request.originalClockIn, companyTimezone),
+      dateInZone(request.correctClockIn, companyTimezone),
+    ].filter(Boolean);
+    if (!days.length) return null;
+    return cutoffPeriods.find((p) =>
+      LOCKED_CUTOFF_STATUSES.includes(p.status) &&
+      (p.departmentId == null || (request.departmentId && p.departmentId === request.departmentId)) &&
+      days.some((d) => d >= p.periodStart?.slice(0, 10) && d <= p.periodEnd?.slice(0, 10))
+    ) || null;
+  };
+  const isCutoffLocked = (request) =>
+    request.status === "pending" && (request.cutoffLocked || !!lockedPeriodFor(request));
+
+  // Change-from-recorded summary for a request (all in hours, company zone).
+  const changeOf = (request) =>
+    contestChange(
+      {
+        origIn: request.originalClockIn,
+        origOut: request.originalClockOut,
+        reqIn: request.correctClockIn,
+        reqOut: request.correctClockOut,
+      },
+      companyTimezone
+    );
+  const changeFlagLabel = (ch) => {
+    if (ch.zoneShift) return `Moved ${fmtSignedHours(ch.inShift)}, same length: possible time zone mistake`;
+    if (ch.movesDate) return "Moves the punch to another day";
+    if (ch.large) return `Clock-in moves ${fmtSignedHours(ch.inShift)}`;
+    return null;
+  };
+
   const handleApproveReject = async (requestId, action) => {
     setActionLoading(true);
   
@@ -310,8 +361,16 @@ export default function AdminContestRequests() {
         },
       });
   
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || "Failed to update request");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // BB-123: the server refuses to approve a punch in a locked/processed cutoff.
+        // Mark it so the badge shows and Approve is disabled (Reject stays available).
+        if (json.code === "CUTOFF_LOCKED") {
+          setContestRequests((prev) => prev.map((r) => (r.id === requestId ? { ...r, cutoffLocked: true } : r)));
+          setSelectedRequest((prev) => (prev?.id === requestId ? { ...prev, cutoffLocked: true } : prev));
+        }
+        throw new Error(json.message || `Failed to ${action === "approved" ? "approve" : "reject"} contest request.`);
+      }
   
       // Update table immediately after success
       setContestRequests((prev) =>
@@ -334,7 +393,8 @@ export default function AdminContestRequests() {
       setSelectedRequest(null);
     } catch (err) {
       console.error(`❌ Failed to ${action} request:`, err);
-      toast.error(`Failed to ${action} contest request.`);
+      // BB-123: show the server's reason (its 400 explains why and says to reject).
+      toast.error(err.message || `Failed to ${action === "approved" ? "approve" : "reject"} contest request.`);
     } finally {
       setActionLoading(false);
     }
@@ -392,7 +452,8 @@ export default function AdminContestRequests() {
       year: "numeric",
       hour: "2-digit",
       minute: "2-digit",
-      hour12: true
+      hour12: true,
+      timeZone: companyTimezone, // BB-123: company zone, not the approver's browser zone
     });
   };
 
@@ -403,12 +464,12 @@ export default function AdminContestRequests() {
   const formatTimeOnly = (dateStr) => {
     const d = new Date(dateStr);
     if (!dateStr || isNaN(d.getTime())) return null;
-    return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
+    return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: companyTimezone });
   };
   const formatDateOnly = (dateStr) => {
     const d = new Date(dateStr);
     if (!dateStr || isNaN(d.getTime())) return null;
-    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: companyTimezone });
   };
 
   return (
@@ -578,6 +639,10 @@ export default function AdminContestRequests() {
             </div>
             Contest Requests
           </CardTitle>
+          <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+            <Globe className="h-3 w-3" />
+            All times are in the company time zone ({zoneLabel(companyTimezone)}).
+          </p>
         </CardHeader>
         <CardContent className="p-0">
           <div className="rounded-md border overflow-hidden">
@@ -625,6 +690,9 @@ export default function AdminContestRequests() {
                           const origOut = request.originalClockOut || request.currentClockOut;
                           const isSelected = selectedRequest?.id === request.id;
                           const reqColor = requestedTimeColor(request.status);
+                          const ch = changeOf(request);
+                          const flag = changeFlagLabel(ch);
+                          const locked = isCutoffLocked(request);
                           const TimeBlock = ({ label, value, colorClass = "" }) => {
                             const time = formatTimeOnly(value);
                             const date = formatDateOnly(value);
@@ -668,16 +736,36 @@ export default function AdminContestRequests() {
                                 <TimeBlock label="In" value={request.correctClockIn} colorClass={reqColor} />
                                 <ChevronDown className="h-3 w-3 text-muted-foreground/40" />
                                 <TimeBlock label="Out" value={request.correctClockOut} colorClass={reqColor} />
+                                {/* BB-123: change from recorded */}
+                                {ch.inShift != null && (
+                                  <div className="text-[11px] text-muted-foreground tabular-nums">
+                                    In {fmtSignedHours(ch.inShift)}
+                                    {ch.newLen != null && ch.oldLen != null && <> · Length {fmtSignedHours(ch.newLen - ch.oldLen)}</>}
+                                  </div>
+                                )}
+                                {flag && (
+                                  <div className="flex items-start gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400 max-w-[180px]">
+                                    <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+                                    <span>{flag}</span>
+                                  </div>
+                                )}
                               </div>
                             </TableCell>
                             {visibleCols.includes("status") && (
                               <TableCell className="py-3 text-center align-top" onClick={(e) => e.stopPropagation()}>
-                                {getStatusBadge(request.status)}
+                                <div className="flex flex-col items-center gap-1">
+                                  {getStatusBadge(request.status)}
+                                  {locked && (
+                                    <Badge variant="outline" className="text-[10px] gap-1 text-muted-foreground">
+                                      <Lock className="h-3 w-3" />Cutoff locked
+                                    </Badge>
+                                  )}
+                                </div>
                               </TableCell>
                             )}
                             {visibleCols.includes("submittedAt") && (
                               <TableCell className="py-3 text-xs align-top whitespace-nowrap">
-                                {fmtMMDDYYYY_hhmma(request.submittedAt)}
+                                {formatDateTime(request.submittedAt)}
                               </TableCell>
                             )}
                           </motion.tr>
@@ -713,6 +801,10 @@ export default function AdminContestRequests() {
                   const origIn  = selectedRequest.originalClockIn  || selectedRequest.currentClockIn;
                   const origOut = selectedRequest.originalClockOut || selectedRequest.currentClockOut;
                   const reqColor = requestedTimeColor(selectedRequest.status);
+                  const ch = changeOf(selectedRequest);
+                  const flag = changeFlagLabel(ch);
+                  const locked = isCutoffLocked(selectedRequest);
+                  const lockedPeriod = lockedPeriodFor(selectedRequest);
                   const hasNote = selectedRequest.detailedExplanation && selectedRequest.detailedExplanation !== "No description provided";
                   return (
                   <motion.div
@@ -751,7 +843,19 @@ export default function AdminContestRequests() {
                         {/* Status */}
                         <div>
                           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Status</p>
-                          {getStatusBadge(selectedRequest.status)}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {getStatusBadge(selectedRequest.status)}
+                            {locked && (
+                              <Badge variant="outline" className="text-xs gap-1 text-muted-foreground">
+                                <Lock className="h-3 w-3" />Cutoff locked
+                              </Badge>
+                            )}
+                          </div>
+                          {locked && lockedPeriod && (
+                            <p className="text-xs text-muted-foreground mt-1.5">
+                              {lockedPeriod.status === "processed" ? "Processed" : "Locked"} cutoff: {formatDateOnly(`${lockedPeriod.periodStart.slice(0, 10)}T12:00:00Z`)} – {formatDateOnly(`${lockedPeriod.periodEnd.slice(0, 10)}T12:00:00Z`)}
+                            </p>
+                          )}
                         </div>
 
                         <div className="border-t" />
@@ -790,6 +894,33 @@ export default function AdminContestRequests() {
 
                         <div className="border-t" />
 
+                        {/* BB-123: Change from recorded */}
+                        <div>
+                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Change From Recorded</p>
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-muted-foreground">Clock in moved</span>
+                              <span className="font-medium tabular-nums">{fmtSignedHours(ch.inShift)}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-muted-foreground">Clock out moved</span>
+                              <span className="font-medium tabular-nums">{fmtSignedHours(ch.outShift)}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-muted-foreground">Length</span>
+                              <span className="font-medium tabular-nums">{fmtHours(ch.oldLen)} → {fmtHours(ch.newLen)}</span>
+                            </div>
+                          </div>
+                          {flag && (
+                            <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-300 dark:border-amber-800 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                              <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                              <span>{flag}. Check the request with the employee before approving.</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="border-t" />
+
                         {/* Reason */}
                         <div>
                           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Reason</p>
@@ -806,7 +937,7 @@ export default function AdminContestRequests() {
                           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Submitted</p>
                           <div className="flex items-center justify-between text-sm">
                             <span className="text-muted-foreground">At</span>
-                            <span className="font-medium">{fmtMMDDYYYY_hhmma(selectedRequest.submittedAt)}</span>
+                            <span className="font-medium">{formatDateTime(selectedRequest.submittedAt)}</span>
                           </div>
                           {selectedRequest.approvedBy && (
                             <div className="flex items-center justify-between text-sm mt-1.5">
@@ -821,13 +952,29 @@ export default function AdminContestRequests() {
                           <>
                             <div className="border-t" />
                             <div className="flex gap-2 pt-1">
-                              <Button
-                                className="flex-1 bg-green-600 hover:bg-green-700 text-white" size="sm"
-                                onClick={() => handleApproveReject(selectedRequest.id, "approved")}
-                                disabled={actionLoading}
-                              >
-                                <Check className="h-4 w-4 mr-1.5" />Approve
-                              </Button>
+                              {locked ? (
+                                <TooltipProvider delayDuration={200}>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      {/* span wrapper: a disabled button doesn't fire hover events */}
+                                      <span className="flex-1" tabIndex={0}>
+                                        <Button className="w-full bg-green-600 text-white" size="sm" disabled>
+                                          <Lock className="h-4 w-4 mr-1.5" />Approve
+                                        </Button>
+                                      </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Reopen the cutoff to approve, or reject.</TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              ) : (
+                                <Button
+                                  className="flex-1 bg-green-600 hover:bg-green-700 text-white" size="sm"
+                                  onClick={() => handleApproveReject(selectedRequest.id, "approved")}
+                                  disabled={actionLoading}
+                                >
+                                  <Check className="h-4 w-4 mr-1.5" />Approve
+                                </Button>
+                              )}
                               <Button
                                 variant="outline" className="flex-1 border-red-300 text-red-600 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-950/20" size="sm"
                                 onClick={() => handleApproveReject(selectedRequest.id, "rejected")}
@@ -871,7 +1018,7 @@ export default function AdminContestRequests() {
                 <strong>Reason:</strong> {deleteTarget.reason}
               </p>
               <p>
-                <strong>Submitted:</strong> {fmtMMDDYYYY_hhmma(deleteTarget.submittedAt)}
+                <strong>Submitted:</strong> {formatDateTime(deleteTarget.submittedAt)}
               </p>
             </div>
           )}
