@@ -2,7 +2,7 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 "use client";
 
-import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { Fragment, useEffect, useMemo, useState, useCallback, useRef } from "react";
 import {
   Clock,
   Calendar,
@@ -14,7 +14,6 @@ import {
   ChevronsLeft,
   ChevronsRight,
   MapPin,
-  AlertTriangle,
   User,
   AlertCircle,
   AlarmClockPlus,
@@ -38,13 +37,16 @@ import {
   TimerOff,
   BarChart3,
   GraduationCap,
+  ChevronRight,
+  Globe,
+  Eye,
+  ClockAlert,
 } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import useAuthStore from "@/store/useAuthStore";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -57,10 +59,12 @@ import TableSkeleton from "@/components/common/TableSkeleton";
 import CutoffDateRangeFilter, { periodRangeKey } from "@/components/common/CutoffDateRangeFilter";
 import { downloadServerReport } from "@/lib/reportDownload";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ContestDialog } from "./ContestDialog";
+import { ContestDialog, toLocalTimeInput } from "./ContestDialog";
+import { isLogInLockedCutoff, contestChange, fmtSignedHours, dateInZone } from "@/lib/contestTimes";
 import FormDialog from "@/components/common/FormDialog";
 import OrangeLoadingSpinner from "@/components/common/Spinner";
 import MultiSelect from "@/components/common/MultiSelect";
+import ColumnSelector from "@/components/common/ColumnSelector";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const DAYCARE_COMPANY_IDS = (process.env.NEXT_PUBLIC_DAYCARE_COMPANY_IDS || "")
@@ -228,6 +232,22 @@ function V3CutoffBadge({ cutoffApproval }) {
   return <span className="text-muted-foreground text-sm">—</span>;
 }
 
+// ── ContestStatusBadge (BB-123) — status of the employee's latest contest on a punch ──
+function ContestStatusBadge({ status }) {
+  const s = (status || "").toLowerCase();
+  const meta =
+    s === "approved" ? { label: "approved", cls: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400", Icon: CheckCircle }
+    : s === "rejected" ? { label: "rejected", cls: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400", Icon: XCircle }
+    : { label: "pending", cls: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400", Icon: Clock };
+  const { Icon } = meta;
+  return (
+    <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium ${meta.cls}`}>
+      <Icon className="h-3 w-3" />
+      {meta.label.charAt(0).toUpperCase() + meta.label.slice(1)}
+    </span>
+  );
+}
+
 // ── V3CutoffBox (side-panel block) ────────────────────────────────────────────
 function V3CutoffBox({ cutoffApproval }) {
   if (!cutoffApproval)
@@ -334,8 +354,8 @@ export default function PunchLogs() {
   const [requestsV2Expanded,  setRequestsV2Expanded]  = useState(true);
   const [loadingRequests, setLoadingRequests] = useState(false);
 
-  // V3 table — selected row for side detail panel
-  const [selectedLogV3, setSelectedLogV3] = useState(null);
+  // Punch Logs table — expanded row (BB-123: replaces the side panel + mobile sheet)
+  const [expandedRow, setExpandedRow] = useState(null);
 
   const [totalPages,       setTotalPages]       = useState(1);
   const [locList,          setLocList]          = useState([]);
@@ -621,6 +641,60 @@ export default function PunchLogs() {
     fetchLogs(queryParams);
   }, [token, queryParams, fetchLogs]);
 
+  // ── BB-123: the employee's own contests, matched to rows by timeLogId ─────────
+  // Newest first. Keep paging until the contests are older than the window being shown:
+  // a contest is always submitted after its punch, so anything created before the
+  // window's start date can't belong to a row on screen.
+  const [myContests, setMyContests] = useState([]);
+  const fetchMyContests = useCallback(async (windowFrom) => {
+    if (!token) return;
+    try {
+      const all = [];
+      const cutoffMs = windowFrom ? new Date(`${windowFrom}T00:00:00Z`).getTime() - 24 * 3600 * 1000 : null;
+      for (let offset = 0; ; ) {
+        const qp = new URLSearchParams({ limit: "200", offset: String(offset) });
+        const res = await fetch(`${API_URL}/api/contest-policy/view-contestTimeLogs?${qp}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) return; // silent — badges are informational
+        const batch = j.data?.contestLogs || [];
+        all.push(...batch);
+        const oldest = batch[batch.length - 1];
+        const oldestMs = oldest ? new Date(oldest.createdAt || oldest.submittedAt).getTime() : null;
+        if (!j.data?.pagination?.hasMore || batch.length === 0) break;
+        if (cutoffMs != null && oldestMs != null && oldestMs < cutoffMs) break;
+        offset += batch.length;
+      }
+      setMyContests(all);
+    } catch { /* silent */ }
+  }, [token, API_URL]);
+
+  useEffect(() => {
+    if (!token) return;
+    fetchMyContests(queryParams.from);
+  }, [token, queryParams.from, fetchMyContests]);
+
+  // timeLogId → contests (newest first)
+  const contestsByLog = useMemo(() => {
+    const map = new Map();
+    for (const c of myContests) {
+      if (!c.timeLogId) continue;
+      if (!map.has(c.timeLogId)) map.set(c.timeLogId, []);
+      map.get(c.timeLogId).push(c);
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) => new Date(b.createdAt || b.submittedAt) - new Date(a.createdAt || a.submittedAt));
+    }
+    return map;
+  }, [myContests]);
+  const hasPendingContest = (logId) =>
+    (contestsByLog.get(logId) || []).some((c) => (c.status || "").toUpperCase() === "PENDING");
+  const pendingContestLogIds = useMemo(
+    () => new Set([...contestsByLog.entries()].filter(([, l]) => l.some((c) => (c.status || "").toUpperCase() === "PENDING")).map(([id]) => id)),
+    [contestsByLog]
+  );
+
   const handleCutoffSelect = (value) => {
     setSelectedCutoffId(value);
     if (value === "all") return;
@@ -820,6 +894,66 @@ export default function PunchLogs() {
   // All returned logs are displayed — pagination is server-side
   const displayed = filteredSorted;
 
+  // ── Table columns (BB-123: mirrors the admin Punch Logs column picker) ───────
+  // essential = always shown (not offered in the picker); defaultOn = visible on first load
+  const columnOptions = useMemo(() => [
+    { value: "date",           label: "Date",               essential: true  },
+    { value: "dateTimeIn",     label: "Clock In",           essential: true  },
+    { value: "dateTimeOut",    label: "Clock Out",          essential: true  },
+    { value: "duration",       label: "Duration",           defaultOn: true  },
+    ...(!isDayCare ? [{ value: "gross", label: "Gross Hours" }] : []),
+    { value: "status",         label: "Status"                               },
+    ...(isDayCare ? [{ value: "punchType", label: "Punch Type", defaultOn: true }] : []),
+    { value: "cutoffApproval", label: "Cutoff Status",      defaultOn: true  },
+    { value: "schedule",       label: "Scheduled"                            },
+    { value: "period",         label: "Period Hours"                         },
+    { value: "ot",             label: "OT",                 defaultOn: true  },
+    { value: "otStatus",       label: "OT Status"                            },
+    { value: "late",           label: "Late"                                 },
+    { value: "undertime",      label: "Undertime"                            },
+    { value: "coffee",         label: "Coffee"                               },
+    { value: "lunch",          label: "Lunch"                                },
+    { value: "locationIn",     label: "Check-in Location"                    },
+    { value: "locationOut",    label: "Check-out Location"                   },
+    { value: "deviceIn",       label: "Device In"                            },
+    { value: "deviceOut",      label: "Device Out"                           },
+    { value: "actions",        label: "Actions",            essential: true  },
+  ], [isDayCare]);
+
+  const pickableColumns = useMemo(() => columnOptions.filter((c) => !c.essential), [columnOptions]);
+
+  const [columnVisibility, setColumnVisibility] = useState(
+    ["duration", "punchType", "cutoffApproval", "ot"]
+  );
+
+  const visibleColumns = useMemo(
+    () => columnOptions.filter((c) => c.essential || columnVisibility.includes(c.value)),
+    [columnOptions, columnVisibility]
+  );
+
+  // ── Row-level contest (BB-123) ──────────────────────────────────────────────
+  // Only completed logs whose cutoff isn't approved or closed (locked/processed) can be
+  // contested from the row — the server refuses locked ones with CUTOFF_LOCKED anyway.
+  // A punch with a pending contest is blocked too (one pending contest per punch —
+  // the server enforces it with CONTEST_PENDING).
+  const canContestBase = (log) =>
+    !!log.timeOut && log.cutoffApproval?.status !== "approved" && !isLogInLockedCutoff(log);
+  const canContest = (log) => canContestBase(log) && !hasPendingContest(log.id);
+  // Opens the existing ContestDialog with this log pre-selected and its recorded
+  // times pre-filled — same as picking the log from the dialog's own dropdown.
+  const openContestFor = (log) => {
+    setContestLogId(log.id);
+    setContestRequestedClockIn(toLocalTimeInput(log.timeIn, companyTimezone));
+    setContestRequestedClockOut(toLocalTimeInput(log.timeOut, companyTimezone));
+    setContestErrors({});
+    setContestDialogOpen(true);
+  };
+
+  const tableTotals = useMemo(() => {
+    const sum = (k) => filteredSorted.reduce((s, l) => s + (parseFloat(l[k]) || 0), 0).toFixed(2);
+    return { duration: sum("duration"), period: sum("periodHours") };
+  }, [filteredSorted]);
+
 
   const submitContestPolicy = async (clockInISO, clockOutISO) => {
     const errors = {};
@@ -850,9 +984,21 @@ export default function PunchLogs() {
           submittedAt: new Date().toISOString(),
         }),
       });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.message || "Contest submission failed");
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // BB-123: a locked cutoff is shown under the punch-log dropdown, not only as a toast.
+        if (j.code === "CUTOFF_LOCKED") {
+          setContestErrors((e) => ({ ...e, logId: j.message || "This punch is in a locked cutoff period, so it can't be contested." }));
+        }
+        // One pending contest per punch — show it inline and refresh the badges.
+        if (j.code === "CONTEST_PENDING") {
+          setContestErrors((e) => ({ ...e, logId: j.message || "This punch already has a pending contest." }));
+          fetchMyContests(queryParams.from);
+        }
+        throw new Error(j.message || "Contest submission failed");
+      }
       toast.message("Contest request submitted successfully");
+      fetchMyContests(queryParams.from); // BB-123: show the new pending badge right away
       setContestDialogOpen(false);
       setContestLogId(""); setContestApproverId(""); setContestReason("");
       setContestDescription(""); setContestRequestedClockIn(""); setContestRequestedClockOut("");
@@ -917,13 +1063,6 @@ export default function PunchLogs() {
               </Link>
             </Button>
 
-            {/* Contest time — always visible, label abbreviated on mobile */}
-            <Button variant="outline" className="h-8 text-xs rounded-lg px-2.5 gap-1.5"
-              onClick={() => filteredSorted.length ? setContestDialogOpen(true) : toast.message("No logs available")}>
-              <AlertTriangle className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Contest time</span>
-              <span className="sm:hidden">Contest</span>
-            </Button>
 
             {/* Request entry — always visible, label abbreviated on mobile */}
             <Button variant="outline" className="h-8 text-xs rounded-lg px-2.5 gap-1.5"
@@ -1169,6 +1308,12 @@ export default function PunchLogs() {
             </div>
           </div>
           <div className="flex flex-col sm:flex-row sm:items-end flex-wrap gap-2">
+            <div className="flex flex-col gap-1 min-w-[120px]">
+              <div className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                <Eye className="h-2.5 w-2.5" />Columns
+              </div>
+              <ColumnSelector options={pickableColumns} visible={columnVisibility.filter((v) => pickableColumns.some((c) => c.value === v))} setVisible={setColumnVisibility} />
+            </div>
             <div className="flex flex-col gap-1 flex-1 min-w-[120px]">
               <div className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                 <Flag className="h-2.5 w-2.5" />Cutoff status
@@ -1233,13 +1378,12 @@ export default function PunchLogs() {
           </div>
         </div>
 
-        {/* Punch Logs table */}
-        <Card className="border-2 shadow-md overflow-hidden dark:border-white/10">
-          <div className="h-1 w-full bg-orange-500" />
-          <CardHeader className="pb-4">
-            <div className="flex items-center justify-between">
+        {/* Punch Logs table — BB-123: mirrors the admin Punch Logs table (column picker + expandable rows) */}
+        <Card className="border-2 border-orange-200 dark:border-orange-900/50 shadow-lg overflow-hidden">
+          <CardHeader className="pb-3 bg-gradient-to-r from-orange-50 to-transparent dark:from-orange-950/20 border-b">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
               <CardTitle className="flex items-center gap-2">
-                <Clock className="h-5 w-5 text-orange-500" />
+                <div className="p-2 rounded-xl bg-orange-500 text-white shadow-lg"><Clock className="h-4 w-4" /></div>
                 Punch Logs
                 {isDayCare && (
                   <span className="hidden sm:inline-flex ml-2 text-xs font-normal text-muted-foreground items-center gap-1">
@@ -1247,31 +1391,45 @@ export default function PunchLogs() {
                   </span>
                 )}
               </CardTitle>
-              <span className="hidden sm:inline text-sm text-muted-foreground">{filteredSorted.length} shown</span>
+              <div className="flex flex-col md:flex-row items-end md:items-center gap-2 md:gap-4 text-sm text-muted-foreground">
+                <span>{filteredSorted.length} shown</span>
+                <span>Total Duration: <span className="font-semibold text-foreground">{tableTotals.duration}h</span></span>
+                <span>Total Period Hours: <span className="font-semibold text-foreground">{tableTotals.period}h</span></span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center gap-2 text-xs cursor-help">
+                      <Globe className="w-3 h-3" />
+                      <span className="font-medium text-primary">{getTimezoneName(companyTimezone)}</span>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent className="text-xs">Company timezone: {companyTimezone}</TooltipContent>
+                </Tooltip>
+              </div>
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            <div className="flex">
-              {/* ── Left: table ── */}
-              <div className={`w-full ${selectedLogV3 ? "sm:flex-1 sm:min-w-0" : ""} overflow-x-auto transition-all duration-200`}>
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/50">
-                      <TableHead className="font-semibold pl-4 whitespace-nowrap sticky left-0 z-10 bg-muted sm:static sm:z-auto sm:bg-transparent">Date</TableHead>
-                      <TableHead className="font-semibold">Clock In</TableHead>
-                      <TableHead className="font-semibold">Clock Out</TableHead>
-                      <TableHead className="text-right font-semibold">Duration</TableHead>
-                      <TableHead className="text-right font-semibold">OT</TableHead>
-                      {isDayCare && <TableHead className="text-center font-semibold">Punch Type</TableHead>}
-                      <TableHead className="text-center font-semibold">Cutoff Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {loading ? (
-                      <TableSkeleton rows={10} cols={isDayCare ? 7 : 6} />
-                    ) : displayed.length ? (
-                      displayed.map((log) => {
-                        const isSelected = selectedLogV3?.id === log.id;
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/50">
+                    <TableHead className="w-10"></TableHead>
+                    {visibleColumns.map(({ value, label }) => (
+                      <TableHead
+                        key={value}
+                        className={`text-center text-nowrap font-semibold ${value === "date" ? "sticky left-0 z-10 bg-muted sm:static sm:z-auto sm:bg-transparent" : ""}`}
+                      >
+                        {label}
+                      </TableHead>
+                    ))}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loading ? (
+                    <TableSkeleton rows={10} cols={visibleColumns.length + 1} />
+                  ) : displayed.length ? (
+                    <AnimatePresence>
+                      {displayed.map((log, index) => {
+                        const isExpanded = expandedRow === log.id;
                         const fullDate = log.timeIn
                           ? new Date(log.timeIn).toLocaleDateString("en-US", {
                               weekday: "short", month: "long", day: "numeric",
@@ -1280,152 +1438,287 @@ export default function PunchLogs() {
                           : "—";
                         const locIn  = getLocation(log, "in");
                         const locOut = getLocation(log, "out");
+                        const rowLog = { ...log, _locIn: locIn, _locOut: locOut };
+                        const logContests = contestsByLog.get(log.id) || [];
+                        const latestContest = logContests[0] || null;
+                        const contestPending = hasPendingContest(log.id);
+                        const hoursOrDash = (v, cls = "") =>
+                          parseFloat(v) > 0
+                            ? <span className={`text-sm ${cls}`}>{parseFloat(v).toFixed(2)}h</span>
+                            : <span className="text-muted-foreground text-sm">—</span>;
+                        const mapLink = (loc) =>
+                          loc.lat != null ? (
+                            <a
+                              href={`https://www.google.com/maps?q=${loc.lat},${loc.lng}`}
+                              target="_blank" rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                              title={loc.txt}
+                            >
+                              <MapPinIcon className="w-3 h-3" />View
+                            </a>
+                          ) : <span className="text-muted-foreground text-xs">—</span>;
+                        const deviceCell = (dev) =>
+                          dev && dev !== "—"
+                            ? <span className="text-xs" title={dev}>{truncate(dev)}</span>
+                            : <span className="text-muted-foreground text-xs">—</span>;
+
+                        const renderCell = (key) => {
+                          switch (key) {
+                            case "date":
+                              return (
+                                <TableCell key="date" className={`text-center font-medium text-sm whitespace-nowrap sticky left-0 z-10 sm:static sm:z-auto ${isExpanded ? "bg-muted sm:bg-transparent" : "bg-background sm:bg-transparent"}`}>
+                                  {fullDate}
+                                </TableCell>
+                              );
+                            case "dateTimeIn":
+                              return <TableCell key="dateTimeIn" className="text-center"><CompanyTime value={log.dayApprovedClockIn ?? log.timeIn} companyTz={companyTimezone} /></TableCell>;
+                            case "dateTimeOut":
+                              return (
+                                <TableCell key="dateTimeOut" className="text-center">
+                                  {(log.dayApprovedClockOut ?? log.timeOut)
+                                    ? <CompanyTime value={log.dayApprovedClockOut ?? log.timeOut} companyTz={companyTimezone} />
+                                    : <span className="text-xs text-muted-foreground italic">—</span>}
+                                </TableCell>
+                              );
+                            case "duration":
+                              return <TableCell key="duration" className="text-center"><span className="text-sm font-semibold">{log.duration}h</span></TableCell>;
+                            case "gross":
+                              return <TableCell key="gross" className="text-center">{log.grossHours != null ? <span className="text-sm">{parseFloat(log.grossHours).toFixed(2)}h</span> : <span className="text-muted-foreground text-sm">—</span>}</TableCell>;
+                            case "status":
+                              return (
+                                <TableCell key="status" className="text-center">
+                                  {log.timeOut ? (
+                                    <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                                      <CheckCircle className="h-3 w-3" />Complete
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                                      <Clock className="h-3 w-3" />Active
+                                    </span>
+                                  )}
+                                </TableCell>
+                              );
+                            case "punchType":
+                              return <TableCell key="punchType" className="text-center"><PunchTypeBadge punchType={log.punchType} /></TableCell>;
+                            case "cutoffApproval":
+                              return <TableCell key="cutoffApproval" className="text-center"><V3CutoffBadge cutoffApproval={log.cutoffApproval} /></TableCell>;
+                            case "schedule":
+                              return (
+                                <TableCell key="schedule" className="text-center" onClick={(e) => e.stopPropagation()}>
+                                  {log.isScheduled ? (
+                                    <button
+                                      className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium bg-muted hover:bg-muted/70 transition-colors"
+                                      onClick={() => { setSchedForDialog(log.scheduleList); setSchedDialogOpen(true); }}
+                                    >
+                                      <CheckCircle className="h-3 w-3" />Scheduled
+                                    </button>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
+                                      <AlertCircle className="h-3 w-3" />Unscheduled
+                                    </span>
+                                  )}
+                                </TableCell>
+                              );
+                            case "period":
+                              return <TableCell key="period" className="text-center">{hoursOrDash(log.periodHours, "font-semibold")}</TableCell>;
+                            case "ot":
+                              return <TableCell key="ot" className="text-center">{hoursOrDash(log.otHours, "font-medium text-orange-600")}</TableCell>;
+                            case "otStatus":
+                              return (
+                                <TableCell key="otStatus" className="text-center">
+                                  {log.otStatus && log.otStatus !== "—"
+                                    ? <span className="text-xs">{log.otStatus}</span>
+                                    : <span className="text-muted-foreground text-sm">—</span>}
+                                </TableCell>
+                              );
+                            case "late":
+                              return <TableCell key="late" className="text-center">{hoursOrDash(log.lateHours, "font-medium text-red-600")}</TableCell>;
+                            case "undertime":
+                              return <TableCell key="undertime" className="text-center">{hoursOrDash(log.undertimeHours, "font-medium text-amber-600")}</TableCell>;
+                            case "coffee":
+                              return (
+                                <TableCell key="coffee" className="text-center text-sm">
+                                  <span className="inline-flex items-center gap-1">
+                                    <Coffee className="w-3 h-3 text-amber-600" />{log.coffeeMins}h
+                                    {(log.autoCoffeeApplied || log.coffeeBreaks?.some((b) => b.auto)) && (
+                                      <AutoBreakBadge deductible={log.coffeeBreaks?.find((b) => b.auto)?.deductible ?? true} />
+                                    )}
+                                  </span>
+                                </TableCell>
+                              );
+                            case "lunch":
+                              return (
+                                <TableCell key="lunch" className="text-center text-sm">
+                                  <span className="inline-flex items-center gap-1">
+                                    {log.lunchMins}h
+                                    {(log.autoLunchApplied || log.lunchBreak?.auto) && (
+                                      <AutoBreakBadge deductible={log.lunchBreak?.deductible ?? true} />
+                                    )}
+                                  </span>
+                                </TableCell>
+                              );
+                            case "locationIn":
+                              return <TableCell key="locationIn" className="text-center">{mapLink(locIn)}</TableCell>;
+                            case "locationOut":
+                              return <TableCell key="locationOut" className="text-center">{mapLink(locOut)}</TableCell>;
+                            case "deviceIn":
+                              return <TableCell key="deviceIn" className="text-center">{deviceCell(log.fullDevIn)}</TableCell>;
+                            case "deviceOut":
+                              return <TableCell key="deviceOut" className="text-center">{deviceCell(log.fullDevOut)}</TableCell>;
+                            case "actions":
+                              return (
+                                <TableCell key="actions" className="text-center" onClick={(e) => e.stopPropagation()}>
+                                  {canContestBase(log) || log.otStatus === "No Approval" ? (
+                                    <div className="flex items-center justify-center gap-1">
+                                      {canContestBase(log) && contestPending && (
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            {/* span wrapper: a disabled button doesn't fire hover events */}
+                                            <span tabIndex={0} className="inline-flex">
+                                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" disabled aria-label="Contest pending">
+                                                <ClockAlert className="h-4 w-4" />
+                                              </Button>
+                                            </span>
+                                          </TooltipTrigger>
+                                          <TooltipContent>A contest for this punch is already pending.</TooltipContent>
+                                        </Tooltip>
+                                      )}
+                                      {canContest(log) && (
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Button
+                                              variant="ghost" size="sm"
+                                              className="h-8 w-8 p-0 hover:bg-orange-50 hover:text-orange-600 dark:hover:bg-orange-950/20"
+                                              aria-label="Contest time"
+                                              onClick={() => openContestFor(log)}
+                                            >
+                                              <ClockAlert className="h-4 w-4" />
+                                            </Button>
+                                          </TooltipTrigger>
+                                          <TooltipContent>Contest time</TooltipContent>
+                                        </Tooltip>
+                                      )}
+                                      {log.otStatus === "No Approval" && (
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Button
+                                              variant="ghost" size="sm"
+                                              className="h-8 w-8 p-0 text-orange-600 hover:bg-orange-50 hover:text-orange-700 dark:hover:bg-orange-950/20"
+                                              aria-label="Request OT approval"
+                                              onClick={() => { setOtForLog(log); setOtSelectedLogId(log.id); setOtApprover(""); setOtHoursEdit(""); setOtReason(""); setOtDialogOpen(true); }}
+                                            >
+                                              <AlarmClockPlus className="h-4 w-4" />
+                                            </Button>
+                                          </TooltipTrigger>
+                                          <TooltipContent>Request OT approval</TooltipContent>
+                                        </Tooltip>
+                                      )}
+                                    </div>
+                                  ) : <span className="text-muted-foreground text-xs">—</span>}
+                                </TableCell>
+                              );
+                            default:
+                              return null;
+                          }
+                        };
+
                         return (
-                          <TableRow
-                            key={log.id}
-                            className={`cursor-pointer border-b transition-colors ${
-                              isSelected
-                                ? "bg-orange-50 dark:bg-orange-950/20 border-l-2 border-l-orange-500"
-                                : "hover:bg-muted/50"
-                            }`}
-                            onClick={() => setSelectedLogV3(isSelected ? null : { ...log, _locIn: locIn, _locOut: locOut })}
-                          >
-                            {/* Date */}
-                            <TableCell className={`pl-4 py-4 font-medium text-sm whitespace-nowrap sticky left-0 z-10 sm:static sm:z-auto ${isSelected ? "bg-orange-50 dark:bg-orange-950/20" : "bg-background sm:bg-transparent"}`}>{fullDate}</TableCell>
-
-                            {/* Clock In */}
-                            <TableCell className="py-4">
-                              <CompanyTime value={log.dayApprovedClockIn ?? log.timeIn} companyTz={companyTimezone} />
-                            </TableCell>
-
-                            {/* Clock Out */}
-                            <TableCell className="py-4">
-                              {(log.dayApprovedClockOut ?? log.timeOut)
-                                ? <CompanyTime value={log.dayApprovedClockOut ?? log.timeOut} companyTz={companyTimezone} />
-                                : <span className="text-xs text-muted-foreground italic">—</span>
-                              }
-                            </TableCell>
-
-                            {/* Duration */}
-                            <TableCell className="text-right py-4">
-                              <span className="text-sm font-semibold">{log.duration}h</span>
-                            </TableCell>
-
-                            {/* OT */}
-                            <TableCell className="text-right py-4" onClick={(e) => e.stopPropagation()}>
-                              <div className="flex flex-col items-end gap-1">
-                                {parseFloat(log.otHours) > 0 ? (
-                                  <span className="text-sm font-medium text-orange-600">{log.otHours}h</span>
+                          <Fragment key={log.id}>
+                            <motion.tr
+                              initial={{ opacity: 0, y: 10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, height: 0 }}
+                              transition={{ duration: 0.2, delay: index * 0.02 }}
+                              className={`border-b transition-all cursor-pointer ${
+                                isExpanded
+                                  ? "bg-muted/30 hover:bg-muted/40"
+                                  : !log.isScheduled
+                                  ? "bg-amber-50/50 dark:bg-amber-950/10 hover:bg-amber-100/50 dark:hover:bg-amber-950/20 border-l-2 border-l-amber-400"
+                                  : "hover:bg-muted/50"
+                              }`}
+                              onClick={() => setExpandedRow(isExpanded ? null : log.id)}
+                            >
+                              <TableCell className="w-10">
+                                {logContests.length > 0 ? (
+                                  // BB-123: notification-style orange dot when this punch has contests;
+                                  // the details live in the expanded row's Contest Request section.
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="ghost" size="sm" className="relative h-8 w-8 p-0"
+                                        aria-label={`${isExpanded ? "Collapse" : "Expand"} details: ${logContests.length} contest request${logContests.length > 1 ? "s" : ""}, latest ${(latestContest.status || "").toLowerCase()}`}
+                                      >
+                                        <ChevronRight className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                                        <span aria-hidden className="absolute top-0.5 right-0.5 h-2 w-2 rounded-full bg-orange-500 ring-2 ring-background" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      {logContests.length} contest request{logContests.length > 1 ? "s" : ""} · latest {(latestContest.status || "").toLowerCase()}
+                                    </TooltipContent>
+                                  </Tooltip>
                                 ) : (
-                                  <span className="text-muted-foreground text-sm">—</span>
+                                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label={isExpanded ? "Collapse details" : "Expand details"}>
+                                    <ChevronRight className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                                  </Button>
                                 )}
-                                {log.otStatus === "No Approval" && (
-                                  <button
-                                    className="text-[10px] px-2 py-0.5 rounded border border-orange-300 text-orange-600 hover:bg-orange-50 transition-colors"
-                                    onClick={() => { setOtForLog(log); setOtSelectedLogId(log.id); setOtApprover(""); setOtHoursEdit(""); setOtReason(""); setOtDialogOpen(true); }}
-                                  >
-                                    Request
-                                  </button>
-                                )}
-                              </div>
-                            </TableCell>
-
-                            {/* Punch Type */}
-                            {isDayCare && (
-                              <TableCell className="text-center py-4">
-                                <PunchTypeBadge punchType={log.punchType} />
                               </TableCell>
-                            )}
+                              {visibleColumns.map((col) => renderCell(col.value))}
+                            </motion.tr>
 
-                            {/* Cutoff Status */}
-                            <TableCell className="text-center py-4">
-                              <V3CutoffBadge cutoffApproval={log.cutoffApproval} />
-                            </TableCell>
-                          </TableRow>
+                            {/* Expanded row */}
+                            <AnimatePresence>
+                              {isExpanded && (
+                                <motion.tr
+                                  key={`${log.id}-expand`}
+                                  initial={{ opacity: 0, height: 0 }}
+                                  animate={{ opacity: 1, height: "auto" }}
+                                  exit={{ opacity: 0, height: 0 }}
+                                  transition={{ duration: 0.2 }}
+                                  className="bg-muted/20 border-b"
+                                >
+                                  <TableCell colSpan={visibleColumns.length + 1} className="p-4">
+                                    <LogDetailBody
+                                      log={rowLog}
+                                      isDayCare={isDayCare}
+                                      companyTimezone={companyTimezone}
+                                      setOtForLog={setOtForLog}
+                                      setOtSelectedLogId={setOtSelectedLogId}
+                                      setOtApprover={setOtApprover}
+                                      setOtHoursEdit={setOtHoursEdit}
+                                      setOtReason={setOtReason}
+                                      setOtDialogOpen={setOtDialogOpen}
+                                      setSchedForDialog={setSchedForDialog}
+                                      setSchedDialogOpen={setSchedDialogOpen}
+                                      setLocDialogList={setLocDialogList}
+                                      setLocDialogOpen={setLocDialogOpen}
+                                      onContest={canContest(rowLog) ? () => openContestFor(rowLog) : null}
+                                      contestPending={canContestBase(rowLog) && contestPending}
+                                      latestContest={latestContest}
+                                      earlierContestCount={Math.max(0, logContests.length - 1)}
+                                    />
+                                  </TableCell>
+                                </motion.tr>
+                              )}
+                            </AnimatePresence>
+                          </Fragment>
                         );
-                      })
-                    ) : (
-                      <TableRow>
-                        <TableCell colSpan={isDayCare ? 7 : 6} className="h-32 text-center">
-                          <div className="flex flex-col items-center justify-center text-muted-foreground gap-2">
-                            <Clock className="h-8 w-8 text-orange-500/40" />
-                            <span className="text-sm">No logs match the selected filters</span>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-
-              {/* ── Right: detail side panel (desktop) ── */}
-              <AnimatePresence>
-                {selectedLogV3 && (
-                  <motion.div
-                    initial={{ width: 0, opacity: 0 }}
-                    animate={{ width: 288, opacity: 1 }}
-                    exit={{ width: 0, opacity: 0 }}
-                    transition={{ duration: 0.2, ease: "easeInOut" }}
-                    className="hidden sm:block border-l bg-card flex-shrink-0 overflow-hidden"
-                  >
-                    <div className="w-72 h-full overflow-y-auto">
-                      {/* Panel header */}
-                      <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/30 sticky top-0 z-10">
-                        <span className="text-sm font-semibold">Log Details</span>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setSelectedLogV3(null)}>
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </div>
-
-                      <LogDetailBody
-                        log={selectedLogV3}
-                        isDayCare={isDayCare}
-                        companyTimezone={companyTimezone}
-                        setOtForLog={setOtForLog}
-                        setOtSelectedLogId={setOtSelectedLogId}
-                        setOtApprover={setOtApprover}
-                        setOtHoursEdit={setOtHoursEdit}
-                        setOtReason={setOtReason}
-                        setOtDialogOpen={setOtDialogOpen}
-                        setSchedForDialog={setSchedForDialog}
-                        setSchedDialogOpen={setSchedDialogOpen}
-                        setLocDialogList={setLocDialogList}
-                        setLocDialogOpen={setLocDialogOpen}
-                      />
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                      })}
+                    </AnimatePresence>
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={visibleColumns.length + 1} className="h-32 text-center">
+                        <div className="flex flex-col items-center justify-center text-muted-foreground gap-2">
+                          <Clock className="h-8 w-8 text-orange-500/40" />
+                          <span className="text-sm">No logs match the selected filters</span>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
             </div>
           </CardContent>
-
-          {/* ── Detail panel (mobile bottom sheet) ── */}
-          <Sheet open={!!selectedLogV3} onOpenChange={(open) => !open && setSelectedLogV3(null)}>
-            <SheetContent side="bottom" className="sm:hidden p-0 gap-0 rounded-t-2xl max-h-[85vh] flex flex-col">
-              <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/30 shrink-0">
-                <span className="text-sm font-semibold">Log Details</span>
-              </div>
-              <div className="overflow-y-auto flex-1">
-                {selectedLogV3 && (
-                  <LogDetailBody
-                    log={selectedLogV3}
-                    isDayCare={isDayCare}
-                    companyTimezone={companyTimezone}
-                    setOtForLog={setOtForLog}
-                    setOtSelectedLogId={setOtSelectedLogId}
-                    setOtApprover={setOtApprover}
-                    setOtHoursEdit={setOtHoursEdit}
-                    setOtReason={setOtReason}
-                    setOtDialogOpen={setOtDialogOpen}
-                    setSchedForDialog={setSchedForDialog}
-                    setSchedDialogOpen={setSchedDialogOpen}
-                    setLocDialogList={setLocDialogList}
-                    setLocDialogOpen={setLocDialogOpen}
-                  />
-                )}
-              </div>
-            </SheetContent>
-          </Sheet>
 
           {/* Pagination — shared with main table via queryParams */}
           {totalPages > 1 && (
@@ -1967,8 +2260,9 @@ export default function PunchLogs() {
           onOpenChange={setContestDialogOpen}
           companyTimezone={companyTimezone}
           filteredSorted={filteredSorted}
-          approvers={approvers}
-          supervisors={supervisors}
+          pendingContestLogIds={pendingContestLogIds}
+          approvers={approverOptions.approvers}
+          supervisors={approverOptions.supervisors}
           contestLogId={contestLogId}                     setContestLogId={setContestLogId}
           contestApproverId={contestApproverId}           setContestApproverId={setContestApproverId}
           contestReason={contestReason}                   setContestReason={setContestReason}
@@ -1993,7 +2287,28 @@ export default function PunchLogs() {
   );
 }
 
-// ── LogDetailBody — shared between the desktop side panel and the mobile sheet ──
+// ── LogDetailBody — expanded-row details (BB-123: 3-column grid like the admin table) ──
+function DetailSection({ icon: Icon, title, children }) {
+  return (
+    <div className="space-y-2">
+      <h4 className="font-semibold text-sm flex items-center gap-2">
+        <Icon className="h-4 w-4 text-orange-500" />
+        {title}
+      </h4>
+      {children}
+    </div>
+  );
+}
+
+function DetailRow({ label, children }) {
+  return (
+    <div className="flex items-center justify-between gap-2 text-sm">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="text-right">{children}</span>
+    </div>
+  );
+}
+
 function LogDetailBody({
   log,
   isDayCare,
@@ -2008,248 +2323,293 @@ function LogDetailBody({
   setSchedDialogOpen,
   setLocDialogList,
   setLocDialogOpen,
+  onContest,
+  contestPending = false,
+  latestContest = null,
+  earlierContestCount = 0,
 }) {
+  const hasDevice   = log.fullDevIn !== "—" || log.fullDevOut !== "—";
+  const hasLocation = !!(log._locIn?.lat || log._locOut?.lat);
+
   return (
-    <div className="p-4 space-y-4">
-      {/* Date + punch type */}
-      <div>
-        <p className="font-semibold text-sm">
-          {log.timeIn
-            ? new Date(log.timeIn).toLocaleDateString("en-US", {
-                weekday: "long", month: "long", day: "numeric", year: "numeric",
-                ...(companyTimezone ? { timeZone: companyTimezone } : {}),
-              })
-            : "—"}
-        </p>
-        {isDayCare && (
-          <div className="mt-1.5">
-            <PunchTypeBadge punchType={log.punchType} />
-          </div>
-        )}
-      </div>
-
-      <div className="border-t" />
-
-      {/* Time details */}
-      <div>
-        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Time Details</p>
-        <div className="space-y-1.5">
-          {[
-            { label: "Clock In",   value: <span className="font-mono text-xs">{safeTime(log.dayApprovedClockIn ?? log.timeIn, companyTimezone)}</span> },
-            { label: "Clock Out",  value: <span className="font-mono text-xs">{(log.dayApprovedClockOut ?? log.timeOut) ? safeTime(log.dayApprovedClockOut ?? log.timeOut, companyTimezone) : <span className="text-muted-foreground italic">—</span>}</span> },
-            { label: "Duration",   value: <span className="font-semibold text-orange-600">{log.duration}h</span> },
-            { label: "Period Hrs", value: `${log.periodHours}h` },
-            ...(parseFloat(log.lateHours) > 0 ? [{ label: "Late", value: <span className="text-red-600 font-medium">{log.lateHours}h</span> }] : []),
-          ].map(({ label, value }) => (
-            <div key={label} className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">{label}</span>
-              <span>{value}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="border-t" />
-
-      {/* Breaks */}
-      <div>
-        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Breaks</p>
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground flex items-center gap-1.5">
-              <Coffee className="h-3 w-3" />Coffee
-            </span>
-            <span className="flex items-center gap-1">
-              {log.coffeeMins}h
-              {(log.autoCoffeeApplied || log.coffeeBreaks?.some(b => b.auto)) && (
-                <AutoBreakBadge deductible={log.coffeeBreaks?.find(b => b.auto)?.deductible ?? true} />
-              )}
-            </span>
-          </div>
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Lunch</span>
-            <span className="flex items-center gap-1">
-              {log.lunchMins}h
-              {(log.autoLunchApplied || log.lunchBreak?.auto) && (
-                <AutoBreakBadge deductible={log.lunchBreak?.deductible ?? true} />
-              )}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="border-t" />
-
-      {/* Overtime */}
-      <div>
-        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Overtime</p>
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">OT Hours</span>
-            <span className={parseFloat(log.otHours) > 0 ? "font-semibold text-orange-600" : ""}>{log.otHours}h</span>
-          </div>
-          {isDayCare && log.otStatus != null && (
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">OT Status</span>
-              {log.otStatus === "Approved" ? (
-                <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
-                  <CheckCircle className="h-3 w-3" />Approved
-                </span>
-              ) : log.otStatus === "Included" ? (
-                <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-                  <Clock className="h-3 w-3" />Included
-                </span>
-              ) : (
-                <span className="text-muted-foreground">—</span>
-              )}
-            </div>
-          )}
-          {log.otStatus === "No Approval" && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="w-full h-7 text-xs border-orange-300 text-orange-600 hover:bg-orange-50 mt-1"
-              onClick={() => { setOtForLog(log); setOtSelectedLogId(log.id); setOtApprover(""); setOtHoursEdit(""); setOtReason(""); setOtDialogOpen(true); }}
-            >
-              <AlarmClockPlus className="h-3 w-3 mr-1" />Request OT Approval
-            </Button>
-          )}
-        </div>
-      </div>
-
-      <div className="border-t" />
-
-      {/* Payroll Cutoff */}
-      <div>
-        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Payroll Cutoff</p>
-        <V3CutoffBox cutoffApproval={log.cutoffApproval} />
-      </div>
-
-      {/* DA Breakdown — DayCare only */}
-      {log.isAnyDA && (
-        <>
-          <div className="border-t" />
-          <div>
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Hours Breakdown</p>
-            <div className="space-y-1.5 text-sm">
-              {(log.isDA || log.isDA_AM) && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Driver AM</span>
-                  <span className="font-medium text-blue-600">{log.driverAideAMHours != null ? `${parseFloat(log.driverAideAMHours).toFixed(2)}h` : "—"}</span>
-                </div>
-              )}
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Regular</span>
-                <span className="font-medium text-purple-600">{log.regularHoursForLog != null ? `${parseFloat(log.regularHoursForLog).toFixed(2)}h` : "—"}</span>
-              </div>
-              {(log.isDA || log.isDA_PM) && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Driver PM</span>
-                  <span className="font-medium text-blue-600">{log.driverAidePMHours != null ? `${parseFloat(log.driverAidePMHours).toFixed(2)}h` : "—"}</span>
-                </div>
-              )}
-              <div className="flex justify-between border-t pt-1.5 font-semibold">
-                <span>Total</span>
-                <span className="text-orange-600">{log.duration}h</span>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* Schedule */}
-      <div className="border-t" />
-      <div>
-        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Schedule</p>
-        {log.scheduleList?.length > 0 ? (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {/* ── Column 1: Time details + breaks (or DA breakdown) ── */}
+      <div className="space-y-4">
+        <DetailSection icon={log.isAnyDA ? Car : Clock} title="Time Details">
           <div className="space-y-1.5">
-            {log.scheduleList.map((s) => (
-              <div key={s.id} className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground truncate mr-2">{s.shift?.shiftName || "Shift"}</span>
-                <span className="font-mono text-right shrink-0">
-                  {s.shift?.startTime ? fmtUTCTime(s.shift.startTime) : "—"}
-                  {" – "}
-                  {s.shift?.endTime ? fmtUTCTime(s.shift.endTime) : "—"}
-                </span>
-              </div>
-            ))}
-            <Button
-              size="sm" variant="outline"
-              className="w-full h-7 text-xs mt-1"
-              onClick={() => { setSchedForDialog(log.scheduleList); setSchedDialogOpen(true); }}
-            >
-              <Calendar className="h-3 w-3 mr-1" />View full schedule
-            </Button>
-          </div>
-        ) : (
-          <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
-            <AlertCircle className="h-3.5 w-3.5" />Unscheduled punch
-          </p>
-        )}
-      </div>
-
-      {/* Device */}
-      {(log.fullDevIn !== "—" || log.fullDevOut !== "—") && (
-        <>
-          <div className="border-t" />
-          <div>
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Device</p>
-            <div className="space-y-1 text-xs text-muted-foreground">
-              {log.fullDevIn !== "—" && (
-                <div className="truncate" title={log.fullDevIn}>In: {log.fullDevIn}</div>
-              )}
-              {log.fullDevOut !== "—" && (
-                <div className="truncate" title={log.fullDevOut}>Out: {log.fullDevOut}</div>
-              )}
+            <DetailRow label="Clock In">
+              <span className="font-mono text-xs">{safeTime(log.dayApprovedClockIn ?? log.timeIn, companyTimezone)}</span>
+            </DetailRow>
+            <DetailRow label="Clock Out">
+              <span className="font-mono text-xs">
+                {(log.dayApprovedClockOut ?? log.timeOut)
+                  ? safeTime(log.dayApprovedClockOut ?? log.timeOut, companyTimezone)
+                  : <span className="text-muted-foreground italic">—</span>}
+              </span>
+            </DetailRow>
+            <DetailRow label="Period Hours">{log.periodHours}h</DetailRow>
+            {parseFloat(log.lateHours) > 0 && (
+              <DetailRow label="Late"><span className="text-red-600 font-medium">{log.lateHours}h</span></DetailRow>
+            )}
+            {parseFloat(log.undertimeHours) > 0 && (
+              <DetailRow label="Undertime"><span className="text-amber-600 font-medium">{parseFloat(log.undertimeHours).toFixed(2)}h</span></DetailRow>
+            )}
+            {isDayCare && (
+              <DetailRow label="Punch Type"><PunchTypeBadge punchType={log.punchType} /></DetailRow>
+            )}
+            <div className="flex justify-between pt-2 border-t text-sm">
+              <span className="text-muted-foreground font-medium">Duration</span>
+              <span className="font-bold text-orange-600">{log.duration}h</span>
             </div>
-          </div>
-        </>
-      )}
-
-      {/* Location */}
-      {(log._locIn?.lat || log._locOut?.lat) && (
-        <>
-          <div className="border-t" />
-          <div>
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Location</p>
-            <div className="space-y-1.5 text-xs">
-              {log._locIn?.lat && (
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">In</span>
-                  <a
-                    href={`https://www.google.com/maps?q=${log._locIn.lat},${log._locIn.lng}`}
-                    target="_blank" rel="noopener noreferrer"
-                    className="text-orange-500 hover:underline flex items-center gap-1"
-                  >
-                    <MapPinIcon className="h-3 w-3" />View map
-                  </a>
-                </div>
-              )}
-              {log._locOut?.lat && (
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Out</span>
-                  <a
-                    href={`https://www.google.com/maps?q=${log._locOut.lat},${log._locOut.lng}`}
-                    target="_blank" rel="noopener noreferrer"
-                    className="text-orange-500 hover:underline flex items-center gap-1"
-                  >
-                    <MapPinIcon className="h-3 w-3" />View map
-                  </a>
-                </div>
-              )}
-            </div>
-            {log.locList?.length > 0 && (
+            {contestPending && (
+              <p className="text-xs text-muted-foreground flex items-center gap-1.5 pt-1">
+                <ClockAlert className="h-3 w-3" />A contest for this punch is already pending.
+              </p>
+            )}
+            {onContest && (
               <Button
                 size="sm" variant="outline"
-                className="w-full h-7 text-xs mt-2"
-                onClick={() => { setLocDialogList(log.locList); setLocDialogOpen(true); }}
+                className="w-full h-7 text-xs mt-1"
+                onClick={onContest}
               >
-                <MapPin className="h-3 w-3 mr-1" />View location restrictions
+                <ClockAlert className="h-3 w-3 mr-1" />Contest time
               </Button>
             )}
           </div>
-        </>
+        </DetailSection>
+
+        {log.isAnyDA ? (
+          <DetailSection icon={Car} title="Hours Breakdown">
+            <div className="space-y-1.5">
+              {(log.isDA || log.isDA_AM) && (
+                <DetailRow label="Driver AM">
+                  <span className="font-medium text-blue-600">{log.driverAideAMHours != null ? `${parseFloat(log.driverAideAMHours).toFixed(2)}h` : "—"}</span>
+                </DetailRow>
+              )}
+              <DetailRow label="Regular">
+                <span className="font-medium text-purple-600">{log.regularHoursForLog != null ? `${parseFloat(log.regularHoursForLog).toFixed(2)}h` : "—"}</span>
+              </DetailRow>
+              {(log.isDA || log.isDA_PM) && (
+                <DetailRow label="Driver PM">
+                  <span className="font-medium text-blue-600">{log.driverAidePMHours != null ? `${parseFloat(log.driverAidePMHours).toFixed(2)}h` : "—"}</span>
+                </DetailRow>
+              )}
+            </div>
+          </DetailSection>
+        ) : (
+          <DetailSection icon={Coffee} title="Break Times">
+            <div className="space-y-1.5">
+              <DetailRow label="Coffee">
+                <span className="inline-flex items-center gap-1">
+                  {log.coffeeMins}h
+                  {(log.autoCoffeeApplied || log.coffeeBreaks?.some((b) => b.auto)) && (
+                    <AutoBreakBadge deductible={log.coffeeBreaks?.find((b) => b.auto)?.deductible ?? true} />
+                  )}
+                </span>
+              </DetailRow>
+              <DetailRow label="Lunch">
+                <span className="inline-flex items-center gap-1">
+                  {log.lunchMins}h
+                  {(log.autoLunchApplied || log.lunchBreak?.auto) && (
+                    <AutoBreakBadge deductible={log.lunchBreak?.deductible ?? true} />
+                  )}
+                </span>
+              </DetailRow>
+            </div>
+          </DetailSection>
+        )}
+      </div>
+
+      {/* ── Column 2: Overtime + payroll cutoff ── */}
+      <div className="space-y-4">
+        <DetailSection icon={AlarmClockPlus} title="Overtime">
+          <div className="space-y-1.5">
+            <DetailRow label="OT Hours">
+              <span className={parseFloat(log.otHours) > 0 ? "font-semibold text-orange-600" : ""}>{log.otHours}h</span>
+            </DetailRow>
+            {isDayCare && log.otStatus != null ? (
+              <DetailRow label="OT Status">
+                {log.otStatus === "Approved" ? (
+                  <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                    <CheckCircle className="h-3 w-3" />Approved
+                  </span>
+                ) : log.otStatus === "Included" ? (
+                  <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                    <Clock className="h-3 w-3" />Included
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </DetailRow>
+            ) : log.otStatus && log.otStatus !== "—" ? (
+              <DetailRow label="OT Status"><span className="text-xs">{log.otStatus}</span></DetailRow>
+            ) : null}
+            {log.otStatus === "No Approval" && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full h-7 text-xs border-orange-300 text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-950/20 mt-1"
+                onClick={() => { setOtForLog(log); setOtSelectedLogId(log.id); setOtApprover(""); setOtHoursEdit(""); setOtReason(""); setOtDialogOpen(true); }}
+              >
+                <AlarmClockPlus className="h-3 w-3 mr-1" />Request OT Approval
+              </Button>
+            )}
+          </div>
+        </DetailSection>
+
+        <DetailSection icon={FileText} title="Payroll Cutoff">
+          <V3CutoffBox cutoffApproval={log.cutoffApproval} />
+        </DetailSection>
+
+        {latestContest && (
+          <DetailSection icon={ClockAlert} title="Contest Request">
+            <ContestSummary
+              contest={latestContest}
+              log={log}
+              companyTimezone={companyTimezone}
+              earlierCount={earlierContestCount}
+            />
+          </DetailSection>
+        )}
+      </div>
+
+      {/* ── Column 3: Schedule, device & location ── */}
+      <div className="space-y-4">
+        <DetailSection icon={Calendar} title="Schedule">
+          {log.scheduleList?.length > 0 ? (
+            <div className="space-y-1.5">
+              {log.scheduleList.map((s) => (
+                <div key={s.id} className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground truncate mr-2">{s.shift?.shiftName || "Shift"}</span>
+                  <span className="font-mono text-right shrink-0">
+                    {s.shift?.startTime ? fmtUTCTime(s.shift.startTime) : "—"}
+                    {" – "}
+                    {s.shift?.endTime ? fmtUTCTime(s.shift.endTime) : "—"}
+                  </span>
+                </div>
+              ))}
+              <Button
+                size="sm" variant="outline"
+                className="w-full h-7 text-xs mt-1"
+                onClick={() => { setSchedForDialog(log.scheduleList); setSchedDialogOpen(true); }}
+              >
+                <Calendar className="h-3 w-3 mr-1" />View full schedule
+              </Button>
+            </div>
+          ) : (
+            <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+              <AlertCircle className="h-3.5 w-3.5" />Unscheduled punch
+            </p>
+          )}
+        </DetailSection>
+
+        {(hasDevice || hasLocation || log.locList?.length > 0) && (
+          <DetailSection icon={MapPin} title="Device & Location">
+            <div className="space-y-2 text-sm">
+              {log.fullDevIn !== "—" && (
+                <div>
+                  <span className="text-muted-foreground block mb-1">Device In</span>
+                  <code className="text-xs bg-muted px-2 py-1 rounded block truncate" title={log.fullDevIn}>{log.fullDevIn}</code>
+                </div>
+              )}
+              {log.fullDevOut !== "—" && (
+                <div>
+                  <span className="text-muted-foreground block mb-1">Device Out</span>
+                  <code className="text-xs bg-muted px-2 py-1 rounded block truncate" title={log.fullDevOut}>{log.fullDevOut}</code>
+                </div>
+              )}
+              {log._locIn?.lat && (
+                <DetailRow label="Location In">
+                  <a
+                    href={`https://www.google.com/maps?q=${log._locIn.lat},${log._locIn.lng}`}
+                    target="_blank" rel="noopener noreferrer"
+                    className="text-xs text-primary hover:underline inline-flex items-center gap-1"
+                  >
+                    <MapPinIcon className="h-3 w-3" />View map
+                  </a>
+                </DetailRow>
+              )}
+              {log._locOut?.lat && (
+                <DetailRow label="Location Out">
+                  <a
+                    href={`https://www.google.com/maps?q=${log._locOut.lat},${log._locOut.lng}`}
+                    target="_blank" rel="noopener noreferrer"
+                    className="text-xs text-primary hover:underline inline-flex items-center gap-1"
+                  >
+                    <MapPinIcon className="h-3 w-3" />View map
+                  </a>
+                </DetailRow>
+              )}
+              {log.locList?.length > 0 && (
+                <Button
+                  size="sm" variant="outline"
+                  className="w-full h-7 text-xs mt-1"
+                  onClick={() => { setLocDialogList(log.locList); setLocDialogOpen(true); }}
+                >
+                  <MapPin className="h-3 w-3 mr-1" />View location restrictions
+                </Button>
+              )}
+            </div>
+          </DetailSection>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── ContestSummary (BB-123) — latest contest on a punch, in the company zone ──────
+function ContestSummary({ contest, log, companyTimezone, earlierCount }) {
+  const reqIn  = contest.requestedClockIn;
+  const reqOut = contest.requestedClockOut;
+  const outNextDay = reqIn && reqOut && dateInZone(reqIn, companyTimezone) !== dateInZone(reqOut, companyTimezone);
+  const ch = contestChange(
+    {
+      origIn:  contest.currentClockIn  || log.timeIn,
+      origOut: contest.currentClockOut || log.timeOut,
+      reqIn, reqOut,
+    },
+    companyTimezone
+  );
+  const approver = contest.approver?.profile
+    ? `${contest.approver.profile.firstName ?? ""} ${contest.approver.profile.lastName ?? ""}`.trim()
+    : contest.approver?.email;
+  const reason = contest.reason
+    ? contest.reason.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+    : null;
+  const submitted = contest.submittedAt || contest.createdAt;
+
+  return (
+    <div className="space-y-1.5 text-sm">
+      <DetailRow label="Status"><ContestStatusBadge status={contest.status} /></DetailRow>
+      <DetailRow label="Requested">
+        <span className="font-mono text-xs">
+          {reqIn ? safeTime(reqIn, companyTimezone) : "—"} – {reqOut ? safeTime(reqOut, companyTimezone) : "—"}
+          {outNextDay && <span className="ml-1 font-sans text-[10px] text-muted-foreground">(next day)</span>}
+        </span>
+      </DetailRow>
+      {ch.inShift != null && (
+        <DetailRow label="Change">
+          <span className="text-xs tabular-nums">
+            In {fmtSignedHours(ch.inShift)}
+            {ch.newLen != null && ch.oldLen != null && <> · Length {fmtSignedHours(ch.newLen - ch.oldLen)}</>}
+          </span>
+        </DetailRow>
       )}
+      {reason && <DetailRow label="Reason"><span className="text-xs">{reason}</span></DetailRow>}
+      {approver && <DetailRow label="Approver"><span className="text-xs">{approver}</span></DetailRow>}
+      {submitted && (
+        <DetailRow label="Submitted">
+          <span className="text-xs">{safeDateTime(submitted, companyTimezone)}</span>
+        </DetailRow>
+      )}
+      <div className="flex items-center justify-between pt-1 text-xs">
+        <span className="text-muted-foreground">
+          {earlierCount > 0 ? `+${earlierCount} earlier` : ""}
+        </span>
+        <Link href="/dashboard/employee/contest-time-logs" className="text-primary hover:underline">
+          View all contests
+        </Link>
+      </div>
     </div>
   );
 }
