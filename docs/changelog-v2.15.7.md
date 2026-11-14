@@ -8,7 +8,7 @@ BB-130: Cutoff Review shows the "Auto clock-out triggered" pill again.
 
 ## BB-125 — Leave "Reverted" when a punch is honored
 
-**Status:** Complete (client), waiting for Carlo's testing. Needs the server's BB-125 release, which comes **first**: the SQL script (`scripts/bb125-leave-revert.sql`) and `prisma generate`, then the server, then this client. Until the client ships, a reverted leave shows its raw status, and nothing breaks.
+**Status:** Complete (client), confirmed by Carlo. Needs the server's BB-125 release, which comes **first**: the SQL script (`scripts/bb125-leave-revert.sql`) and `prisma generate`, then the server, then this client. Until the client ships, a reverted leave shows its raw status, and nothing breaks.
 
 **Why:** BB-125 started with an employee who worked her full shift on a day with an approved Sick Leave. With "Automatically Resolve Punch-vs-Leave Conflicts" on, the punch was approved, but the leave stayed Approved and Paid, with 5.5h still taken from her balance. The server fix (agreed with PadPro) honors the punch, gives back **only that day** of the leave, and returns exactly the hours that day took. "Reverted" means the leave was approved, but the employee punched in on that day, so the punch is paid and the leave hours are returned.
 
@@ -73,7 +73,7 @@ Check steps 1 and 2 on both the employee and the company pages.
 
 ## BB-130 — Cutoff Review: auto clock-out pill shown again
 
-**Status:** Complete (client), waiting for Carlo's testing. No server change.
+**Status:** Complete (client), confirmed by Carlo. No server change.
 
 - `CutoffReview.jsx`: `SHOW_AUTO_CLOCKOUT_TAG` is `true` again, after BB-105 (v2.14.36) turned it off. The comment above it notes BB-130.
 - The "Auto clock-out triggered" pill shows on records where the server sends `timeLog.autoClockOut`, until the record is approved.
