@@ -657,11 +657,11 @@ function LeaveApprovalCard({ loading, draft, setDraft }) {
 }
 
 // ── Leave Conflict Card (BB-051) ─────────────────────────────────────────────
-// Toggle only — deliberately does not touch today's revert mechanics (whole-leave
-// cancellation, flat default-shift-length refund, no ledger entry). Those stay
-// as-is; this setting only changes who/what triggers the resolution. See
-// docs/UPDATED_LEAVE_MODULE.md §15.2 — this is Phase 6 ("Cancel Leave"), narrowly
-// scoped per that discussion rather than reopened in full.
+// Toggle only — this setting only changes who/what triggers the resolution (an
+// admin's Honor Punch/Honor Leave, or the system when the cutoff is opened in
+// Cutoff Review). The revert itself is server-side (BB-125): only the punched day
+// of the leave is reverted, the exact hours that day took are returned to the
+// balance, and a leave whose every day was punched shows as status "reverted".
 function LeaveConflictCard({ loading, draft, setDraft }) {
   const enabled = draft?.leaveConflictAutoRevert ?? false;
 
@@ -686,7 +686,7 @@ function LeaveConflictCard({ loading, draft, setDraft }) {
               <div>
                 <p className="text-sm font-semibold">Automatically Resolve Punch-vs-Leave Conflicts</p>
                 <p className="text-xs text-neutral-500 mt-0.5">
-                  When on, a punch on a day with an approved leave automatically honors the punch and refunds the leave. When off (default), an admin reviews and chooses in Cutoff Review.
+                  When on, a punch on a day with an approved leave automatically honors the punch and reverts that day of the leave — its hours go back to the employee&apos;s balance. When off (default), an admin reviews and chooses in Cutoff Review.
                 </p>
               </div>
               <button
@@ -708,8 +708,9 @@ function LeaveConflictCard({ loading, draft, setDraft }) {
               <div>
                 <p className="text-[12px] font-bold text-amber-900 mb-1.5">What This Does — and Doesn&apos;t — Change</p>
                 <ul className="text-[11px] text-amber-700 space-y-0.5">
-                  <li>• Only changes who/what triggers the resolution — an admin clicking Honor Punch/Honor Leave, or the system doing it automatically</li>
-                  <li>• The refund itself is unchanged: the whole leave request is cancelled and a flat default-shift-length credit is returned</li>
+                  <li>• Only changes who resolves the conflict — an admin clicking Honor Punch / Honor Leave, or the system doing it automatically when the cutoff is opened in Cutoff Review</li>
+                  <li>• Only the day that was punched is reverted. The rest of a multi-day leave stays approved and paid. A leave whose every day was punched shows as <strong>Reverted</strong></li>
+                  <li>• The employee gets back exactly the hours that day took from their balance</li>
                   <li>• A punch on a shift the employee explicitly excluded from their leave never counts as a conflict, regardless of this setting</li>
                 </ul>
               </div>

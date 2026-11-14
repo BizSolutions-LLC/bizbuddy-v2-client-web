@@ -498,11 +498,13 @@ const NO_SHIFT_TOOLTIP = "No schedule assigned for this day. Assign a shift firs
 // (e.g. "301.8min" with no schedule). Flip back to true once the server figure is fixed.
 const SHOW_LEFT_EARLY_TAG = false;
 
-// BB-105: "Too Early" and "Auto clock-out triggered" read inaccurately, so they're hidden for
-// now. Display only — neither tag drives the Flagged badge or any filter. ("min late" is
+// BB-105: "Too Early" and "Auto clock-out triggered" read inaccurately, so they were hidden.
+// Display only — neither tag drives the Flagged badge or any filter. ("min late" is
 // accurate and stays.)
+// BB-130: "Auto clock-out triggered" is shown again in Cutoff Review only. "Too Early" stays
+// hidden, and Employees Punch Logs keeps its own SHOW_AUTO_CLOCKOUT_FLAG off.
 const SHOW_TOO_EARLY_TAG = false;
-const SHOW_AUTO_CLOCKOUT_TAG = false;
+const SHOW_AUTO_CLOCKOUT_TAG = true;
 
 // Records "Approve All Raw" would approve for one employee — shared by the bulk action
 // and its BB-104 no-schedule confirmation so both always count the same set.
@@ -2131,7 +2133,7 @@ export default function CutoffReview({ cutoffId }) {
     }
     let detail = `<strong>In: ${inTime}</strong> &rarr; <strong>Out: ${outTime}</strong>`;
     if (isConflict && approval.leaveRecord) {
-      detail = `<strong>Punch:</strong> ${inTime} &rarr; ${outTime} &nbsp;|&nbsp; <strong>Leave:</strong> ${approval.leaveRecord.leaveType} (Approved)`;
+      detail = `<strong>Punch:</strong> ${inTime} &rarr; ${outTime} &nbsp;|&nbsp; <strong>Leave:</strong> ${approval.leaveRecord.leaveType} (${approval.leaveRecord.status === "reverted" ? "Reverted" : "Approved"})`;
     }
 
     // Tags
@@ -2667,7 +2669,10 @@ export default function CutoffReview({ cutoffId }) {
         }
       );
       if (!res.ok) throw new Error();
-      toast.success(choice === "punch" ? "Punch honored — leave credit returned" : "Leave honored — punch excluded");
+      // BB-125: the server's message says how many hours were returned (or asks for a
+      // manual review if the revert failed) — prefer it over the generic fallback.
+      const body = await res.json().catch(() => null);
+      toast.success(body?.message || (choice === "punch" ? "Punch honored — leave day reverted" : "Leave honored — punch excluded"));
     } catch {
       setLocalStatus((s) => { const n = { ...s }; delete n[recId]; return n; });
       toast.error("Failed to resolve conflict");

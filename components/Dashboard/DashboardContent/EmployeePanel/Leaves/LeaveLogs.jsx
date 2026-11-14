@@ -29,6 +29,7 @@ import {
   ArrowUpDown,
   Search,
   X,
+  RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
@@ -94,7 +95,24 @@ const STATUS_CFG = {
   approved:          { bg: "#eaf3de", color: "#3b6d11", label: "Approved",      Icon: CheckCircle2 },
   rejected:          { bg: "#fcebeb", color: "#791f1f", label: "Rejected",      Icon: XCircle },
   cancelled:         { bg: "#f5f5f3", color: "#888",    label: "Cancelled",     Icon: XCircle },
+  // BB-125: approved, but every day was punched and the punch was honored
+  reverted:          { bg: "#eef2f6", color: "#475569", label: "Reverted",      Icon: RotateCcw },
 };
+
+// BB-125: shown on reverted days and in the request details
+const REVERT_EXPLANATION = "Approved, but the employee punched in on this day. The punch was paid and the leave hours were returned to their balance.";
+
+// BB-125: an approved leave with some (not all) days reverted
+const isPartlyReverted = (leave) => leave?.status === "approved" && !!leave?.reversion;
+
+function PartlyRevertedTag() {
+  return (
+    <span title={REVERT_EXPLANATION} style={{ background: "#eef2f6", color: "#475569", padding: "3px 8px", borderRadius: 20, fontSize: 11, fontWeight: 500, display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
+      <RotateCcw size={11} />
+      Partly reverted
+    </span>
+  );
+}
 
 const LEAVE_ICONS = {
   "Sick Leave":      Heart,
@@ -301,10 +319,11 @@ export default function EmployeeLeaveRequests() {
     const approved   = dateFilteredLeaves.filter(r => r.status === "approved").length;
     const rejected   = dateFilteredLeaves.filter(r => r.status === "rejected").length;
     const cancelled  = dateFilteredLeaves.filter(r => r.status === "cancelled").length;
+    const reverted   = dateFilteredLeaves.filter(r => r.status === "reverted").length;
     const totalDays  = dateFilteredLeaves
       .filter(r => r.status === "approved" && r.startDate && r.endDate)
       .reduce((s, r) => s + daysBetween(r.startDate, r.endDate), 0);
-    return { total, pending, pendingSec, approved, rejected, cancelled, totalDays };
+    return { total, pending, pendingSec, approved, rejected, cancelled, reverted, totalDays };
   }, [dateFilteredLeaves]);
 
   const TABS = [
@@ -314,6 +333,7 @@ export default function EmployeeLeaveRequests() {
     { label: "Approved",      value: "approved",          count: stats.approved },
     { label: "Rejected",      value: "rejected",          count: stats.rejected },
     { label: "Cancelled",     value: "cancelled",         count: stats.cancelled },
+    { label: "Reverted",      value: "reverted",          count: stats.reverted },
   ];
 
   // ── Table processing ──────────────────────────────────────────────────────
@@ -551,7 +571,7 @@ export default function EmployeeLeaveRequests() {
 
   // Fetch actual paid/unpaid day breakdown when a decided request is selected
   useEffect(() => {
-    if (!token || !selectedRow || !["approved", "rejected"].includes(selectedRow.status)) {
+    if (!token || !selectedRow || !["approved", "rejected", "reverted"].includes(selectedRow.status)) {
       setDayBreakdown([]);
       return;
     }
@@ -878,7 +898,10 @@ export default function EmployeeLeaveRequests() {
                         ) : "—"}
                       </td>
                       <td style={{ padding: "8px 12px", verticalAlign: "middle", textAlign: "center" }}>
-                        <StatusPill status={row.status} />
+                        <div style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                          <StatusPill status={row.status} />
+                          {isPartlyReverted(row) && <PartlyRevertedTag />}
+                        </div>
                       </td>
                       <td style={{ padding: "8px 12px", verticalAlign: "middle", textAlign: "right", whiteSpace: "nowrap" }}>
                         <span style={{ fontSize: 12, color: "#888" }}>
@@ -905,6 +928,7 @@ export default function EmployeeLeaveRequests() {
                 <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 5 }}>{selectedRow.leaveType}</div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 2 }}>
                   <StatusPill status={selectedRow.status} />
+                  {isPartlyReverted(selectedRow) && <PartlyRevertedTag />}
                   <PayPill leave={selectedRow} />
                 </div>
 
@@ -953,14 +977,24 @@ export default function EmployeeLeaveRequests() {
                                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                                   {entries.map((d, j) => (
                                     <React.Fragment key={j}>
-                                      <span style={{ fontSize: 11, color: "#bbb" }}>{d.hours}h</span>
-                                      <span style={{
-                                        fontSize: 10, fontWeight: 500, padding: "2px 7px", borderRadius: 20,
-                                        background: d.isPaid ? "#eaf3de" : "#faeeda",
-                                        color:      d.isPaid ? "#3b6d11" : "#633806",
-                                      }}>
-                                        {d.isPaid ? "Paid" : "Unpaid"}
-                                      </span>
+                                      <span style={{ fontSize: 11, color: "#bbb", textDecoration: d.reverted ? "line-through" : undefined }}>{d.hours}h</span>
+                                      {d.reverted ? (
+                                        // BB-125: day was punched and the punch honored — hours returned
+                                        <span title={REVERT_EXPLANATION} style={{
+                                          fontSize: 10, fontWeight: 500, padding: "2px 7px", borderRadius: 20,
+                                          background: "#eef2f6", color: "#475569", cursor: "help",
+                                        }}>
+                                          Reverted
+                                        </span>
+                                      ) : (
+                                        <span style={{
+                                          fontSize: 10, fontWeight: 500, padding: "2px 7px", borderRadius: 20,
+                                          background: d.isPaid ? "#eaf3de" : "#faeeda",
+                                          color:      d.isPaid ? "#3b6d11" : "#633806",
+                                        }}>
+                                          {d.isPaid ? "Paid" : "Unpaid"}
+                                        </span>
+                                      )}
                                     </React.Fragment>
                                   ))}
                                 </div>
@@ -1001,7 +1035,7 @@ export default function EmployeeLeaveRequests() {
                   </>
                 )}
 
-                {["approved", "rejected"].includes(selectedRow.status) && (
+                {["approved", "rejected", "reverted"].includes(selectedRow.status) && (
                   <>
                     <div style={SEC_LBL}>Decided by</div>
                     {[
@@ -1022,12 +1056,29 @@ export default function EmployeeLeaveRequests() {
                   ...(selectedRow.status === "cancelled" && selectedRow.cancelledAt
                     ? [["Cancelled", fmtSubmitted(selectedRow.cancelledAt)]]
                     : []),
+                  // BB-125: one or more days were punched and the punch honored
+                  ...(selectedRow.reversion
+                    ? [
+                        ["Reverted", `${selectedRow.reversion.revertedAt ? fmtSubmitted(selectedRow.reversion.revertedAt) : "—"} · ${
+                          selectedRow.reversion.automatic
+                            ? "Automatically (company setting)"
+                            : `by ${selectedRow.reversion.performedBy?.name || "an admin"}`
+                        }`],
+                        ["Days reverted", (selectedRow.reversion.dates || []).join(", ") || "—"],
+                        ["Hours returned", `${selectedRow.reversion.returnedHours ?? 0}h`],
+                      ]
+                    : []),
                 ].map(([k, v]) => (
                   <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6, gap: 8 }}>
                     <span style={{ fontSize: 12, color: "#888", flexShrink: 0 }}>{k}</span>
                     <span style={{ fontSize: 12, fontWeight: 500, textAlign: "right" }}>{v}</span>
                   </div>
                 ))}
+                {selectedRow.reversion && (
+                  <div style={{ fontSize: 11, color: "#888", lineHeight: 1.45, marginBottom: 8 }}>
+                    {REVERT_EXPLANATION}
+                  </div>
+                )}
                 <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 6 }}>
                   <span style={{ fontSize: 12, color: "#888" }}>Reason</span>
                   <div style={{ background: "#fafaf9", border: "0.5px solid #e5e5e5", borderRadius: 8, padding: "8px 10px", fontSize: 12, color: "#888" }}>
@@ -1049,7 +1100,7 @@ export default function EmployeeLeaveRequests() {
 
                 {(() => {
                   const finalComment = selectedRow.escalatedBy ? selectedRow.secondaryApproverComments : selectedRow.approverComments;
-                  if (!finalComment || !["approved", "rejected"].includes(selectedRow.status)) return null;
+                  if (!finalComment || !["approved", "rejected", "reverted"].includes(selectedRow.status)) return null;
                   const isRejected = selectedRow.status === "rejected";
                   return (
                     <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 8 }}>

@@ -119,7 +119,7 @@ const settingsDocsContent = [
       },
       {
         title: "Punch-vs-leave conflicts",
-        body: "Turn on Automatically Resolve Punch-vs-Leave Conflicts to let the system resolve a day that has both a punch and an approved leave, instead of an admin clicking Honor Punch or Honor Leave in Cutoff Review. The refund works the same either way.",
+        body: "Turn on Automatically Resolve Punch-vs-Leave Conflicts to let the system resolve a day that has both a punch and an approved leave, instead of an admin clicking Honor Punch or Honor Leave in Cutoff Review. Either way, honoring the punch reverts only that day of the leave and returns the hours that day took to the employee's balance. A leave whose every day was punched shows as Reverted.",
       },
       {
         title: "Adjusting employee credits",
