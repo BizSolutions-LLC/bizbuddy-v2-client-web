@@ -26,6 +26,7 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  RotateCcw,
 } from "lucide-react";
 import { format } from "date-fns";
 import { toast, Toaster } from "sonner";
@@ -81,7 +82,26 @@ const statusConfig = {
     color: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800/40 dark:text-neutral-400",
     icon: XCircle,
   },
+  // BB-125: approved, but every day was punched and the punch was honored
+  reverted: {
+    label: "Reverted",
+    color: "bg-slate-100 text-slate-700 dark:bg-slate-800/40 dark:text-slate-300",
+    icon: RotateCcw,
+  },
 };
+
+// BB-125: shown on reverted days and in the request details
+const REVERT_EXPLANATION = "Approved, but the employee punched in on this day. The punch was paid and the leave hours were returned to their balance.";
+
+// BB-125: an approved leave with some (not all) days reverted
+const isPartlyReverted = (leave) => leave?.status === "approved" && !!leave?.reversion;
+
+const PartlyRevertedBadge = () => (
+  <Badge variant="outline" title={REVERT_EXPLANATION} className="border-slate-300 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-300">
+    <RotateCcw className="h-3 w-3 mr-1" />
+    Partly reverted
+  </Badge>
+);
 
 const StatusBadge = ({ status }) => {
   const config = statusConfig[status];
@@ -173,6 +193,7 @@ export default function SupervisorLeaveRequests() {
     approved: leaves.filter(r => r.status === "approved").length,
     rejected: leaves.filter(r => r.status === "rejected").length,
     cancelled: leaves.filter(r => r.status === "cancelled").length,
+    reverted: leaves.filter(r => r.status === "reverted").length,
   }), [leaves]);
 
   // ── Calendar data ─────────────────────────────────────────────────────────
@@ -233,6 +254,7 @@ export default function SupervisorLeaveRequests() {
     { label: "Approved", value: "approved", count: stats.approved },
     { label: "Rejected", value: "rejected", count: stats.rejected },
     { label: "Cancelled", value: "cancelled", count: stats.cancelled },
+    { label: "Reverted", value: "reverted", count: stats.reverted },
   ], [stats]);
 
   // ── Inline table state ────────────────────────────────────────────────────
@@ -386,7 +408,7 @@ export default function SupervisorLeaveRequests() {
   // GET /api/leaves/:id/days — post-decision actual outcome, shown in the detail dialog
   useEffect(() => {
     const status = detailDialog.request?.status;
-    if (!detailDialog.open || !detailDialog.request || !token || !["approved", "rejected"].includes(status)) {
+    if (!detailDialog.open || !detailDialog.request || !token || !["approved", "rejected", "reverted"].includes(status)) {
       setDayBreakdown([]);
       return;
     }
@@ -596,7 +618,7 @@ export default function SupervisorLeaveRequests() {
     const days = Math.floor((toLocalDate(request.endDate) - toLocalDate(request.startDate)) / 86400000) + 1;
     const finalComment = request.escalatedBy ? request.secondaryApproverComments : request.approverComments;
     const isApproved = request.status === "approved";
-    const isDecided = ["approved", "rejected"].includes(request.status);
+    const isDecided = ["approved", "rejected", "reverted"].includes(request.status);
     const fmtDate = (d) => toLocalDate(d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 
     return (
@@ -604,6 +626,7 @@ export default function SupervisorLeaveRequests() {
         <div className="text-base font-bold">{request.leaveType}</div>
         <div className="flex items-center gap-2 flex-wrap mt-2">
           <StatusBadge status={request.status} />
+          {isPartlyReverted(request) && <PartlyRevertedBadge />}
           {(() => {
             const outcome = resolveLeavePayOutcome(request);
             if (!outcome) return null;
@@ -705,10 +728,17 @@ export default function SupervisorLeaveRequests() {
                       <div className="flex items-center gap-2">
                         {entries.map((d, i) => (
                           <React.Fragment key={i}>
-                            <span className="text-muted-foreground">{d.hours}h</span>
-                            <Badge variant="outline" className={d.isPaid ? "text-green-700 border-green-300 bg-green-50" : "text-amber-700 border-amber-300 bg-amber-50"}>
-                              {d.isPaid ? "Paid" : "Unpaid"}
-                            </Badge>
+                            <span className={`text-muted-foreground ${d.reverted ? "line-through" : ""}`}>{d.hours}h</span>
+                            {d.reverted ? (
+                              // BB-125: day was punched and the punch honored — hours returned
+                              <Badge variant="outline" title={REVERT_EXPLANATION} className="cursor-help text-slate-700 border-slate-300 bg-slate-50 dark:text-slate-300 dark:border-slate-700 dark:bg-slate-800/40">
+                                Reverted
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className={d.isPaid ? "text-green-700 border-green-300 bg-green-50" : "text-amber-700 border-amber-300 bg-amber-50"}>
+                                {d.isPaid ? "Paid" : "Unpaid"}
+                              </Badge>
+                            )}
                           </React.Fragment>
                         ))}
                       </div>
@@ -724,6 +754,22 @@ export default function SupervisorLeaveRequests() {
         <DetailRow label="Submitted" value={`${new Date(request.createdAt).toLocaleDateString()} ${new Date(request.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`} />
         {request.status === "cancelled" && request.cancelledAt && (
           <DetailRow label="Cancelled" value={`${new Date(request.cancelledAt).toLocaleDateString()} ${new Date(request.cancelledAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`} />
+        )}
+        {/* BB-125: one or more days were punched and the punch honored */}
+        {request.reversion && (
+          <>
+            <DetailRow
+              label="Reverted"
+              value={`${request.reversion.revertedAt
+                ? `${new Date(request.reversion.revertedAt).toLocaleDateString()} ${new Date(request.reversion.revertedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                : "—"} · ${request.reversion.automatic
+                ? "Automatically (company setting)"
+                : `by ${request.reversion.performedBy?.name || "an admin"}`}`}
+            />
+            <DetailRow label="Days reverted" value={(request.reversion.dates || []).join(", ") || "—"} />
+            <DetailRow label="Hours returned" value={`${request.reversion.returnedHours ?? 0}h`} />
+            <p className="text-xs text-muted-foreground mt-1">{REVERT_EXPLANATION}</p>
+          </>
         )}
         {request.leaveReason && (
           <div className="mt-1.5">
@@ -1032,8 +1078,8 @@ export default function SupervisorLeaveRequests() {
                     const name     = req?.name || [req?.profile?.firstName, req?.profile?.lastName].filter(Boolean).join(" ") || [req?.firstName, req?.lastName].filter(Boolean).join(" ") || req?.email || "Unknown";
                     const sCfg     = statusConfig[row.status];
                     const SIcon    = sCfg?.icon ?? Clock;
-                    const sPillBg  = row.status === "approved" ? "#eaf3de" : row.status === "rejected" ? "#fcebeb" : row.status === "pending_secondary" ? "#EEEDFE" : row.status === "cancelled" ? "#f5f5f3" : "#faeeda";
-                    const sPillClr = row.status === "approved" ? "#3b6d11" : row.status === "rejected" ? "#791f1f" : row.status === "pending_secondary" ? "#3C3489" : row.status === "cancelled" ? "#888" : "#633806";
+                    const sPillBg  = row.status === "approved" ? "#eaf3de" : row.status === "rejected" ? "#fcebeb" : row.status === "pending_secondary" ? "#EEEDFE" : row.status === "cancelled" ? "#f5f5f3" : row.status === "reverted" ? "#eef2f6" : "#faeeda";
+                    const sPillClr = row.status === "approved" ? "#3b6d11" : row.status === "rejected" ? "#791f1f" : row.status === "pending_secondary" ? "#3C3489" : row.status === "cancelled" ? "#888" : row.status === "reverted" ? "#475569" : "#633806";
                     const isSelected = detailDialog.request?.id === row.id;
                     return (
                       <tr
@@ -1052,6 +1098,12 @@ export default function SupervisorLeaveRequests() {
                                 <span style={{ fontSize: 10, display: "inline-flex", alignItems: "center", gap: 3, background: sPillBg, color: sPillClr, padding: "2px 7px", borderRadius: 20, fontWeight: 500 }}>
                                   <SIcon size={10} />
                                   {sCfg.label}
+                                </span>
+                              )}
+                              {isPartlyReverted(row) && (
+                                <span title={REVERT_EXPLANATION} style={{ fontSize: 10, display: "inline-flex", alignItems: "center", gap: 3, background: "#eef2f6", color: "#475569", padding: "2px 7px", borderRadius: 20, fontWeight: 500 }}>
+                                  <RotateCcw size={10} />
+                                  Partly reverted
                                 </span>
                               )}
                             </div>
@@ -1324,7 +1376,10 @@ export default function SupervisorLeaveRequests() {
                                 {dept && <p className="text-xs text-muted-foreground truncate">{dept}</p>}
                               </div>
                             </div>
-                            <StatusBadge status={leave.status} />
+                            <div className="flex flex-col items-end gap-1">
+                              <StatusBadge status={leave.status} />
+                              {isPartlyReverted(leave) && <PartlyRevertedBadge />}
+                            </div>
                           </div>
 
                           {/* Leave type + duration */}
