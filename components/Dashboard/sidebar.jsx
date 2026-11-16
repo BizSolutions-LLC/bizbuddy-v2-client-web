@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import SetupGuideCard from "@/components/Dashboard/SetupGuide/SetupGuideCard";
+import { fetchTaskReportEnabled, TASK_REPORT_SETTING_EVENT } from "@/lib/taskReportsApi";
 
 // ---------------------------------------------------------------------------
 // Navigation config
@@ -96,6 +97,10 @@ export const CompanyPanelItems = [
       { id: "company/leave-requests", label: "Employees Leave Requests", notifyKey: "leave" },
       { id: "company/overtime-requests", label: "Employees Overtime Requests", notifyKey: "overtime" },
       { id: "company/cutoff-periods", label: "Employee Cutoff", notifyKey: "cutoff" },
+      // BB-129: only while Configurations → Trial Features → Clock-out documentation is on
+      { id: "company/employee-report", label: "Employee Report", requires: "taskReport" },
+      // BB-128: supervisors and admins (this group is already hidden from employees)
+      { id: "company/employee-map", label: "Employee Map" },
     ],
   },
   {
@@ -149,6 +154,7 @@ const FREE_ALLOWED = new Set([
   "employee/disbursement/my-payout-account",
   "company/punch-logs",
   "company/contest-requests",
+  "company/employee-report", // BB-129 trial: same plan access as Employees Punch logs
   "company/deletion",
   "company/profile",
   "company/subscription",
@@ -655,6 +661,20 @@ export default function Sidebar({ isSidebarOpen, closeSidebar, onNavigateStart, 
       .finally(() => setLoading(false));
   }, [token]);
 
+  // BB-129: "Employee Report" shows only while clock-out documentation is on.
+  // Configurations announces a change, so the entry appears or goes without a reload.
+  const [taskReportEnabled, setTaskReportEnabled] = useState(false);
+  useEffect(() => {
+    if (!token) return;
+    fetchTaskReportEnabled(process.env.NEXT_PUBLIC_API_URL, token)
+      .then(setTaskReportEnabled)
+      .catch(() => {});
+    const onChange = (e) => setTaskReportEnabled(Boolean(e.detail?.enabled));
+    window.addEventListener(TASK_REPORT_SETTING_EVENT, onChange);
+    return () => window.removeEventListener(TASK_REPORT_SETTING_EVENT, onChange);
+  }, [token]);
+  const featureOn = { taskReport: taskReportEnabled };
+
   // ✅ Build the single unified notify map
   const notifyMap = buildNotifyMap(counts);
 
@@ -672,9 +692,10 @@ export default function Sidebar({ isSidebarOpen, closeSidebar, onNavigateStart, 
 
   // BB-110: B. Buddy gets the Company panel only, minus company deletion
   const isSystemAgent = Boolean(profileData?.user?.isSystemAgent);
-  const companyItems = isSystemAgent
+  const companyItems = (isSystemAgent
     ? CompanyPanelItems.map((g) => ({ ...g, children: g.children.filter((c) => c.id !== "company/deletion") }))
-    : CompanyPanelItems;
+    : CompanyPanelItems
+  ).map((g) => ({ ...g, children: g.children.filter((c) => !c.requires || featureOn[c.requires]) }));
 
   // BB-120: B. Buddy has no payroll access (it kept Payroll Management under BB-110),
   // so it gets no Employee Panel section at all

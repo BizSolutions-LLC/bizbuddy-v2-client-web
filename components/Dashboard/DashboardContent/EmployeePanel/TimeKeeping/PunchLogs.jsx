@@ -41,6 +41,8 @@ import {
   Globe,
   Eye,
   ClockAlert,
+  FilePen,
+  FileCheck2,
 } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
@@ -60,6 +62,8 @@ import CutoffDateRangeFilter, { periodRangeKey } from "@/components/common/Cutof
 import { downloadServerReport } from "@/lib/reportDownload";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ContestDialog, toLocalTimeInput } from "./ContestDialog";
+import TaskReportDialog from "./TaskReportDialog";
+import { listMyReportsForDates } from "@/lib/taskReportsApi";
 import { isLogInLockedCutoff, contestChange, fmtSignedHours, dateInZone } from "@/lib/contestTimes";
 import FormDialog from "@/components/common/FormDialog";
 import OrangeLoadingSpinner from "@/components/common/Spinner";
@@ -631,9 +635,29 @@ export default function PunchLogs() {
       .then((j) => {
         const data = j?.data || {};
         setIsDayCareCompany(data.isBNC === false || data.companyType === "DAYCARE");
+        setTaskReportEnabled(Boolean(data.taskReportEnabled)); // BB-129
       })
       .catch(() => {});
   }, [token, API_URL]);
+
+  // ── BB-129: daily task report — one per company-zone day of the clock-in ──────
+  // Rows on the current page → their report days → summaries for the icon state.
+  const [taskReportEnabled, setTaskReportEnabled] = useState(false);
+  const [taskReports,       setTaskReports]       = useState(() => new Map()); // "YYYY-MM-DD" → { status, taskCount, submittedAt }
+  const [taskReportDate,    setTaskReportDate]    = useState(null);            // day open in the dialog
+  const reportDateOf = useCallback((log) => toLocalDateStr(log?.timeIn, companyTimezone), [companyTimezone]);
+  const visibleReportDates = useMemo(
+    () => [...new Set(logs.map(reportDateOf).filter(Boolean))].sort().join(","),
+    [logs, reportDateOf]
+  );
+  useEffect(() => {
+    if (!token || !taskReportEnabled || !visibleReportDates) return;
+    let cancelled = false;
+    listMyReportsForDates(API_URL, token, visibleReportDates.split(","))
+      .then((map) => { if (!cancelled) setTaskReports(map); })
+      .catch(() => { /* silent — the icon state is informational */ });
+    return () => { cancelled = true; };
+  }, [token, API_URL, taskReportEnabled, visibleReportDates]);
 
   // Re-fetch logs whenever queryParams changes (filter change, page change, etc.)
   useEffect(() => {
@@ -1569,7 +1593,7 @@ export default function PunchLogs() {
                             case "actions":
                               return (
                                 <TableCell key="actions" className="text-center" onClick={(e) => e.stopPropagation()}>
-                                  {canContestBase(log) || log.otStatus === "No Approval" ? (
+                                  {canContestBase(log) || log.otStatus === "No Approval" || (taskReportEnabled && reportDateOf(log)) ? (
                                     <div className="flex items-center justify-center gap-1">
                                       {canContestBase(log) && contestPending && (
                                         <Tooltip>
@@ -1614,6 +1638,31 @@ export default function PunchLogs() {
                                           <TooltipContent>Request OT approval</TooltipContent>
                                         </Tooltip>
                                       )}
+                                      {/* BB-129: every punch on a day opens that day's one report */}
+                                      {taskReportEnabled && reportDateOf(log) && (() => {
+                                        const rep = taskReports.get(reportDateOf(log));
+                                        const label = rep?.status === "submitted"
+                                          ? `Task report submitted (${rep.taskCount} task${rep.taskCount === 1 ? "" : "s"})`
+                                          : rep?.status === "draft" ? "Task report draft" : "Write task report";
+                                        const Icon = rep?.status === "submitted" ? FileCheck2 : rep?.status === "draft" ? FilePen : FileText;
+                                        return (
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <Button
+                                                variant="ghost" size="sm"
+                                                className={`h-8 w-8 p-0 hover:bg-orange-50 hover:text-orange-600 dark:hover:bg-orange-950/20 ${
+                                                  rep?.status === "submitted" ? "text-green-600" : rep?.status === "draft" ? "text-orange-600" : "text-muted-foreground"
+                                                }`}
+                                                aria-label={label}
+                                                onClick={() => setTaskReportDate(reportDateOf(log))}
+                                              >
+                                                <Icon className="h-4 w-4" />
+                                              </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent>{label}</TooltipContent>
+                                          </Tooltip>
+                                        );
+                                      })()}
                                     </div>
                                   ) : <span className="text-muted-foreground text-xs">—</span>}
                                 </TableCell>
@@ -2254,6 +2303,16 @@ export default function PunchLogs() {
 
           </DialogContent>
         </Dialog>
+
+        {/* BB-129: daily task report for the day of the clicked punch */}
+        <TaskReportDialog
+          open={Boolean(taskReportDate)}
+          onOpenChange={(v) => { if (!v) setTaskReportDate(null); }}
+          date={taskReportDate}
+          apiUrl={API_URL}
+          token={token}
+          onSaved={(date, rep) => setTaskReports((m) => new Map(m).set(date, rep))}
+        />
 
         <ContestDialog
           open={contestDialogOpen}
