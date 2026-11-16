@@ -9,7 +9,7 @@ import {
   Building2, Loader2, Save, Clock, User, CheckSquare, AlertCircle,
   Info, Trash2, Plus, Settings, Users, Calendar, TrendingUp,
   Edit3, Timer, RefreshCw, Globe, Coffee, ChevronDown, X,
-  Zap, Check, BookOpen, AlarmClock,
+  Zap, Check, BookOpen, AlarmClock, ClipboardList,
 } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
@@ -28,6 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Label } from "@/components/ui/label";
 import { TIMEZONES } from "@/lib/timezones";
+import { announceTaskReportSetting } from "@/lib/taskReportsApi";
 
 // ── Quick Guide data ─────────────────────────────────────────────────────────
 const GUIDE_SECTIONS = [
@@ -98,6 +99,28 @@ const GUIDE_SECTIONS = [
       "Defaults to <strong>45 minutes</strong> if not configured",
     ],
   },
+  {
+    icon: Calendar, color: "orange", title: "Trial Features: Cutoff Page", badge: "Admin", badgeColor: "purple",
+    who: "Admin / Superadmin / Supervisor",
+    desc: "Chooses how the Cutoff pages look for the whole company, admins included.",
+    bullets: [
+      "List — today's cutoff list and review pages (default)",
+      "Calendar (preview) — the new grouped view; view only for now, approvals stay in List",
+      "Saves immediately, no save button needed",
+      "Changes only how the page looks, never the hours or approvals",
+    ],
+  },
+  {
+    icon: ClipboardList, color: "orange", title: "Trial Features: Clock-out documentation", badge: "Admin", badgeColor: "purple",
+    who: "Admin / Superadmin",
+    desc: "Lets employees list the tasks they did each day (Daily Task Report). Off by default.",
+    bullets: [
+      "Employees open a day's report from the icon on their Punch logs; one report per day",
+      "Optional, with no deadline during the trial; past days with a punch can be documented",
+      "Supervisors and admins read submitted reports on Requests & Logs → Employee Report",
+      "Saves immediately, no save button needed",
+    ],
+  },
 ];
 
 // ── Icon color map ────────────────────────────────────────────────────────────
@@ -155,11 +178,11 @@ function MiniStat({ label, value, color, icon: Icon }) {
   );
 }
 
-function Toggle({ on, onChange, loading }) {
+function Toggle({ on, onChange, loading, disabled = false }) {
   return (
     <button
-      onClick={() => !loading && onChange(!on)}
-      disabled={loading}
+      onClick={() => !loading && !disabled && onChange(!on)}
+      disabled={loading || disabled}
       className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200
         focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-2
         disabled:opacity-50 disabled:cursor-not-allowed
@@ -1697,9 +1720,125 @@ function AutoBreakPolicyCard({ loading, draft, setDraft }) {
   );
 }
 
+// ── Cutoff Page view (BB-121) ────────────────────────────────────────────────
+// Company-wide choice of List or Calendar cutoff pages. Saves on its own (not via
+// the shared Save bar) so other tabs never send a stale copy of it.
+const CUTOFF_PAGE_VIEWS = [
+  { id: "list",     label: "List",     desc: "Today's cutoff list and review pages." },
+  // BB-121: the Calendar list page is built; its review page still opens the List review for now.
+  { id: "calendar", label: "Calendar (preview)", desc: "A preview of the new grouped view — view only for now; approvals stay in List." },
+];
+
+function CutoffPageViewCard({ loading, value, canEdit, saving, onChange }) {
+  const current = value === "calendar" ? "calendar" : "list";
+  return (
+    <Card className="border-[1.5px] shadow-md overflow-hidden">
+      <CardStripe />
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2.5 text-[15px] font-extrabold">
+          <SectionIcon icon={Calendar} color="orange" />
+          Cutoff Page
+        </CardTitle>
+        <p className="text-xs text-neutral-500 mt-0.5">
+          How the Cutoff pages look for everyone in the company. This changes only the layout, never the hours or approvals.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {loading ? (
+          <Skeleton className="h-20 w-full" />
+        ) : (
+          <>
+            <div className="grid sm:grid-cols-2 gap-3">
+              {CUTOFF_PAGE_VIEWS.map((opt) => {
+                const selected = current === opt.id;
+                const disabled = !canEdit || saving || opt.comingSoon;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => { if (!selected) onChange(opt.id); }}
+                    aria-pressed={selected}
+                    className={`text-left p-4 rounded-lg border-2 transition-all focus:outline-none focus:ring-2 focus:ring-orange-400 disabled:cursor-not-allowed ${
+                      selected
+                        ? "border-orange-400 bg-orange-50 dark:bg-orange-950/20"
+                        : "border-neutral-200 bg-white hover:border-orange-200 dark:bg-neutral-900 dark:border-neutral-700"
+                    } ${opt.comingSoon ? "opacity-60" : ""}`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={`text-sm font-semibold ${selected ? "text-orange-700" : "text-neutral-700 dark:text-neutral-300"}`}>
+                        {opt.label}
+                      </span>
+                      {selected && <Check className="w-4 h-4 text-orange-600" />}
+                      {opt.comingSoon && !selected && <Badge variant="outline" className="text-xs">Coming soon</Badge>}
+                    </div>
+                    <p className="text-xs text-neutral-500 mt-1">{opt.desc}</p>
+                  </button>
+                );
+              })}
+            </div>
+            {saving && (
+              <p className="text-xs text-neutral-500 flex items-center gap-1.5">
+                <Loader2 className="w-3 h-3 animate-spin" /> Saving…
+              </p>
+            )}
+            {!canEdit && (
+              <p className="text-xs text-neutral-500">Only admins and supervisors can change this setting.</p>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Clock-out documentation (BB-129, trial) ──────────────────────────────────
+// Company switch for the Daily Task Report. Saves the moment it's flipped (not via the
+// shared Save bar). Admins only: the server rejects this field from anyone else.
+function TaskReportSettingCard({ loading, enabled, canEdit, saving, onChange }) {
+  return (
+    <Card className="border-[1.5px] shadow-md overflow-hidden">
+      <CardStripe />
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2.5 text-[15px] font-extrabold">
+          <SectionIcon icon={ClipboardList} color="orange" />
+          Clock-out documentation (trial)
+        </CardTitle>
+        <p className="text-xs text-neutral-500 mt-0.5">
+          Employees can list the tasks they did each day. Optional; no deadline during the trial.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {loading ? (
+          <Skeleton className="h-10 w-full" />
+        ) : (
+          <>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
+                  {enabled ? "On" : "Off"}
+                </p>
+                <p className="text-xs text-neutral-500">
+                  When on, employees see a report icon on each day in their Punch logs, and supervisors and
+                  admins get the Employee Report page.
+                </p>
+              </div>
+              <Toggle on={Boolean(enabled)} loading={saving} disabled={!canEdit} onChange={onChange} />
+            </div>
+            {!canEdit && <p className="text-xs text-neutral-500">Only admins can change this setting.</p>}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── Main component ───────────────────────────────────────────────────────────
 export default function ModernCompanyConfigurations() {
-  const { token, role } = useAuthStore();
+  // The store has no `role` and the sign-in token carries none either, so the role is
+  // loaded from GET /api/account/profile (data.user.role), as the sidebar does.
+  const { token } = useAuthStore();
+  const [role, setRole] = useState(null);
   const API = process.env.NEXT_PUBLIC_API_URL;
 
   useEffect(() => {
@@ -1727,6 +1866,11 @@ export default function ModernCompanyConfigurations() {
   const [currentTime,             setCurrentTime]             = useState("");
   const [guideOpen,               setGuideOpen]               = useState(false);
   const [activeTab,               setActiveTab]               = useState("time-settings");
+  const [savingCutoffPageView,    setSavingCutoffPageView]    = useState(false); // BB-121
+  // BB-121: supervisors may save this one field during development (server allows a body of only { cutoffPageView }).
+  const canEditCutoffPageView = ["admin", "superadmin", "supervisor"].includes((role || "").toLowerCase());
+  const [savingTaskReport,        setSavingTaskReport]        = useState(false); // BB-129
+  const canEditTaskReport = ["admin", "superadmin"].includes((role || "").toLowerCase());
 
   // ── Live clock ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1748,11 +1892,15 @@ export default function ModernCompanyConfigurations() {
   const loadSettings = async () => {
     setLoadingSettings(true);
     try {
-      const [settingsRes, profileRes] = await Promise.all([
+      const [settingsRes, profileRes, accountRes] = await Promise.all([
         fetch(`${API}/api/company-settings`, { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`${API}/api/company/me`,        { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API}/api/account/profile`,   { headers: { Authorization: `Bearer ${token}` } }), // BB-121: role
       ]);
-      const [settingsJson, profileJson] = await Promise.all([settingsRes.json(), profileRes.json()]);
+      const [settingsJson, profileJson, accountJson] = await Promise.all([
+        settingsRes.json(), profileRes.json(), accountRes.json().catch(() => ({})),
+      ]);
+      if (accountRes.ok) setRole(accountJson.data?.user?.role || null);
       if (settingsRes.ok) {
         savedTimezoneRef.current = settingsJson.data?.timezone ?? null;
         setDraft(settingsJson.data || {});
@@ -1903,7 +2051,9 @@ export default function ModernCompanyConfigurations() {
     setSavingSettings(true);
     try {
       // BB-119: send the zone only when it was changed here, so an old copy can't overwrite it.
-      const { timezone, ...rest } = draft || {};
+      // BB-121: cutoffPageView is never sent from here; it saves on its own (saveCutoffPageView).
+      // BB-129: same for taskReportEnabled (saveTaskReportEnabled).
+      const { timezone, cutoffPageView: _cutoffPageView, taskReportEnabled: _taskReportEnabled, ...rest } = draft || {};
       const timezoneChanged = timezone !== savedTimezoneRef.current;
       const r = await fetch(`${API}/api/company-settings`, {
         method: "PATCH",
@@ -1917,6 +2067,46 @@ export default function ModernCompanyConfigurations() {
       } else toast.error(j.message || "Failed to save settings");
     } catch { toast.error("Network error saving settings"); }
     setSavingSettings(false);
+  };
+
+  // ── API: PATCH /api/company-settings { cutoffPageView } (BB-121) ──────────
+  // Sends only this field, so it can't overwrite other settings and vice versa.
+  const saveCutoffPageView = async (value) => {
+    setSavingCutoffPageView(true);
+    try {
+      const r = await fetch(`${API}/api/company-settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ cutoffPageView: value }),
+      });
+      const j = await r.json();
+      if (r.ok) {
+        setDraft((p) => ({ ...p, cutoffPageView: j.data?.cutoffPageView ?? value }));
+        toast.success(`Cutoff page set to ${value === "calendar" ? "Calendar" : "List"}`);
+      } else toast.error(j.error || j.message || "Failed to save cutoff page setting");
+    } catch { toast.error("Network error saving cutoff page setting"); }
+    setSavingCutoffPageView(false);
+  };
+
+  // ── API: PATCH /api/company-settings { taskReportEnabled } (BB-129) ───────
+  // Sends only this field. On success the sidebar is told, so "Employee Report" shows or hides at once.
+  const saveTaskReportEnabled = async (value) => {
+    setSavingTaskReport(true);
+    try {
+      const r = await fetch(`${API}/api/company-settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ taskReportEnabled: value }),
+      });
+      const j = await r.json();
+      if (r.ok) {
+        const saved = Boolean(j.data?.taskReportEnabled ?? value);
+        setDraft((p) => ({ ...p, taskReportEnabled: saved }));
+        announceTaskReportSetting(saved);
+        toast.success(`Clock-out documentation turned ${saved ? "on" : "off"}`);
+      } else toast.error(j.error || j.message || "Failed to save clock-out documentation setting");
+    } catch { toast.error("Network error saving clock-out documentation setting"); }
+    setSavingTaskReport(false);
   };
 
   const handleTimezoneChange = (val) => { setPendingTimezone(val); setShowTimezoneModal(true); };
@@ -1951,12 +2141,15 @@ export default function ModernCompanyConfigurations() {
     ...(isDayCare ? [{ id: "daycare", label: "DayCare Settings" }] : []),
     { id: "break-policy",   label: "Break Policy" },
     { id: "fixed-hours",    label: "Fixed Hours" },
+    // BB-121 "Cutoff Page" → BB-129 "Trial Features": settings for features still on trial or in preview
+    { id: "trial-features", label: "Trial Features" },
   ];
+  const TAB_ALIASES = { "cutoff-page": "trial-features" }; // old links keep working
 
   // BB-115: ?tab=<id> opens a tab (setup guide links). Re-applies when the link changes
   // while the page is already open; unknown ids are ignored.
   const searchParams = useSearchParams();
-  const tabParam = searchParams.get("tab");
+  const tabParam = TAB_ALIASES[searchParams.get("tab")] || searchParams.get("tab");
   useEffect(() => {
     if (tabParam && TABS.some((t) => t.id === tabParam)) setActiveTab(tabParam);
   }, [tabParam, isDayCare]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -2080,6 +2273,25 @@ export default function ModernCompanyConfigurations() {
             updateDepartmentFixedHours={updateDepartmentFixedHours}
             loading={loadingDepartments}
             api={API} token={token}
+          />
+        </div>
+      )}
+
+      {activeTab === "trial-features" && (
+        <div className="space-y-5">
+          <CutoffPageViewCard
+            loading={loadingSettings}
+            value={draft?.cutoffPageView}
+            canEdit={canEditCutoffPageView}
+            saving={savingCutoffPageView}
+            onChange={saveCutoffPageView}
+          />
+          <TaskReportSettingCard
+            loading={loadingSettings}
+            enabled={draft?.taskReportEnabled}
+            canEdit={canEditTaskReport}
+            saving={savingTaskReport}
+            onChange={saveTaskReportEnabled}
           />
         </div>
       )}

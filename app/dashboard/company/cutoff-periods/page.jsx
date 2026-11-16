@@ -1,5 +1,6 @@
 // app/dashboard/company/cutoff-periods/page.jsx
-import EmployeeCutoff from "@/components/Dashboard/DashboardContent/CompanyPanel/Punchlogs&Overtimes&Leaves/EmployeeCutoff";
+// BB-121: CutoffPeriodsSwitch picks the List (EmployeeCutoff) or Calendar page per company setting.
+import CutoffPeriodsSwitch from "@/components/Dashboard/DashboardContent/CompanyPanel/Punchlogs&Overtimes&Leaves/CutoffPeriodsSwitch";
 
 export const metadata = {
   title: "Employee Cutoff | BizBuddy",
@@ -7,5 +8,5 @@ export const metadata = {
 };
 
 export default function CutoffPeriodsPage() {
-  return <EmployeeCutoff />;
+  return <CutoffPeriodsSwitch />;
 }
