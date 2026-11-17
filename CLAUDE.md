@@ -17,6 +17,26 @@ There is no external ticket tracker (no GitHub Issues, Linear, Jira). A "ticket 
 just a label the user attaches verbally for their own reference — do not attempt to look it
 up anywhere.
 
+## Versioning, changelog and release
+
+- **One push = one version.** The same `vX.Y.Z` is used everywhere for that push: the changelog
+  file `docs/changelog-vX.Y.Z.md`, the release branch `release/vX.Y.Z`, and the commit message
+  (`feat: vX.Y.Z - BB-xxx …, BB-yyy …`).
+- **Bump size:** a normal, narrow push bumps the patch (v2.15.7 → v2.15.8). A wide or major push
+  bumps the minor and resets the patch (→ v2.16.0). Carlo decides which.
+- **Several tickets per push is normal.** Every ticket touched during that development goes into
+  that one version's changelog, so there's no "one version per ticket".
+- **Other developers push too.** A mobile developer also opens PRs on this repo. If their PR takes
+  a version number first, ours moves to the next free one. So the final number is only known at
+  push time.
+- **Always ask Carlo for the final version number** before writing or naming a changelog file,
+  creating or naming a `release/` branch, or writing a versioned commit message. Never infer it
+  from the current branch name: `release/v2.15.5` ended up carrying v2.15.5–v2.15.7 commits. When
+  asking, mention the highest version visible in `docs/changelog-*.md` and the latest master merge
+  so Carlo has context. Until a version is named, keep the ticket's changelog as a pending item.
+- The server has its own version line (v2.11.x). Client changelogs say which server version they
+  need (e.g. "Needs server v2.11.15").
+
 ## The four workflow types
 
 Classify every task into one of these before starting, and follow its steps.
