@@ -211,6 +211,7 @@ components/
 │   ├── performance/            # Performance tabs: Capacity (cards, band scales, charts, hotspots), Endpoints (BB-112), Reports (BB-113)
 │   ├── bbuddy/                 # B. Buddy page tabs, Add company drawer (BB-107) + api.js
 │   ├── database/               # Database page sections + shared.jsx
+│   ├── subscription-plans/     # Subscription Plans page: cards, feature comparison, plan drawer, format.js (BB-132)
 │   └── server/                 # Live Server HealthCard + LogPanel (BB-112)
 │
 ├── Theme/ThemeProvider.jsx     # next-themes dark mode provider
@@ -292,6 +293,7 @@ A separate app under `/system-admin/*` for BizBuddy staff. It doesn't use `useAu
 | `performance` | Capacity (BB-112: OK / Watch / Upgrade verdicts for the API server, database and busiest endpoints, band scales from the server's thresholds, coverage + plans banner, history charts, hotspots table), Endpoints (per-endpoint response times) and Reports (BB-113: Baseline + 30-day period PDFs via `systemAdminDownload`) |
 | `errors` | API error logs |
 | `database` | Read-only database overview + cleanup preview |
+| `subscription-plans` | Subscription Plans (BB-132, view only): totals tiles (no estimated-monthly tile — `totals.estimatedMonthly` is deliberately not shown), plan cards, feature comparison from the server's `featureKeys`, plan drawer with its companies + "Show N retired". `GET /subscription-plans/overview`, `/subscription-plans/:id[?includeRetired=true]` (server v2.11.15) |
 | `requests` | Request Logs (opened with filters from Security) |
 | `server` | Live Server: health card + live log tail (BB-112) |
 | `account`, `admins` | My account; System Admins (owners only) |
