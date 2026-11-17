@@ -77,6 +77,16 @@ New section **"Versioning, changelog and release"**:
 - The mobile developer's PRs can take a number first.
 - Claude must always ask Carlo for the final version number. It's never inferred from the branch name: `release/v2.15.5` carried v2.15.5–v2.15.7 commits.
 
+- `package.json` `"version"` now tracks releases. It went from `0.1.0` to `2.15.8`, and `package-lock.json` matches.
+- New `/push` command (`.claude/commands/push.md`):
+  1. Ask Carlo for the version.
+  2. Create the release branch.
+  3. Bump `package.json`.
+  4. Write the changelog.
+  5. Commit.
+  6. Carlo pushes.
+  7. Open the PR.
+
 ---
 
 ## Open items

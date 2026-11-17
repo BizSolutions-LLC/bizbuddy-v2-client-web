@@ -36,6 +36,21 @@ up anywhere.
   so Carlo has context. Until a version is named, keep the ticket's changelog as a pending item.
 - The server has its own version line (v2.11.x). Client changelogs say which server version they
   need (e.g. "Needs server v2.11.15").
+- **`package.json` `"version"` tracks the released version** (from v2.15.8 on). Bump it with
+  `npm version X.Y.Z --no-git-tag-version`, which also updates `package-lock.json` and creates no
+  tag. Other developers may not bump it, so treat it as one reference among several, not the
+  truth.
+- **`/push`** (`.claude/commands/push.md`) runs this whole flow at the end of the work:
+  1. Check the version references.
+  2. Ask Carlo for the version and the tickets in the push.
+  3. Create the `release/vX.Y.Z` branch.
+  4. Bump `package.json`.
+  5. Write the changelog.
+  6. Commit.
+  7. Carlo pushes.
+  8. Claude opens the PR (`gh pr create`, or a compare link if `gh` isn't installed).
+
+  The push itself stays with Carlo.
 
 ## The four workflow types
 
