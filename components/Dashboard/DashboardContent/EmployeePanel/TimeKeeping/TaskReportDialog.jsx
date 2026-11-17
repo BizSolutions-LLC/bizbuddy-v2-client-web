@@ -69,7 +69,9 @@ export default function TaskReportDialog({ open, onOpenChange, date, apiUrl, tok
     ? null
     : !data.enabled
       ? "Clock-out documentation is turned off for your company, so this report can't be changed."
-      : "There is no punch on this day, so there is nothing to document.";
+      : data.mode === "forms" // BB-129 phase 2: Custom forms mode turns the free-form report off
+        ? "Your company now uses questionnaires after clock-out, so daily task reports can't be written or changed. This one stays as it was."
+        : "There is no punch on this day, so there is nothing to document.";
 
   // ── Row editing ──
   const update = (key, field, value) => {

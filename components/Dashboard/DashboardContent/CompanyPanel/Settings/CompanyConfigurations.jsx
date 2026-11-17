@@ -4,6 +4,7 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Building2, Loader2, Save, Clock, User, CheckSquare, AlertCircle,
@@ -29,6 +30,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Label } from "@/components/ui/label";
 import { TIMEZONES } from "@/lib/timezones";
 import { announceTaskReportSetting } from "@/lib/taskReportsApi";
+import { TASK_REPORT_MODES, FORM_WINDOW, FORM_WINDOW_PRESETS, fmtWindowHours } from "@/lib/taskReportFormsApi";
 
 // ── Quick Guide data ─────────────────────────────────────────────────────────
 const GUIDE_SECTIONS = [
@@ -113,11 +115,13 @@ const GUIDE_SECTIONS = [
   {
     icon: ClipboardList, color: "orange", title: "Trial Features: Clock-out documentation", badge: "Admin", badgeColor: "purple",
     who: "Admin / Superadmin",
-    desc: "Lets employees list the tasks they did each day (Daily Task Report). Off by default.",
+    desc: "How employees document their work after a shift. Off by default.",
     bullets: [
-      "Employees open a day's report from the icon on their Punch logs; one report per day",
-      "Optional, with no deadline during the trial; past days with a punch can be documented",
-      "Supervisors and admins read submitted reports on Requests & Logs → Employee Report",
+      "Free-form — employees write a daily task report from the icon on their Punch logs; no questionnaires",
+      "Custom forms — employees answer the questionnaire assigned to them (pop-up after clock-out, or later from Punch logs → Questionnaires); free-form is turned off",
+      "Build forms and assign them (shift → employee → department → everyone) on Settings → Clock-out Forms",
+      "Time to answer — after it ends the questionnaire locks; unsubmitted drafts become Incomplete",
+      "Supervisors and admins read submitted reports and questionnaires on Requests & Logs → Employee Report",
       "Saves immediately, no save button needed",
     ],
   },
@@ -1795,7 +1799,29 @@ function CutoffPageViewCard({ loading, value, canEdit, saving, onChange }) {
 // ── Clock-out documentation (BB-129, trial) ──────────────────────────────────
 // Company switch for the Daily Task Report. Saves the moment it's flipped (not via the
 // shared Save bar). Admins only: the server rejects this field from anyone else.
-function TaskReportSettingCard({ loading, enabled, canEdit, saving, onChange }) {
+// BB-129: documentation mode, shown only while the switch is on. Phase 2 made the modes
+// exclusive: "forms" turns the free-form report off (the server refuses new ones), and
+// "freeform" means no questionnaires. Everything already submitted stays on Employee Report.
+const TASK_REPORT_MODE_OPTIONS = [
+  {
+    id: TASK_REPORT_MODES.freeform, label: "Free-form",
+    desc: "Employees list the tasks they did each day. No questionnaires.",
+    confirm: "Employees go back to writing a daily task report. Questionnaires stop: no pop-up after clock-out and nothing left to answer. Answers already submitted stay on Employee Report.",
+  },
+  {
+    id: TASK_REPORT_MODES.forms, label: "Custom forms",
+    desc: "Employees answer the questionnaire assigned to them or their shift after clocking out. The free-form report is turned off.",
+    confirm: "Employees answer the questionnaire assigned to them after clocking out, and can no longer write or change free-form daily task reports. Reports already submitted stay on Employee Report. Make sure forms are assigned on Clock-out Forms.",
+  },
+];
+
+function TaskReportSettingCard({
+  loading, enabled, canEdit, saving, onChange, mode, savingMode, onModeChange,
+  windowHours, savingWindow, onWindowChange,
+}) {
+  const currentMode = mode === TASK_REPORT_MODES.forms ? TASK_REPORT_MODES.forms : TASK_REPORT_MODES.freeform;
+  const [pendingMode, setPendingMode] = useState(null); // mode waiting for confirmation
+  const pendingOpt = TASK_REPORT_MODE_OPTIONS.find((o) => o.id === pendingMode);
   return (
     <Card className="border-[1.5px] shadow-md overflow-hidden">
       <CardStripe />
@@ -1805,7 +1831,7 @@ function TaskReportSettingCard({ loading, enabled, canEdit, saving, onChange }) 
           Clock-out documentation (trial)
         </CardTitle>
         <p className="text-xs text-neutral-500 mt-0.5">
-          Employees can list the tasks they did each day. Optional; no deadline during the trial.
+          After a shift, employees either list the tasks they did or answer a questionnaire you build.
         </p>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -1819,17 +1845,174 @@ function TaskReportSettingCard({ loading, enabled, canEdit, saving, onChange }) 
                   {enabled ? "On" : "Off"}
                 </p>
                 <p className="text-xs text-neutral-500">
-                  When on, employees see a report icon on each day in their Punch logs, and supervisors and
+                  When on, employees document their work from their Punch logs, and supervisors and
                   admins get the Employee Report page.
                 </p>
               </div>
               <Toggle on={Boolean(enabled)} loading={saving} disabled={!canEdit} onChange={onChange} />
             </div>
+            {enabled && (
+              <div className="space-y-3 pt-1">
+                <p className="text-xs font-semibold text-neutral-700 dark:text-neutral-300">Documentation mode</p>
+                <div className="grid sm:grid-cols-2 gap-3" role="radiogroup" aria-label="Documentation mode">
+                  {TASK_REPORT_MODE_OPTIONS.map((opt) => {
+                    const selected = currentMode === opt.id;
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        role="radio"
+                        disabled={!canEdit || savingMode}
+                        onClick={() => { if (!selected) setPendingMode(opt.id); }}
+                        aria-checked={selected}
+                        className={`text-left p-4 rounded-lg border-2 transition-all focus:outline-none focus:ring-2 focus:ring-orange-400 disabled:cursor-not-allowed ${
+                          selected
+                            ? "border-orange-400 bg-orange-50 dark:bg-orange-950/20"
+                            : "border-neutral-200 bg-white hover:border-orange-200 dark:bg-neutral-900 dark:border-neutral-700"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`text-sm font-semibold ${selected ? "text-orange-700" : "text-neutral-700 dark:text-neutral-300"}`}>
+                            {opt.label}
+                          </span>
+                          {selected && <Check className="w-4 h-4 text-orange-600" />}
+                        </div>
+                        <p className="text-xs text-neutral-500 mt-1">{opt.desc}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+                {savingMode && (
+                  <p className="text-xs text-neutral-500 flex items-center gap-1.5">
+                    <Loader2 className="w-3 h-3 animate-spin" /> Saving…
+                  </p>
+                )}
+                {currentMode === TASK_REPORT_MODES.forms && (
+                  <>
+                    <AnswerWindowSetting
+                      hours={windowHours}
+                      canEdit={canEdit}
+                      saving={savingWindow}
+                      onSave={onWindowChange}
+                    />
+                    {canEdit && (
+                      <Button asChild variant="outline" size="sm">
+                        <Link href="/dashboard/company/clock-out-forms"><ClipboardList /> Manage forms and assignments</Link>
+                      </Button>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
             {!canEdit && <p className="text-xs text-neutral-500">Only admins can change this setting.</p>}
           </>
         )}
       </CardContent>
+
+      <Dialog open={Boolean(pendingOpt)} onOpenChange={(o) => { if (!o) setPendingMode(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Switch to {pendingOpt?.label}?</DialogTitle>
+            <DialogDescription>{pendingOpt?.confirm}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingMode(null)}>Cancel</Button>
+            <Button
+              className="bg-orange-500 hover:bg-orange-600 text-white"
+              onClick={() => { const m = pendingMode; setPendingMode(null); onModeChange(m); }}
+            >
+              Switch to {pendingOpt?.label}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
+  );
+}
+
+// BB-129 phase 2: how long after clock-out a questionnaire stays open (company setting,
+// whole hours 1–2160, default 336 = 14 days). Presets or a custom value; saves on its own.
+function AnswerWindowSetting({ hours, canEdit, saving, onSave }) {
+  const current = Number.isFinite(Number(hours)) && Number(hours) > 0 ? Number(hours) : FORM_WINDOW.default;
+  const isPreset = FORM_WINDOW_PRESETS.some((p) => p.hours === current);
+  const [custom, setCustom] = useState(false);
+  const [amount, setAmount] = useState("");
+  const [unit, setUnit] = useState("days");
+  useEffect(() => {
+    // Seed the custom input from the saved value.
+    if (current % 24 === 0) { setUnit("days"); setAmount(String(current / 24)); }
+    else { setUnit("hours"); setAmount(String(current)); }
+  }, [current]);
+  const showCustom = custom || !isPreset;
+  const n = Number(amount);
+  const customHours = unit === "days" ? n * 24 : n;
+  const customError = !amount.trim() || !Number.isInteger(n) || n <= 0
+    ? "Enter a whole number."
+    : customHours < FORM_WINDOW.min || customHours > FORM_WINDOW.max
+      ? "Between 1 hour and 90 days."
+      : null;
+
+  return (
+    <div className="space-y-2 border-t border-neutral-200 dark:border-neutral-700 pt-3">
+      <div>
+        <p className="text-xs font-semibold text-neutral-700 dark:text-neutral-300">Time to answer after clock-out</p>
+        <p className="text-xs text-neutral-500">
+          Currently {fmtWindowHours(current)}. When it ends, the questionnaire locks and an unsubmitted draft is kept as Incomplete.
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {FORM_WINDOW_PRESETS.map((p) => {
+          const selected = !showCustom && current === p.hours;
+          return (
+            <button
+              key={p.hours}
+              type="button"
+              disabled={!canEdit || saving}
+              aria-pressed={selected}
+              onClick={() => { setCustom(false); if (current !== p.hours) onSave(p.hours); }}
+              className={`px-3 py-1.5 rounded-md border text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                selected
+                  ? "border-orange-400 text-orange-700 font-semibold"
+                  : "border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:border-orange-200"
+              }`}
+            >
+              {p.label}
+            </button>
+          );
+        })}
+        <button
+          type="button"
+          disabled={!canEdit || saving}
+          aria-pressed={showCustom}
+          onClick={() => setCustom(true)}
+          className={`px-3 py-1.5 rounded-md border text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+            showCustom
+              ? "border-orange-400 text-orange-700 font-semibold"
+              : "border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:border-orange-200"
+          }`}
+        >
+          Custom
+        </button>
+        {saving && <Loader2 className="w-3.5 h-3.5 animate-spin text-neutral-500 self-center" />}
+      </div>
+      {showCustom && canEdit && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Input type="number" min={1} step={1} value={amount} onChange={(e) => setAmount(e.target.value)} className="w-24 h-8" disabled={saving} />
+          <Select value={unit} onValueChange={setUnit} disabled={saving}>
+            <SelectTrigger className="w-28 h-8"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="days">days</SelectItem>
+              <SelectItem value="hours">hours</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button size="sm" variant="outline" disabled={saving || Boolean(customError) || customHours === current}
+            onClick={() => onSave(customHours)}>
+            Save
+          </Button>
+          {customError && amount !== "" && <span className="text-xs text-destructive">{customError}</span>}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1871,6 +2054,8 @@ export default function ModernCompanyConfigurations() {
   const canEditCutoffPageView = ["admin", "superadmin", "supervisor"].includes((role || "").toLowerCase());
   const [savingTaskReport,        setSavingTaskReport]        = useState(false); // BB-129
   const canEditTaskReport = ["admin", "superadmin"].includes((role || "").toLowerCase());
+  const [savingTaskReportMode,    setSavingTaskReportMode]    = useState(false); // BB-129 phase 1
+  const [savingFormWindow,        setSavingFormWindow]        = useState(false); // BB-129 phase 2
 
   // ── Live clock ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -2052,8 +2237,11 @@ export default function ModernCompanyConfigurations() {
     try {
       // BB-119: send the zone only when it was changed here, so an old copy can't overwrite it.
       // BB-121: cutoffPageView is never sent from here; it saves on its own (saveCutoffPageView).
-      // BB-129: same for taskReportEnabled (saveTaskReportEnabled).
-      const { timezone, cutoffPageView: _cutoffPageView, taskReportEnabled: _taskReportEnabled, ...rest } = draft || {};
+      // BB-129: same for taskReportEnabled (saveTaskReportEnabled) and taskReportMode (saveTaskReportMode).
+      const {
+        timezone, cutoffPageView: _cutoffPageView, taskReportEnabled: _taskReportEnabled,
+        taskReportMode: _taskReportMode, taskReportFormWindowHours: _taskReportFormWindowHours, ...rest
+      } = draft || {};
       const timezoneChanged = timezone !== savedTimezoneRef.current;
       const r = await fetch(`${API}/api/company-settings`, {
         method: "PATCH",
@@ -2107,6 +2295,46 @@ export default function ModernCompanyConfigurations() {
       } else toast.error(j.error || j.message || "Failed to save clock-out documentation setting");
     } catch { toast.error("Network error saving clock-out documentation setting"); }
     setSavingTaskReport(false);
+  };
+
+  // ── API: PATCH /api/company-settings { taskReportMode } (BB-129 phase 1) ──
+  // Sends only this field. Admin only. This endpoint returns errors as { error }.
+  const saveTaskReportMode = async (value) => {
+    setSavingTaskReportMode(true);
+    try {
+      const r = await fetch(`${API}/api/company-settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ taskReportMode: value }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) {
+        const saved = j.data?.taskReportMode ?? value;
+        setDraft((p) => ({ ...p, taskReportMode: saved }));
+        toast.success(`Clock-out documentation set to ${saved === TASK_REPORT_MODES.forms ? "Custom forms" : "Free-form"}`);
+      } else toast.error(j.error || j.message || "Failed to save documentation mode");
+    } catch { toast.error("Network error saving documentation mode"); }
+    setSavingTaskReportMode(false);
+  };
+
+  // ── API: PATCH /api/company-settings { taskReportFormWindowHours } (BB-129 phase 2) ──
+  // Whole hours, 1–2160. Sends only this field. Admin only. Errors come back as { error }.
+  const saveFormWindowHours = async (hours) => {
+    setSavingFormWindow(true);
+    try {
+      const r = await fetch(`${API}/api/company-settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ taskReportFormWindowHours: hours }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) {
+        const saved = j.data?.taskReportFormWindowHours ?? hours;
+        setDraft((p) => ({ ...p, taskReportFormWindowHours: saved }));
+        toast.success(`Time to answer set to ${fmtWindowHours(saved)}`);
+      } else toast.error(j.error || j.message || "Failed to save the time to answer");
+    } catch { toast.error("Network error saving the time to answer"); }
+    setSavingFormWindow(false);
   };
 
   const handleTimezoneChange = (val) => { setPendingTimezone(val); setShowTimezoneModal(true); };
@@ -2292,6 +2520,12 @@ export default function ModernCompanyConfigurations() {
             canEdit={canEditTaskReport}
             saving={savingTaskReport}
             onChange={saveTaskReportEnabled}
+            mode={draft?.taskReportMode}
+            savingMode={savingTaskReportMode}
+            onModeChange={saveTaskReportMode}
+            windowHours={draft?.taskReportFormWindowHours}
+            savingWindow={savingFormWindow}
+            onWindowChange={saveFormWindowHours}
           />
         </div>
       )}

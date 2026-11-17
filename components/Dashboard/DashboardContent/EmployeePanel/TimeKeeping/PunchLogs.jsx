@@ -43,6 +43,10 @@ import {
   ClockAlert,
   FilePen,
   FileCheck2,
+  ClipboardList,
+  ClipboardPen,
+  ClipboardCheck,
+  ClipboardX,
 } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
@@ -64,6 +68,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ContestDialog, toLocalTimeInput } from "./ContestDialog";
 import TaskReportDialog from "./TaskReportDialog";
 import { listMyReportsForDates } from "@/lib/taskReportsApi";
+import { getMyPending, listMyResponsesForDates } from "@/lib/taskReportFormsApi";
+import TaskReportFormAnswerDialog from "../../TaskReportForms/TaskReportFormAnswerDialog";
+import MyQuestionnairesDialog from "../../TaskReportForms/MyQuestionnairesDialog";
 import { isLogInLockedCutoff, contestChange, fmtSignedHours, dateInZone } from "@/lib/contestTimes";
 import FormDialog from "@/components/common/FormDialog";
 import OrangeLoadingSpinner from "@/components/common/Spinner";
@@ -636,6 +643,7 @@ export default function PunchLogs() {
         const data = j?.data || {};
         setIsDayCareCompany(data.isBNC === false || data.companyType === "DAYCARE");
         setTaskReportEnabled(Boolean(data.taskReportEnabled)); // BB-129
+        setTaskReportMode(data.taskReportMode === "forms" ? "forms" : "freeform"); // BB-129 phase 2
       })
       .catch(() => {});
   }, [token, API_URL]);
@@ -643,6 +651,8 @@ export default function PunchLogs() {
   // ── BB-129: daily task report — one per company-zone day of the clock-in ──────
   // Rows on the current page → their report days → summaries for the icon state.
   const [taskReportEnabled, setTaskReportEnabled] = useState(false);
+  const [taskReportMode,    setTaskReportMode]    = useState("freeform"); // BB-129 phase 2
+  const formsMode = taskReportEnabled && taskReportMode === "forms";
   const [taskReports,       setTaskReports]       = useState(() => new Map()); // "YYYY-MM-DD" → { status, taskCount, submittedAt }
   const [taskReportDate,    setTaskReportDate]    = useState(null);            // day open in the dialog
   const reportDateOf = useCallback((log) => toLocalDateStr(log?.timeIn, companyTimezone), [companyTimezone]);
@@ -651,13 +661,57 @@ export default function PunchLogs() {
     [logs, reportDateOf]
   );
   useEffect(() => {
-    if (!token || !taskReportEnabled || !visibleReportDates) return;
+    if (!token || !taskReportEnabled || formsMode || !visibleReportDates) return;
     let cancelled = false;
     listMyReportsForDates(API_URL, token, visibleReportDates.split(","))
       .then((map) => { if (!cancelled) setTaskReports(map); })
       .catch(() => { /* silent — the icon state is informational */ });
     return () => { cancelled = true; };
-  }, [token, API_URL, taskReportEnabled, visibleReportDates]);
+  }, [token, API_URL, taskReportEnabled, formsMode, visibleReportDates]);
+
+  // ── BB-129 phase 2: questionnaires (Custom forms mode replaces the free-form report) ──
+  // Pending = punches still open to answer (badge + list). Responses for the visible days
+  // give the row icon its state once a questionnaire is submitted or closed.
+  const [formsPending,     setFormsPending]     = useState(null);   // GET /me/pending data
+  const [formsPendingBusy, setFormsPendingBusy] = useState(false);
+  const [formResponses,    setFormResponses]    = useState(() => new Map()); // timeLogId → response summary
+  const [formsReloadKey,   setFormsReloadKey]   = useState(0);
+  const [answerLogId,      setAnswerLogId]      = useState(null);
+  const [myFormsOpen,      setMyFormsOpen]      = useState(false);
+
+  const loadFormsPending = useCallback(async () => {
+    if (!token || !formsMode) return;
+    setFormsPendingBusy(true);
+    try { setFormsPending(await getMyPending(API_URL, token)); }
+    catch { /* silent — the badge is informational */ }
+    setFormsPendingBusy(false);
+  }, [token, API_URL, formsMode]);
+
+  useEffect(() => { loadFormsPending(); }, [loadFormsPending, formsReloadKey]);
+
+  useEffect(() => {
+    if (!token || !formsMode || !visibleReportDates) return;
+    let cancelled = false;
+    listMyResponsesForDates(API_URL, token, visibleReportDates.split(","))
+      .then((map) => { if (!cancelled) setFormResponses(map); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [token, API_URL, formsMode, visibleReportDates, formsReloadKey]);
+
+  const formsPendingByLog = useMemo(
+    () => new Map((formsPending?.items || []).map((it) => [it.timeLogId, it])),
+    [formsPending]
+  );
+  const formsOn = formsMode && formsPending?.enabled !== false;
+  const formsPendingCount = formsPending?.items?.length || 0;
+  // Row icon: open (pending) first, otherwise the saved response if there is one.
+  const formStateOf = (log) => {
+    if (!formsOn) return null;
+    const p = formsPendingByLog.get(log.id);
+    if (p) return { status: p.response?.status || null };
+    const r = formResponses.get(log.id);
+    return r ? { status: r.status } : null;
+  };
 
   // Re-fetch logs whenever queryParams changes (filter change, page change, etc.)
   useEffect(() => {
@@ -1103,6 +1157,20 @@ export default function PunchLogs() {
                 <UserCheck className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">File for employee</span>
                 <span className="sm:hidden">For employee</span>
+              </Button>
+            )}
+
+            {/* BB-129 phase 2: questionnaires to answer (Custom forms mode) */}
+            {formsOn && (
+              <Button variant="outline" className="h-8 text-xs rounded-lg px-2.5 gap-1.5 relative"
+                onClick={() => setMyFormsOpen(true)} aria-label={`Questionnaires, ${formsPendingCount} to answer`}>
+                <ClipboardList className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Questionnaires</span>
+                {formsPendingCount > 0 && (
+                  <span className="ml-0.5 min-w-[1.125rem] h-[1.125rem] px-1 rounded-full bg-orange-500 text-white text-[10px] font-semibold leading-[1.125rem] text-center tabular-nums">
+                    {formsPendingCount > 99 ? "99+" : formsPendingCount}
+                  </span>
+                )}
               </Button>
             )}
 
@@ -1593,7 +1661,7 @@ export default function PunchLogs() {
                             case "actions":
                               return (
                                 <TableCell key="actions" className="text-center" onClick={(e) => e.stopPropagation()}>
-                                  {canContestBase(log) || log.otStatus === "No Approval" || (taskReportEnabled && reportDateOf(log)) ? (
+                                  {canContestBase(log) || log.otStatus === "No Approval" || (taskReportEnabled && !formsMode && reportDateOf(log)) || formStateOf(log) ? (
                                     <div className="flex items-center justify-center gap-1">
                                       {canContestBase(log) && contestPending && (
                                         <Tooltip>
@@ -1639,7 +1707,36 @@ export default function PunchLogs() {
                                         </Tooltip>
                                       )}
                                       {/* BB-129: every punch on a day opens that day's one report */}
-                                      {taskReportEnabled && reportDateOf(log) && (() => {
+                                      {/* BB-129 phase 2: this punch's questionnaire (Custom forms mode) */}
+                                      {(() => {
+                                        const fs = formStateOf(log);
+                                        if (!fs) return null;
+                                        const label = fs.status === "submitted" ? "Questionnaire submitted"
+                                          : fs.status === "incomplete" ? "Questionnaire incomplete (closed)"
+                                          : fs.status === "draft" ? "Questionnaire draft" : "Answer questionnaire";
+                                        const Icon = fs.status === "submitted" ? ClipboardCheck
+                                          : fs.status === "incomplete" ? ClipboardX
+                                          : fs.status === "draft" ? ClipboardPen : ClipboardList;
+                                        return (
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <Button
+                                                variant="ghost" size="sm"
+                                                className={`h-8 w-8 p-0 hover:bg-orange-50 hover:text-orange-600 dark:hover:bg-orange-950/20 ${
+                                                  fs.status === "submitted" ? "text-green-600" : fs.status === "incomplete" ? "text-muted-foreground" : "text-orange-600"
+                                                }`}
+                                                aria-label={label}
+                                                onClick={() => setAnswerLogId(log.id)}
+                                              >
+                                                <Icon className="h-4 w-4" />
+                                              </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent>{label}</TooltipContent>
+                                          </Tooltip>
+                                        );
+                                      })()}
+                                      {/* BB-129: free-form daily report (hidden in Custom forms mode) */}
+                                      {taskReportEnabled && !formsMode && reportDateOf(log) && (() => {
                                         const rep = taskReports.get(reportDateOf(log));
                                         const label = rep?.status === "submitted"
                                           ? `Task report submitted (${rep.taskCount} task${rep.taskCount === 1 ? "" : "s"})`
@@ -2312,6 +2409,26 @@ export default function PunchLogs() {
           apiUrl={API_URL}
           token={token}
           onSaved={(date, rep) => setTaskReports((m) => new Map(m).set(date, rep))}
+        />
+
+        {/* BB-129 phase 2: questionnaires (Custom forms mode) */}
+        <TaskReportFormAnswerDialog
+          open={Boolean(answerLogId)}
+          onOpenChange={(v) => { if (!v) setAnswerLogId(null); }}
+          timeLogId={answerLogId}
+          apiUrl={API_URL}
+          token={token}
+          onSaved={() => setFormsReloadKey((k) => k + 1)}
+        />
+        <MyQuestionnairesDialog
+          open={myFormsOpen}
+          onOpenChange={setMyFormsOpen}
+          apiUrl={API_URL}
+          token={token}
+          pending={formsPending}
+          pendingLoading={formsPendingBusy}
+          onReloadPending={loadFormsPending}
+          onOpenPunch={setAnswerLogId}
         />
 
         <ContestDialog

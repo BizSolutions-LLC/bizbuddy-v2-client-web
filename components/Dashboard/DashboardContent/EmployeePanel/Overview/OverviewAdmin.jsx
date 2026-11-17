@@ -1,473 +1,251 @@
-/* eslint-disable react-hooks/exhaustive-deps */
 "use client";
+// components/Dashboard/DashboardContent/EmployeePanel/Overview/OverviewAdmin.jsx
+//
+// BB-133: company overview (admins) or team overview (supervisors: their department + direct
+// reports, data.scope === "team"). GET /api/analytics/admin-dashboard.
+// Corrected server numbers: company time zone, range ends today, rates are shares of decided
+// scheduled person-days, approved OT from cutoff review next to hours beyond schedule.
+// New fields are read first; old names stay as fallbacks while both exist.
 
-import { useEffect, useState } from "react";
-import { CalendarCheck2, ChevronDown } from "lucide-react";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { toast } from "sonner";
-import useAuthStore from "@/store/useAuthStore";
-import { Card, CardHeader, CardContent, CardTitle } from "@/components/ui/card";
-import { ChartCard, PieSimple, BarSimple, LineSimple, GroupedBarSimple, AreaSimple } from "./Commons";
-import { format, subDays, startOfMonth, endOfMonth, subMonths } from "date-fns";
-import { cn } from "@/lib/utils";
+import {
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+} from "recharts";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  useOverviewAnalytics, PeriodPicker, StatTile, TileGrid, ChartCard, SplitBar, RankedList, OverviewSkeleton,
+  CHART, SERIES, AXIS, GRID, TOOLTIP, CURSOR_FILL, fmtAxisLabel, fmtHours, fmtNum, fmtPct, rangeLabel,
+} from "./OverviewShared";
 
-const DATE_PRESETS = [
-  { label: "This Month", value: "this_month" },
-  { label: "Last Month", value: "last_month" },
-  { label: "Last 7 Days", value: "last_7_days" },
-  { label: "Last 14 Days", value: "last_14_days" },
-  { label: "Last 28 Days", value: "last_28_days" },
-  { label: "Custom Range", value: "custom" },
-];
-
-// Client-side approximation of each preset's actual date span, purely for display in the
-// date-range picker (start/end boxes + calendar highlight).
-const getPresetRange = (period, customRange) => {
-  const now = new Date();
-  switch (period) {
-    case "last_7_days":
-      return { from: subDays(now, 6), to: now };
-    case "last_14_days":
-      return { from: subDays(now, 13), to: now };
-    case "last_28_days":
-      return { from: subDays(now, 27), to: now };
-    case "last_month": {
-      const lastMonth = subMonths(now, 1);
-      return { from: startOfMonth(lastMonth), to: endOfMonth(lastMonth) };
-    }
-    case "custom":
-      return customRange?.from && customRange?.to ? customRange : { from: null, to: null };
-    case "this_month":
-    default:
-      return { from: startOfMonth(now), to: now };
-  }
-};
+const num = (v) => (typeof v === "string" ? parseFloat(v) : v) || 0;
 
 export default function OverviewAdmin() {
-  const { token } = useAuthStore();
-  const API = process.env.NEXT_PUBLIC_API_URL;
+  const { data, loading, error, reload, period, setPeriod } = useOverviewAnalytics("/api/analytics/admin-dashboard");
 
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  
-  // Date range state — committed (drives the fetch) vs. pending (edited inside the open popover,
-  // only committed on "Apply").
-  const [selectedPeriod, setSelectedPeriod] = useState("this_month");
-  const [customDateRange, setCustomDateRange] = useState({ from: null, to: null });
-  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
-  const [pendingPeriod, setPendingPeriod] = useState("this_month");
-  const [pendingCustomRange, setPendingCustomRange] = useState({ from: null, to: null });
-
-  const fetchAnalytics = async (period, customStart, customEnd) => {
-    setLoading(true);
-    try {
-      let url = `${API}/api/analytics/admin-dashboard?period=${period}`;
-      if (period === 'custom' && customStart && customEnd) {
-        url += `&startDate=${format(customStart, 'yyyy-MM-dd')}&endDate=${format(customEnd, 'yyyy-MM-dd')}`;
-      }
-
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const j = await res.json();
-
-      if (!res.ok || !j.data) throw new Error(j.message || "Analytics fetch error");
-      setData(j.data);
-    } catch (err) {
-      toast.error(err.message);
-    }
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    if (!token) return;
-    fetchAnalytics(selectedPeriod, customDateRange.from, customDateRange.to);
-  }, [API, token, selectedPeriod]);
-
-  const handleDatePickerOpenChange = (open) => {
-    if (open) {
-      setPendingPeriod(selectedPeriod);
-      setPendingCustomRange(customDateRange);
-    }
-    setIsDatePickerOpen(open);
-  };
-
-  const handleCalendarSelect = (range) => {
-    if (pendingPeriod !== 'custom') setPendingPeriod('custom');
-    setPendingCustomRange(range);
-  };
-
-  const handleApplyDateRange = () => {
-    if (pendingPeriod === 'custom') {
-      if (!pendingCustomRange.from || !pendingCustomRange.to) {
-        toast.error("Please select both start and end dates");
-        return;
-      }
-      setCustomDateRange(pendingCustomRange);
-      setSelectedPeriod('custom');
-      fetchAnalytics('custom', pendingCustomRange.from, pendingCustomRange.to);
-    } else {
-      setCustomDateRange({ from: null, to: null });
-      setSelectedPeriod(pendingPeriod);
-    }
-    setIsDatePickerOpen(false);
-  };
-
-  const SkeletonMetrics = () => <Skeleton className="h-40 w-full rounded-xl mb-4" />;
-
-  const SkeletonCharts = (rows) => (
-    <div className="grid gap-3">
-      {Array.from({ length: rows }).map((_, i) => (
-        <Skeleton key={i} className="h-72 w-full rounded-lg" />
-      ))}
-    </div>
-  );
-
-  if (loading || !data) {
-    return (
-      <>
-        <div className="mb-6">
-          <Skeleton className="h-10 w-64 rounded-lg" />
-        </div>
-        <SkeletonMetrics />
-        {SkeletonCharts(4)}
-      </>
+  if (!data) {
+    return loading ? <OverviewSkeleton /> : (
+      <Card><CardContent className="py-10 text-center space-y-2">
+        <p className="text-sm text-destructive">{error || "Couldn't load the overview."}</p>
+        <button type="button" className="text-sm underline text-muted-foreground" onClick={reload}>Try again</button>
+      </CardContent></Card>
     );
   }
 
-  const cards = [
-    { label: "Departments", value: data.summary.departments, description: "Departments configured for your company." },
-    { label: "Total Employees", value: data.summary.totalEmployees, description: "Employees currently in your company account." },
-    { label: "Active Plan", value: data.summary.activePlan, isText: true, description: "Your company's current subscription plan." },
-    { label: "Active Staff", value: data.summary.activeStaff, description: "Employees with at least one clock-in during the selected period." },
-    { label: "Late Rate", value: `${data.summary.lateRate}%`, description: "Share of punches recorded after the scheduled start time." },
-    { label: "Early Leave Rate", value: `${data.summary.earlyLeaveRate}%`, description: "Share of punches recorded before the scheduled end time." },
-    { label: "Reliability", value: `${data.summary.reliabilityRate}%`, description: "Share of scheduled shifts completed without a late-in or early-out." },
-    { label: "Coverage Rate", value: `${data.summary.coverageRate}%`, description: "Share of scheduled shifts that were actually staffed." },
-    { label: "Leave Approval", value: `${data.summary.leaveApprovalRate}%`, description: "Share of submitted leave requests that were approved." },
-  ];
-
-  const currentPreset = DATE_PRESETS.find(p => p.value === selectedPeriod);
-  const committedRange = getPresetRange(selectedPeriod, customDateRange);
-  const pendingRange = getPresetRange(pendingPeriod, pendingCustomRange);
+  const team = data.scope === "team";
+  const s = data.summary || {};
+  const c = data.charts || {};
+  const att = c.attendanceMetrics || {};
+  const lateRate = num(att.lateRate ?? s.lateRate);
+  const earlyRate = num(att.earlyRate ?? s.earlyLeaveRate);
+  const reliability = num(att.reliabilityRate ?? s.reliabilityRate);
+  const activeStaff = c.activeStaff || [];
+  const hours = c.hoursComparison || [];
+  const daily = c.attendanceDaily || [];
+  const beyond = num(s.hoursBeyondSchedule ?? s.totalOvertimeHours);
+  const approved = s.approvedOvertimeHours;
+  const hasApproved = approved != null;
+  const otTrend = (c.overtimeTrend || []).map((r) => ({
+    period: r.period,
+    approved: num(r.approvedHours),
+    beyond: num(r.beyondScheduleHours ?? r.hours),
+  }));
+  const otDept = (c.overtimeByDepartment || []).map((r) => ({
+    dept: r.dept,
+    approved: num(r.approvedHours),
+    beyond: num(r.beyondScheduleHours ?? r.hours),
+  })).map((r) => ({ ...r, rank: hasApproved ? r.approved : r.beyond }))
+    .sort((a, b) => b.rank - a.rank || b.beyond - a.beyond);
+  const depts = c.departmentBreakdown || [];
+  const people = team ? "team members" : "employees";
 
   return (
-    <div className="animate-in fade-in duration-300">
-      {/* Professional Date Range Selector */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <Popover open={isDatePickerOpen} onOpenChange={handleDatePickerOpenChange}>
-            <PopoverTrigger asChild>
-              <Button
-                variant="outline"
-                className={cn(
-                  "justify-between font-medium shadow-sm hover:shadow-md transition-all duration-200",
-                  "border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700",
-                  "bg-white dark:bg-gray-950 min-w-[220px]"
-                )}
-              >
-                <div className="flex items-center gap-2">
-                  <CalendarCheck2 className="h-4 w-4 text-gray-500" />
-                  <span className="text-sm font-medium">{currentPreset?.label || "This Month"}</span>
-                  {committedRange.from && committedRange.to && (
-                    <span className="hidden sm:inline text-sm text-gray-400 dark:text-gray-500">
-                      {format(committedRange.from, 'MMM d')} – {format(committedRange.to, 'MMM d, yyyy')}
-                    </span>
-                  )}
-                </div>
-                <ChevronDown className="h-4 w-4 text-gray-400 ml-2" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-[min(700px,calc(100vw-2rem))] p-0" align="start">
-              <div className="flex flex-col sm:flex-row">
-                {/* Preset list */}
-                <div className="flex sm:flex-col overflow-x-auto sm:overflow-visible sm:w-44 shrink-0 border-b sm:border-b-0 sm:border-r border-gray-200 dark:border-gray-800 py-2">
-                  {DATE_PRESETS.map((preset) => (
-                    <button
-                      key={preset.value}
-                      type="button"
-                      onClick={() => setPendingPeriod(preset.value)}
-                      className={cn(
-                        "text-left px-4 py-2 text-sm whitespace-nowrap transition-colors rounded-md sm:rounded-none",
-                        pendingPeriod === preset.value
-                          ? "bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400 font-medium"
-                          : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-900"
-                      )}
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Start/End display + calendar */}
-                <div className="flex-1 p-4 min-w-0">
-                  <div className="flex items-end gap-3 mb-3">
-                    <div className="flex-1 min-w-0">
-                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Start date</label>
-                      <div className="border border-gray-300 dark:border-gray-700 rounded-md px-3 py-1.5 text-sm truncate">
-                        {pendingRange.from ? format(pendingRange.from, 'MMM d, yyyy') : 'Select date'}
-                      </div>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">End date</label>
-                      <div className="border border-gray-300 dark:border-gray-700 rounded-md px-3 py-1.5 text-sm truncate">
-                        {pendingRange.to ? format(pendingRange.to, 'MMM d, yyyy') : 'Select date'}
-                      </div>
-                    </div>
-                    {pendingPeriod === 'custom' && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setPendingCustomRange({ from: null, to: null })}
-                      >
-                        Clear
-                      </Button>
-                    )}
-                  </div>
-
-                  <div className="overflow-x-auto">
-                    <Calendar
-                      mode="range"
-                      numberOfMonths={2}
-                      selected={pendingPeriod === 'custom' ? pendingCustomRange : pendingRange}
-                      onSelect={handleCalendarSelect}
-                      disabled={(date) => date > new Date() || date < new Date("2020-01-01")}
-                      className="rounded-md"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-gray-200 dark:border-gray-800">
-                <Button variant="ghost" size="sm" onClick={() => setIsDatePickerOpen(false)}>
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={handleApplyDateRange}
-                  disabled={pendingPeriod === 'custom' && (!pendingCustomRange.from || !pendingCustomRange.to)}
-                  className="bg-orange-500 hover:bg-orange-600 text-white"
-                >
-                  Apply
-                </Button>
-              </div>
-            </PopoverContent>
-          </Popover>
-
-          {/* Date Range Display */}
-          <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-gray-200 dark:border-gray-800">
-            <span className="text-sm text-gray-600 dark:text-gray-400">
-              {data.dateRange?.label || "This Month"}
-            </span>
-          </div>
-        </div>
-
-        {/* Hours Tracked */}
-        <TooltipProvider delayDuration={200}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="hidden lg:block cursor-default">
-                <span className="text-xs text-gray-500 dark:text-gray-400 border-b border-dotted border-gray-400 dark:border-gray-600 pb-0.5">
-                  Hours Tracked
-                </span>
-                <p className="mt-1.5 text-3xl sm:text-4xl font-bold text-gray-900 dark:text-gray-100">
-                  {data.summary.totalHoursWorked.toFixed(0)}
-                </p>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent className="max-w-[220px] text-xs">
-              Total hours logged across your company during the selected period.
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <PeriodPicker period={period} onChange={setPeriod} label={rangeLabel(data.dateRange)} disabled={loading} />
+        {team && <p className="text-sm text-muted-foreground">Your department and direct reports</p>}
       </div>
 
-      {/* KPI Cards */}
-      <TooltipProvider delayDuration={200}>
-        <Card className="border border-gray-200 dark:border-gray-800 shadow-sm rounded-xl mb-4">
-          <CardContent className="p-6">
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-              {cards.map((c) => (
-                <Tooltip key={c.label}>
-                  <TooltipTrigger asChild>
-                    <div className="min-w-0 cursor-default">
-                      <span className="text-xs text-gray-500 dark:text-gray-400 border-b border-dotted border-gray-400 dark:border-gray-600 pb-0.5">
-                        {c.label}
-                      </span>
-                      <p
-                        className={`mt-1.5 font-bold text-gray-900 dark:text-gray-100 truncate ${c.isText ? 'text-xl sm:text-2xl' : 'text-2xl sm:text-3xl'}`}
-                        title={String(c.value)}
-                      >
-                        {c.value}
-                      </p>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-[220px] text-xs">{c.description}</TooltipContent>
-                </Tooltip>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </TooltipProvider>
+      <TileGrid>
+        <StatTile loading={loading} label="Active staff" value={fmtNum(num(s.activeStaff))}
+          hint={`of ${fmtNum(num(s.totalEmployees))} ${people}`}
+          info="People with at least one clock-in in the selected period." />
+        <StatTile loading={loading} label="Hours worked" value={fmtHours(num(s.totalHoursWorked))}
+          hint="Net hours, breaks deducted" />
+        {hasApproved ? (
+          <StatTile loading={loading} label="Approved overtime" value={fmtHours(num(approved))}
+            hint={`${fmtHours(beyond)} beyond schedule`}
+            info="Overtime approved in cutoff review (same as payroll). The current period may show 0 until its cutoff is reviewed. Beyond schedule = worked minus scheduled hours." />
+        ) : (
+          <StatTile loading={loading} label="Beyond schedule" value={fmtHours(beyond)} hint="Worked minus scheduled hours" />
+        )}
+        <StatTile loading={loading} label="Absences" value={s.absences != null ? fmtNum(num(s.absences)) : "—"}
+          hint={s.scheduledShifts != null ? `of ${fmtNum(num(s.scheduledShifts))} scheduled days` : "Leave and holidays not counted"}
+          info="Scheduled days already over with no punch. Approved leave and company holidays never count." />
+        <StatTile loading={loading} label="Coverage" value={fmtPct(s.coverageRate)} hint="Scheduled days with a punch" />
+        <StatTile loading={loading} label="Reliability" value={fmtPct(reliability)} hint="On time and not early"
+          info="Share of scheduled days started on time (within grace) and not ended early." />
+        <StatTile loading={loading} label="Late rate" value={fmtPct(lateRate)} hint="After shift start + grace" />
+        <StatTile loading={loading} label="Early leave rate" value={fmtPct(earlyRate)} hint="Before shift end − grace" />
+      </TileGrid>
 
-      {/* Charts */}
-      <div className="grid gap-3">
-        {/* Row 1: Active Staff & Hours Comparison */}
-        <div className="grid lg:grid-cols-2 gap-3">
-          <ChartCard title="Active Staff Over Time" isEmpty={!data.charts.activeStaff?.length}>
-            {data.charts.activeStaff?.length > 0 ? (
-              <BarSimple data={data.charts.activeStaff} x="label" y="count" />
-            ) : (
-              <div className="flex items-center justify-center h-full text-gray-500">
-                No activity data
-              </div>
-            )}
+      <div className="grid gap-6 lg:grid-cols-2">
+        {daily.length > 0 ? (
+          <ChartCard title="Daily attendance" description="Scheduled days, each counted once" loading={loading}
+            empty={!daily.some((d) => num(d.onTime) + num(d.late) + num(d.earlyOut) + num(d.absent) > 0)}
+            emptyText="No scheduled days in this period.">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={daily} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                <CartesianGrid stroke={GRID} vertical={false} />
+                <XAxis dataKey="date" tickFormatter={fmtAxisLabel} tick={AXIS} axisLine={false} tickLine={false} minTickGap={16} />
+                <YAxis allowDecimals={false} tick={AXIS} axisLine={false} tickLine={false} />
+                <Tooltip {...TOOLTIP} cursor={CURSOR_FILL} labelFormatter={fmtAxisLabel} />
+                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
+                <Bar dataKey="onTime" name="On time" stackId="a" fill={CHART.c2} maxBarSize={28} />
+                <Bar dataKey="late" name="Late" stackId="a" fill={CHART.c4} maxBarSize={28} />
+                <Bar dataKey="earlyOut" name="Early out" stackId="a" fill={CHART.c5} maxBarSize={28} />
+                <Bar dataKey="absent" name="Absent" stackId="a" fill={CHART.danger} maxBarSize={28} radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
           </ChartCard>
-          
-          <ChartCard title="Scheduled vs Actual Hours" isEmpty={!data.charts.hoursComparison?.length}>
-            {data.charts.hoursComparison?.length > 0 ? (
-              <GroupedBarSimple 
-                data={data.charts.hoursComparison} 
-                x="date" 
-                y1="scheduled" 
-                y2="actual" 
-                label1="Scheduled" 
-                label2="Actual" 
-              />
-            ) : (
-              <div className="flex items-center justify-center h-full text-gray-500">
-                No hours data
-              </div>
-            )}
-          </ChartCard>
-        </div>
-
-        {/* Row 2: Attendance Metrics */}
-        <div className="grid lg:grid-cols-2 gap-3">
-          <ChartCard title="Attendance Rates">
-            <LineSimple
-              data={[
-                { label: "Late-In", rate: data.charts.attendanceMetrics.lateRate },
-                { label: "Early-Out", rate: data.charts.attendanceMetrics.earlyRate },
-              ]}
-              x="label"
-              y="rate"
-            />
-          </ChartCard>
-          
-          <ChartCard title="Reliability Score">
-            <AreaSimple 
-              data={[{ label: "Current Period", rate: data.charts.attendanceMetrics.reliabilityRate }]} 
-              x="label" 
-              y="rate" 
-            />
-          </ChartCard>
-        </div>
-
-        {/* Row 3: Leave Analytics */}
-        <div className="grid lg:grid-cols-2 gap-3">
-          <ChartCard title="Leave by Type" isEmpty={!data.charts.leaveByType?.length}>
-            {data.charts.leaveByType?.length > 0 ? (
-              <BarSimple data={data.charts.leaveByType} x="type" y="days" />
-            ) : (
-              <div className="flex items-center justify-center h-full text-gray-500">
-                No leave data
-              </div>
-            )}
-          </ChartCard>
-          
-          <ChartCard title="Leave Request Status" isEmpty={!data.charts.leaveDistribution?.length}>
-            {data.charts.leaveDistribution?.length > 0 ? (
-              <div className="flex flex-col items-center justify-center h-full">
-                <PieSimple data={data.charts.leaveDistribution} />
-                <div className="flex items-center gap-4 mt-4 text-sm">
-                  <div className="flex items-center gap-1.5">
-                    <div className="h-2.5 w-2.5 rounded-full bg-orange-500 shadow-sm" />
-                    <span className="text-gray-600 dark:text-gray-400">Approved</span>
-                    <span className="font-medium">{data.charts.leaveDistribution[0]?.value || 0}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <div className="h-2.5 w-2.5 rounded-full bg-blue-500 shadow-sm" />
-                    <span className="text-gray-600 dark:text-gray-400">Other</span>
-                    <span className="font-medium">{data.charts.leaveDistribution[1]?.value || 0}</span>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center justify-center h-full text-gray-500">
-                No leave requests
-              </div>
-            )}
-          </ChartCard>
-        </div>
-
-        {/* Row 4: Overtime Analytics */}
-        <div className="grid lg:grid-cols-2 gap-3">
-          <ChartCard title="Overtime by Department" isEmpty={!data.charts.overtimeByDepartment?.length}>
-            {data.charts.overtimeByDepartment?.length > 0 ? (
-              <BarSimple data={data.charts.overtimeByDepartment} x="dept" y="hours" />
-            ) : (
-              <div className="flex items-center justify-center h-full text-gray-500">
-                No overtime recorded
-              </div>
-            )}
-          </ChartCard>
-          
-          <ChartCard title="Overtime Trend & Cost" isEmpty={!data.charts.overtimeTrend?.length}>
-            {data.charts.overtimeTrend?.length > 0 ? (
-              <AreaSimple data={data.charts.overtimeTrend} x="period" y="cost" />
-            ) : (
-              <div className="flex items-center justify-center h-full text-gray-500">
-                No overtime cost data
-              </div>
-            )}
-          </ChartCard>
-        </div>
-
-        {/* Row 5: Department Breakdown Table */}
-        {data.charts.departmentBreakdown?.length > 0 && (
-          <Card className="border border-gray-200 dark:border-gray-800">
-            <CardHeader>
-              <CardTitle className="text-sm font-semibold">Department Performance</CardTitle>
+        ) : (
+          <Card className="min-w-0">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Shift attendance</CardTitle>
+              <p className="text-xs text-muted-foreground">Share of scheduled shifts</p>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="border-b border-gray-200 dark:border-gray-800">
-                    <tr className="text-left">
-                      <th className="pb-3 font-medium text-gray-600 dark:text-gray-400">Department</th>
-                      <th className="pb-3 font-medium text-gray-600 dark:text-gray-400 text-right">Employees</th>
-                      <th className="pb-3 font-medium text-gray-600 dark:text-gray-400 text-right">Active</th>
-                      <th className="pb-3 font-medium text-gray-600 dark:text-gray-400 text-right">Total Hours</th>
-                      <th className="pb-3 font-medium text-gray-600 dark:text-gray-400 text-right">Avg Hours/Emp</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.charts.departmentBreakdown.map((dept, idx) => (
-                      <tr key={idx} className="border-b border-gray-100 dark:border-gray-900 last:border-0">
-                        <td className="py-3 font-medium">{dept.department}</td>
-                        <td className="py-3 text-right text-gray-600 dark:text-gray-400">{dept.employees}</td>
-                        <td className="py-3 text-right text-gray-600 dark:text-gray-400">{dept.activeEmployees}</td>
-                        <td className="py-3 text-right text-gray-600 dark:text-gray-400">{dept.totalHours}</td>
-                        <td className="py-3 text-right">
-                          <span className="px-2 py-1 bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400 rounded text-xs font-medium">
-                            {dept.avgHoursPerEmployee}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <SplitBar
+                items={[
+                  { label: "On time, full shift", value: reliability, color: CHART.c2 },
+                  { label: "Late clock-in", value: lateRate, color: CHART.c4 },
+                  { label: "Early clock-out", value: earlyRate, color: CHART.c5 },
+                ]}
+                format={(v) => fmtPct(v)}
+                emptyText="No scheduled shifts in this period."
+              />
             </CardContent>
           </Card>
         )}
+
+        <ChartCard title="Scheduled vs actual hours" loading={loading} empty={!hours.length} emptyText="No hours in this period.">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={hours} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+              <CartesianGrid stroke={GRID} vertical={false} />
+              <XAxis dataKey="date" tickFormatter={fmtAxisLabel} tick={AXIS} axisLine={false} tickLine={false} minTickGap={16} />
+              <YAxis tick={AXIS} axisLine={false} tickLine={false} />
+              <Tooltip {...TOOLTIP} cursor={CURSOR_FILL} labelFormatter={fmtAxisLabel} formatter={(v, nm) => [fmtHours(v), nm]} />
+              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
+              <Bar dataKey="scheduled" name="Scheduled" fill={CHART.c3} radius={[4, 4, 0, 0]} maxBarSize={20} />
+              <Bar dataKey="actual" name="Actual" fill={CHART.c1} radius={[4, 4, 0, 0]} maxBarSize={20} />
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
       </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <ChartCard title="Overtime" description={hasApproved ? "Approved in cutoff review vs hours beyond schedule" : "Hours beyond schedule"}
+          loading={loading} empty={!otTrend.some((r) => r.approved + r.beyond > 0)} emptyText="No overtime in this period.">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={otTrend} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+              <CartesianGrid stroke={GRID} vertical={false} />
+              <XAxis dataKey="period" tickFormatter={fmtAxisLabel} tick={AXIS} axisLine={false} tickLine={false} minTickGap={16} />
+              <YAxis tick={AXIS} axisLine={false} tickLine={false} />
+              <Tooltip {...TOOLTIP} cursor={CURSOR_FILL} labelFormatter={fmtAxisLabel} formatter={(v, nm) => [fmtHours(v), nm]} />
+              {hasApproved && <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />}
+              {hasApproved && <Bar dataKey="approved" name="Approved" fill={CHART.c1} radius={[4, 4, 0, 0]} maxBarSize={20} />}
+              <Bar dataKey="beyond" name="Beyond schedule" fill={CHART.c5} radius={[4, 4, 0, 0]} maxBarSize={20} />
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        <ChartCard title="Active staff" description="People who clocked in" loading={loading} empty={!activeStaff.length} emptyText="No clock-ins in this period.">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={activeStaff} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+              <CartesianGrid stroke={GRID} vertical={false} />
+              <XAxis dataKey="label" tickFormatter={fmtAxisLabel} tick={AXIS} axisLine={false} tickLine={false} minTickGap={16} />
+              <YAxis allowDecimals={false} tick={AXIS} axisLine={false} tickLine={false} />
+              <Tooltip {...TOOLTIP} labelFormatter={fmtAxisLabel} formatter={(v) => [fmtNum(v), "Active staff"]} />
+              <Line type="monotone" dataKey="count" stroke={CHART.c2} strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </ChartCard>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <Card className="min-w-0">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Overtime by department</CardTitle>
+            <p className="text-xs text-muted-foreground">{hasApproved ? "Approved hours; beyond schedule in grey" : "Hours beyond schedule"}</p>
+          </CardHeader>
+          <CardContent>
+            <RankedList rows={otDept.filter((r) => r.approved + r.beyond > 0)} showZero
+              label="dept" value="rank" color={CHART.c5}
+              format={fmtHours}
+              detail={hasApproved ? (r) => `${fmtHours(r.beyond)} beyond` : undefined}
+              emptyText="No overtime in this period." />
+          </CardContent>
+        </Card>
+
+        <Card className="min-w-0">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Leave requests</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              By status{s.leaveApprovalRate != null ? ` · ${fmtPct(s.leaveApprovalRate)} approved` : ""}
+            </p>
+          </CardHeader>
+          <CardContent>
+            <SplitBar
+              items={(c.leaveDistribution || []).map((d, i) => ({ label: d.name, value: num(d.value), color: SERIES[(i + 1) % SERIES.length] }))}
+              emptyText="No leave requests in this period."
+            />
+          </CardContent>
+        </Card>
+
+        <Card className="min-w-0">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Leave by type</CardTitle>
+            <p className="text-xs text-muted-foreground">Approved leave days</p>
+          </CardHeader>
+          <CardContent>
+            <RankedList rows={c.leaveByType} label="type" value="days" color={CHART.c3}
+              format={(v) => `${fmtNum(v, 1)} day${v === 1 ? "" : "s"}`} emptyText="No leave in this period." />
+          </CardContent>
+        </Card>
+      </div>
+
+      {depts.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Departments</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Department</TableHead>
+                    <TableHead className="text-right">People</TableHead>
+                    <TableHead className="text-right">Active</TableHead>
+                    <TableHead className="text-right">Total hours</TableHead>
+                    <TableHead className="text-right">Avg hours / person</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {depts.map((d, i) => (
+                    <TableRow key={`${d.department}-${i}`}>
+                      <TableCell className="font-medium">{d.department}</TableCell>
+                      <TableCell className="text-right tabular-nums">{fmtNum(num(d.employees))}</TableCell>
+                      <TableCell className="text-right tabular-nums">{fmtNum(num(d.activeEmployees))}</TableCell>
+                      <TableCell className="text-right tabular-nums">{fmtHours(num(d.totalHours))}</TableCell>
+                      <TableCell className="text-right tabular-nums">{fmtHours(num(d.avgHoursPerEmployee))}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

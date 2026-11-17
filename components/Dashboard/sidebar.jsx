@@ -122,6 +122,8 @@ export const CompanyPanelItems = [
     children: [
       { id: "company/profile", label: "Profile" },
       { id: "company/configurations", label: "Configurations" },
+      // BB-129 phase 1: admin-only (this group is hidden from supervisors); only while clock-out documentation is on
+      { id: "company/clock-out-forms", label: "Clock-out Forms", requires: "taskReport" },
       { id: "company/leave-settings", label: "Leave Settings" },
       { id: "company/notifications", label: "Notifications" },
       { id: "company/subscription", label: "Subscription", notifyKey: "subscription", variant: "dot" },
@@ -155,6 +157,7 @@ const FREE_ALLOWED = new Set([
   "company/punch-logs",
   "company/contest-requests",
   "company/employee-report", // BB-129 trial: same plan access as Employees Punch logs
+  "company/clock-out-forms", // BB-129 phase 1 trial: same as Employee Report
   "company/deletion",
   "company/profile",
   "company/subscription",
