@@ -37,6 +37,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import TaskReportFormAnswerDialog from "../../TaskReportForms/TaskReportFormAnswerDialog";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -161,6 +162,8 @@ export default function Punch() {
 
   // Confirmation dialog
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  // BB-129 phase 2: questionnaire to answer after clock-out ({ timeLogId, form, shiftName, closesAt } | null)
+  const [clockOutForm, setClockOutForm] = useState(null);
   const [confirmAction, setConfirmAction]         = useState(null);
 
   // Driver-aide threshold — loaded from company settings, defaults to 45
@@ -412,7 +415,8 @@ export default function Punch() {
       toast.message(d.message || "Success", {
         icon: <Check className="h-5 w-5 text-orange-500" />,
       });
-      return true;
+      return d || {}; // BB-129 phase 2: callers read taskReportForm from the time-out body
+
     } catch (e) {
       toast.message(e.message, {
         icon: <AlertCircle className="h-5 w-5 text-red-500" />,
@@ -599,8 +603,8 @@ export default function Punch() {
       extraBody.autoLunchMinutes   = autoLunchConfig.durationMinutes;
     }
 
-    const ok = await doCall(isTimeIn ? "/time-in" : "/time-out", extraBody);
-    if (!ok) return;
+    const result = await doCall(isTimeIn ? "/time-in" : "/time-out", extraBody);
+    if (!result) return;
 
     if (isTimeIn) {
       const now = Date.now();
@@ -610,6 +614,8 @@ export default function Punch() {
       setActivePunchType(selectedPunchType ?? PUNCH_TYPES.REGULAR);
     } else {
       resetAll();
+      // BB-129 phase 2: null when there's nothing to answer (free-form mode, setting off, no form applies)
+      if (result.taskReportForm?.timeLogId) setClockOutForm(result.taskReportForm);
     }
 
     setConfirmDialogOpen(false);
@@ -1456,6 +1462,16 @@ export default function Punch() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+
+          {/* BB-129 phase 2: questionnaire pop-up after clock-out; closing it means "answer later" */}
+          <TaskReportFormAnswerDialog
+            open={Boolean(clockOutForm)}
+            onOpenChange={(v) => { if (!v) setClockOutForm(null); }}
+            timeLogId={clockOutForm?.timeLogId}
+            apiUrl={API_URL}
+            token={token}
+            intro="You've clocked out. Answer this questionnaire now, or close it and answer later from Punch logs → Questionnaires."
+          />
 
         </div>
       </TooltipProvider>

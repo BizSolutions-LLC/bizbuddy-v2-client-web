@@ -2,6 +2,8 @@
 "use client";
 
 // BB-129: Employee Report — submitted Daily Task Reports, read-only.
+// Phase 2: questionnaire answers (submitted or incomplete) are listed in the same table
+// (rows with kind "form"), whatever the current mode, so nothing submitted disappears.
 // Supervisors see their department + direct reports, admins the whole company (the server
 // decides). Drafts never show here. Left: list; right: the selected report, closed explicitly.
 // The page shows only while Configurations → Trial Features → Clock-out documentation is on.
@@ -23,8 +25,15 @@ import {
   fmtTimeInZone, fmtDateTimeInZone, fmtReportDate,
 } from "@/lib/taskReportsApi";
 import { downloadServerReport, openServerReport } from "@/lib/reportDownload";
+import { getResponse } from "@/lib/taskReportFormsApi";
+import { Badge } from "@/components/ui/badge";
+import { AnswerList } from "../../TaskReportForms/TaskReportFormFields";
+import { ResponseStatusBadge, ResponsePdfButtons } from "../../TaskReportForms/TaskReportFormAnswerDialog";
 
 const ALL = "all";
+const ALL_TYPES = "all";
+const rowKind = (r) => (r?.kind === "form" ? "form" : "freeform");
+const rowKey = (r) => `${rowKind(r)}:${r.id}`;
 const dayDiff = (a, b) => (Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000;
 
 export default function EmployeeTaskReports() {
@@ -39,8 +48,10 @@ export default function EmployeeTaskReports() {
   const [listError, setListError] = useState(null);
   const [department, setDepartment] = useState(ALL);
   const [search, setSearch] = useState("");
+  const [type, setType] = useState(ALL_TYPES); // "all" | "freeform" | "form"
 
-  const [selectedId, setSelectedId] = useState(null);
+  const [selected, setSelected] = useState(null); // { kind, id }
+  const selectedId = selected ? `${selected.kind}:${selected.id}` : null;
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState(null);
@@ -56,7 +67,7 @@ export default function EmployeeTaskReports() {
   const loadList = useCallback(async (r) => {
     setLoading(true); setListError(null);
     try {
-      const data = await listTeamReports(API, token, r || {});
+      const data = await listTeamReports(API, token, { ...(r || {}), include: "forms" });
       setList(data);
       const applied = { from: data.from, to: data.to };
       setRange(applied); setPending(applied);
@@ -89,30 +100,31 @@ export default function EmployeeTaskReports() {
   const shown = useMemo(() => {
     const q = search.trim().toLowerCase();
     return reports.filter((r) =>
+      (type === ALL_TYPES || rowKind(r) === type) &&
       (department === ALL || r.employee?.department === department) &&
       (!q || `${r.employee?.name || ""} ${r.employee?.employeeId || ""}`.toLowerCase().includes(q))
     );
-  }, [reports, department, search]);
+  }, [reports, department, search, type]);
   const tz = list?.timeZone;
 
   // ── Detail ──
   useEffect(() => {
-    if (!selectedId || !token) { setDetail(null); return; }
+    if (!selected || !token) { setDetail(null); return; }
     let cancelled = false;
     setDetailLoading(true); setDetailError(null); setDetail(null);
-    getTeamReport(API, token, selectedId)
-      .then((d) => { if (!cancelled) setDetail(d); })
+    (selected.kind === "form" ? getResponse(API, token, selected.id) : getTeamReport(API, token, selected.id))
+      .then((d) => { if (!cancelled) setDetail({ ...d, kind: selected.kind }); })
       .catch((e) => { if (!cancelled) setDetailError(e.message); })
       .finally(() => { if (!cancelled) setDetailLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedId, token, API]);
+  }, [selected, token, API]);
 
   const pdf = async (mode) => {
-    if (!selectedId) return;
+    if (!selected || selected.kind !== "freeform") return; // questionnaires use ResponsePdfButtons
     setPdfBusy(mode);
     try {
-      if (mode === "view") await openServerReport({ apiUrl: API, token, path: teamReportPdfPath(selectedId) });
-      else await downloadServerReport({ apiUrl: API, token, path: teamReportPdfPath(selectedId), fallbackFilename: "DailyTaskReport.pdf" });
+      if (mode === "view") await openServerReport({ apiUrl: API, token, path: teamReportPdfPath(selected.id) });
+      else await downloadServerReport({ apiUrl: API, token, path: teamReportPdfPath(selected.id), fallbackFilename: "DailyTaskReport.pdf" });
     } catch (e) {
       toast.error(e.message);
     } finally {
@@ -129,7 +141,7 @@ export default function EmployeeTaskReports() {
           Employee Report
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Daily task reports your employees submitted. Read only.
+          Daily task reports and questionnaires your employees submitted. Read only.
           {tz && <> Times are in the company time zone ({tz}).</>}
         </p>
       </div>
@@ -193,6 +205,17 @@ export default function EmployeeTaskReports() {
               Apply
             </Button>
             <div className="space-y-1">
+              <Label className="text-xs">Type</Label>
+              <Select value={type} onValueChange={setType}>
+                <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_TYPES}>All types</SelectItem>
+                  <SelectItem value="freeform">Daily tasks</SelectItem>
+                  <SelectItem value="form">Questionnaires</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
               <Label className="text-xs">Department</Label>
               <Select value={department} onValueChange={setDepartment}>
                 <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
@@ -220,7 +243,7 @@ export default function EmployeeTaskReports() {
         <Card className="min-w-0">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">
-              Submitted reports
+              Reports
               {list && <span className="ml-2 text-sm font-normal text-muted-foreground">{shown.length} of {reports.length}</span>}
             </CardTitle>
           </CardHeader>
@@ -241,17 +264,18 @@ export default function EmployeeTaskReports() {
                       <TableHead>Date</TableHead>
                       <TableHead>Employee</TableHead>
                       <TableHead className="hidden md:table-cell">Department</TableHead>
-                      <TableHead className="text-center">Tasks</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead className="text-center">Items</TableHead>
                       <TableHead className="hidden sm:table-cell">Submitted</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {shown.map((r) => (
                       <TableRow
-                        key={r.id}
-                        onClick={() => setSelectedId(r.id)}
-                        aria-selected={selectedId === r.id}
-                        className={`cursor-pointer ${selectedId === r.id ? "bg-muted/60" : "hover:bg-muted/40"}`}
+                        key={rowKey(r)}
+                        onClick={() => setSelected({ kind: rowKind(r), id: r.id })}
+                        aria-selected={selectedId === rowKey(r)}
+                        className={`cursor-pointer ${selectedId === rowKey(r) ? "bg-muted/60" : "hover:bg-muted/40"}`}
                       >
                         <TableCell className="whitespace-nowrap">{fmtReportDate(r.reportDate)}</TableCell>
                         <TableCell>
@@ -259,9 +283,23 @@ export default function EmployeeTaskReports() {
                           {r.employee?.employeeId && <div className="text-xs text-muted-foreground">{r.employee.employeeId}</div>}
                         </TableCell>
                         <TableCell className="hidden md:table-cell">{r.employee?.department || "—"}</TableCell>
-                        <TableCell className="text-center">{r.taskCount}</TableCell>
+                        <TableCell>
+                          {rowKind(r) === "form" ? (
+                            <>
+                              <div className="text-sm">{r.formName || "Questionnaire"}</div>
+                              {r.shiftName && <div className="text-xs text-muted-foreground">{r.shiftName}</div>}
+                            </>
+                          ) : <span className="text-sm">Daily tasks</span>}
+                        </TableCell>
+                        <TableCell className="text-center whitespace-nowrap">
+                          {rowKind(r) === "form"
+                            ? <span title="Questions answered">{r.answeredCount ?? 0}/{r.questionCount ?? 0}</span>
+                            : <span title="Tasks">{r.taskCount}</span>}
+                        </TableCell>
                         <TableCell className="hidden sm:table-cell whitespace-nowrap text-muted-foreground">
-                          {fmtDateTimeInZone(r.submittedAt, tz)}
+                          {r.status === "incomplete"
+                            ? <Badge variant="secondary">Incomplete</Badge>
+                            : fmtDateTimeInZone(r.submittedAt, tz)}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -284,7 +322,7 @@ export default function EmployeeTaskReports() {
                   </p>
                 )}
               </div>
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0" aria-label="Close report" onClick={() => setSelectedId(null)}>
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0" aria-label="Close report" onClick={() => setSelected(null)}>
                 <X />
               </Button>
             </CardHeader>
@@ -293,6 +331,8 @@ export default function EmployeeTaskReports() {
                 <div className="space-y-2"><Skeleton className="h-5 w-1/2" /><Skeleton className="h-24 w-full" /></div>
               ) : detailError ? (
                 <p className="text-sm text-destructive">{detailError}</p>
+              ) : detail?.kind === "form" ? (
+                <FormResponseDetail detail={detail} apiUrl={API} token={token} />
               ) : detail ? (
                 <>
                   <div className="text-sm">
@@ -356,5 +396,58 @@ export default function EmployeeTaskReports() {
         )}
       </div>
     </div>
+  );
+}
+
+// BB-129 phase 2: one questionnaire answer set (GET /api/task-report-forms/responses/:id), view only.
+// PDF (section 10) only once submitted; drafts never reach this page and Incomplete has none.
+function FormResponseDetail({ detail, apiUrl, token }) {
+  const tz = detail.timeZone;
+  return (
+    <>
+      <div className="text-sm space-y-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="font-medium">{detail.form?.name || "Questionnaire"}</p>
+          <ResponseStatusBadge status={detail.status} />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {detail.status === "incomplete"
+            ? <>Not submitted before the time to answer ended{detail.closesAt ? <> ({fmtDateTimeInZone(detail.closesAt, tz)})</> : null}.</>
+            : <>Submitted {fmtDateTimeInZone(detail.submittedAt, tz)}</>}
+        </p>
+      </div>
+
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+        <div>
+          <dt className="text-xs text-muted-foreground">Date</dt>
+          <dd>{detail.punch?.timeIn ? new Date(detail.punch.timeIn).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: tz }) : "—"}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted-foreground">Shift</dt>
+          <dd>{detail.shiftName || "—"}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted-foreground">Clock in</dt>
+          <dd>{fmtTimeInZone(detail.punch?.timeIn, tz)}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted-foreground">Clock out</dt>
+          <dd>{fmtTimeInZone(detail.punch?.timeOut, tz)}</dd>
+        </div>
+      </dl>
+
+      {detail.status === "submitted" && (
+        <ResponsePdfButtons apiUrl={apiUrl} token={token} responseId={detail.id} punchDate={detail.reportDate || detail.punchDate} />
+      )}
+
+      <Separator />
+
+      <div>
+        <p className="text-xs text-muted-foreground mb-2">
+          {detail.answeredCount ?? Object.keys(detail.answers || {}).length} of {detail.questionCount ?? detail.form?.questions?.length ?? 0} answered
+        </p>
+        <AnswerList questions={detail.form?.questions || []} answers={detail.answers || {}} />
+      </div>
+    </>
   );
 }

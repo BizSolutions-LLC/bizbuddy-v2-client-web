@@ -1,6 +1,6 @@
 {
   "name": "biz-web-app",
-  "version": "2.15.8",
+  "version": "2.15.9",
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
