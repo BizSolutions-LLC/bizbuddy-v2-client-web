@@ -13,6 +13,7 @@ import {
   Users,
   CalendarDays,
   TrendingUp,
+  UserX,
   RefreshCw,
   Search,
   Building,
@@ -23,6 +24,7 @@ import {
   X,
   LayoutList,
   Upload,
+  Table2,
 } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
@@ -38,6 +40,7 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
 import SchedulesCalendarView from "./SchedulesCalendarView";
+import SchedulesRosterView from "./SchedulesRosterView";
 import UploadWeeklySchedule from "./UploadWeeklySchedule";
 
 export default function ModernCompanySchedules() {
@@ -51,6 +54,9 @@ export default function ModernCompanySchedules() {
   // fix already applied to PunchLogs.jsx (BB-080) and the pattern EmployeesPunchLogs.jsx
   // has used all along.
   const [currentUserRole, setCurrentUserRole] = useState("");
+  // BB-135: supervisors view only (no Create / Upload / Edit / Delete). The server still allows
+  // them to write; this only limits what the page offers. Buttons appear once the role is known.
+  const canEdit = ["admin", "superadmin"].includes(currentUserRole.toLowerCase());
 
   const fetchCurrentUserRole = async () => {
     if (!token) return;
@@ -102,6 +108,9 @@ export default function ModernCompanySchedules() {
     assignedEmployees: 0, 
     avgDaysPerSchedule: 0,   // was: averageDaysPerSchedule — mismatched the API field name
   });
+  // BB-135: schedule coverage, moved here from the old Requests & Logs → Employee Schedule page
+  // (GET /api/usershifts/company-stats: totalEmployees, withShifts, withoutShifts, coverage %)
+  const [coverage, setCoverage] = useState(null);
   
   const [scheduleForm, setScheduleForm] = useState({
     shiftId: "",
@@ -113,7 +122,8 @@ export default function ModernCompanySchedules() {
     targetId: "",   // single ID for department type
   });
 
-  const [viewMode, setViewMode] = useState("list"); // "list" | "calendar"
+  const [viewMode, setViewMode] = useState("recurring"); // BB-135: "recurring" (rules table) | "calendar" | "roster" (sheet)
+  const [rosterOtRule, setRosterOtRule] = useState(null); // BB-135: "OT rule · Daily 8h" badge on the Roster card
 
   const dayOptions = [
     { value: 1, label: "Mon", color: "bg-blue-500" },
@@ -127,12 +137,17 @@ export default function ModernCompanySchedules() {
 
   const fetchStats = async () => {
     try {
-      const statsRes = await fetch(`${API_URL}/api/company/me/schedule-stats`, { 
-        headers: { Authorization: `Bearer ${token}` } 
-      });
+      const [statsRes, coverageRes] = await Promise.all([
+        fetch(`${API_URL}/api/company/me/schedule-stats`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/usershifts/company-stats`, { headers: { Authorization: `Bearer ${token}` } }), // BB-135
+      ]);
       if (statsRes.ok) {
         const statsData = await statsRes.json();
         setStats(statsData.data);
+      }
+      if (coverageRes.ok) {
+        const coverageData = await coverageRes.json();
+        setCoverage(coverageData.data || null);
       }
     } catch (error) {
       console.error('Error fetching stats:', error);
@@ -460,61 +475,75 @@ export default function ModernCompanySchedules() {
               Recurring Schedules
             </h1>
             <p className="text-muted-foreground">
-              Create and manage recurring shift schedules for employees
+              {canEdit || !currentUserRole
+                ? "Create and manage recurring shift schedules for employees"
+                : "View employees' schedules and coverage"}
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            {/* View toggle */}
-            <div className="flex border rounded-md overflow-hidden">
+          {/* Recurring-only actions. Refresh is icon-only; orange is kept for the main action. */}
+          {viewMode === "recurring" && (
+            <div className="flex items-center gap-2 shrink-0">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="icon" onClick={handleRefresh} disabled={refreshing} aria-label="Refresh">
+                    <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Refresh</TooltipContent>
+              </Tooltip>
+              {canEdit && (<>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" onClick={() => setUploadScheduleModalOpen(true)} className="gap-2">
+                    <Upload className="h-4 w-4" />
+                    Upload
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Upload a schedule for up to 14 days from a CSV template</TooltipContent>
+              </Tooltip>
               <Button
-                size="sm"
-                variant={viewMode === "list" ? "default" : "ghost"}
-                className={`rounded-none h-9 ${viewMode === "list" ? "bg-orange-500 hover:bg-orange-600 text-white" : ""}`}
-                onClick={() => setViewMode("list")}
+                onClick={() => setShowCreateModal(true)}
+                className="bg-orange-500 hover:bg-orange-600 text-white gap-2"
               >
-                <LayoutList className="h-4 w-4 mr-1.5" />
-                List
+                <Plus className="h-4 w-4" />
+                Create Schedule
               </Button>
-              <Button
-                size="sm"
-                variant={viewMode === "calendar" ? "default" : "ghost"}
-                className={`rounded-none h-9 ${viewMode === "calendar" ? "bg-orange-500 hover:bg-orange-600 text-white" : ""}`}
-                onClick={() => setViewMode("calendar")}
-              >
-                <CalendarDays className="h-4 w-4 mr-1.5" />
-                Calendar
-              </Button>
+              </>)}
             </div>
+          )}
+        </div>
 
-            {/* List-only actions */}
-            {viewMode === "list" && (
-              <>
-                <Button variant="outline" onClick={handleRefresh} disabled={refreshing} className="gap-2">
-                  <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-                  Refresh
-                </Button>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="outline" onClick={() => setUploadScheduleModalOpen(true)} className="gap-2">
-                      <Upload className="h-4 w-4" />
-                      Upload Schedule
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Upload a schedule for up to 14 days from a CSV template</TooltipContent>
-                </Tooltip>
-                <Button
-                  onClick={() => setShowCreateModal(true)}
-                  className="bg-orange-500 hover:bg-orange-600 text-white gap-2"
+        {/* View tabs (BB-135): Recurring rules | one employee's Calendar | team Roster */}
+        <div className="border-b -mt-4" role="tablist" aria-label="Schedule views">
+          <div className="flex gap-1">
+            {[
+              { id: "recurring", label: "Recurring", icon: Table2 },
+              { id: "calendar",  label: "Calendar",  icon: CalendarDays },
+              { id: "roster",    label: "Roster",    icon: LayoutList },
+            ].map(({ id, label, icon: Icon }) => {
+              const active = viewMode === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setViewMode(id)}
+                  className={`flex items-center gap-1.5 px-3 py-2 -mb-px border-b-2 text-sm font-medium whitespace-nowrap transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-t-sm ${
+                    active
+                      ? "border-foreground text-foreground"
+                      : "border-transparent text-muted-foreground hover:text-foreground"
+                  }`}
                 >
-                  <Plus className="h-4 w-4" />
-                  Create Schedule
-                </Button>
-              </>
-            )}
+                  <Icon className="h-4 w-4" />
+                  {label}
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        {viewMode === "list" && (<>
+        {viewMode === "recurring" && (<>
         {/* Stats Cards */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card>
@@ -530,17 +559,6 @@ export default function ModernCompanySchedules() {
           
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Active Schedules</CardTitle>
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-green-600">{stats.activeSchedules}</div>
-              <p className="text-xs text-muted-foreground">Currently running</p>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Assigned Employees</CardTitle>
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
@@ -550,15 +568,30 @@ export default function ModernCompanySchedules() {
             </CardContent>
           </Card>
           
+          {/* BB-135: coverage cards from the old Employee Schedule page */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Avg Days/Schedule</CardTitle>
-              <CalendarDays className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium">Without Shifts</CardTitle>
+              <UserX className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              {/* BUG 3 FIX: Read avgDaysPerSchedule (matches the API field name) */}
-              <div className="text-2xl font-bold text-blue-600">{stats.avgDaysPerSchedule}</div>
-              <p className="text-xs text-muted-foreground">Days per week</p>
+              <div className={`text-2xl font-bold ${coverage?.withoutShifts > 0 ? "text-orange-600" : "text-foreground"}`}>
+                {coverage?.withoutShifts ?? "—"}
+              </div>
+              <p className="text-xs text-muted-foreground">Employees with no shifts this month</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Coverage</CardTitle>
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-green-600">{coverage?.coverage != null ? `${coverage.coverage}%` : "—"}</div>
+              <p className="text-xs text-muted-foreground">
+                {coverage ? `${coverage.withShifts} of ${coverage.totalEmployees} employees scheduled this month` : "Employees with shifts this month"}
+              </p>
             </CardContent>
           </Card>
         </div>
@@ -646,13 +679,13 @@ export default function ModernCompanySchedules() {
                     <TableHead>End</TableHead>
                     <TableHead>Assignment</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    {canEdit && <TableHead className="text-right">Actions</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredSchedules.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={canEdit ? 7 : 6} className="text-center py-8 text-muted-foreground">
                         {searchQuery || filterUser !== "all" ? "No schedules match your filters" : "No schedules found"}
                       </TableCell>
                     </TableRow>
@@ -734,7 +767,7 @@ export default function ModernCompanySchedules() {
                               </Badge>
                             )}
                           </TableCell>
-                          <TableCell className="text-right">
+                          {canEdit && <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-2">
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -761,7 +794,7 @@ export default function ModernCompanySchedules() {
                                 <TooltipContent>Delete schedule</TooltipContent>
                               </Tooltip>
                             </div>
-                          </TableCell>
+                          </TableCell>}
                         </TableRow>
                       );
                     })
@@ -788,6 +821,33 @@ export default function ModernCompanySchedules() {
                 shifts={shifts}
                 token={token}
                 API_URL={API_URL}
+                readOnly={!canEdit}
+              />
+            </CardContent>
+          </Card>
+        )}
+
+        {/* BB-135: Roster — employees × dates, view only */}
+        {viewMode === "roster" && (
+          <Card>
+            <CardHeader className="flex-row items-center justify-between space-y-0 gap-2">
+              <CardTitle className="flex items-center gap-2">
+                <LayoutList className="h-5 w-5 text-orange-500" />
+                Roster
+              </CardTitle>
+              {rosterOtRule && (
+                <span className="rounded-full border border-orange-200 bg-orange-50 px-2.5 py-0.5 text-xs font-semibold text-orange-700 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-300">
+                  {rosterOtRule}
+                </span>
+              )}
+            </CardHeader>
+            <CardContent>
+              <SchedulesRosterView
+                employees={employees}
+                departments={departments}
+                token={token}
+                API_URL={API_URL}
+                onOtRuleChange={setRosterOtRule}
               />
             </CardContent>
           </Card>

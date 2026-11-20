@@ -2,7 +2,7 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 "use client";
 
-import { Fragment, useEffect, useMemo, useState, useCallback } from "react";
+import { Fragment, forwardRef, useEffect, useMemo, useState, useCallback } from "react";
 import {
   Clock,
   Filter,
@@ -54,7 +54,16 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent as BaseTooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+
+// Punch Logs tooltips use a light card look (border, shadow) instead of the app's dark
+// default. Local to this page; components/ui/tooltip.jsx is unchanged.
+const PAGE_TIP = "max-w-xs rounded-lg border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md";
+const TooltipContent = forwardRef(({ className, sideOffset = 6, ...props }, ref) => (
+  <BaseTooltipContent ref={ref} sideOffset={sideOffset} className={cn(PAGE_TIP, className)} {...props} />
+));
+TooltipContent.displayName = "PunchLogsTooltipContent";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -121,21 +130,7 @@ const toLocalMinutes = (isoStr, tz) => {
 const getDefaultFrom = (tz = "UTC") => new Date().toLocaleDateString("en-CA", { timeZone: tz });
 const getDefaultTo   = (tz = "UTC") => new Date().toLocaleDateString("en-CA", { timeZone: tz });
 
-// ── NULL-SAFE break helpers ────────────────────────────────────────────────────
-const coffeeMinutes = (arr) => {
-  const safe = Array.isArray(arr) ? arr : [];
-  return toHour(safe.reduce((m, b) => (b.start && b.end ? m + diffMins(b.start, b.end) : m), 0));
-};
-const lunchMinutesStr = (l) => (!l || !l.start || !l.end ? "0.00" : toHour(diffMins(l.start, l.end)));
-const lunchMinutesNum = (l) => (!l || !l.start || !l.end ? 0 : diffMins(l.start, l.end));
-
-const fmtDevice = (d) => {
-  if (!d) return "—";
-  if (typeof d === "string") return d;
-  const b = d.manufacturer || d.brand;
-  const m = d.deviceName || d.model;
-  return [b, m].filter(Boolean).join(", ");
-};
+// BB-126: break minutes and device text now come from the server (row.display).
 const fmtLoc = (loc) => {
   if (!loc || loc.latitude == null || loc.longitude == null) return { txt: "—", lat: null, lng: null };
   const lat = Number(loc.latitude);
@@ -389,26 +384,108 @@ const LocationBadge = ({ isRestricted, onClick }) => (
 );
 
 // ── Time display with tooltip ──────────────────────────────────────────────────
-const TimeDisplayWithTooltip = ({ time, type, className = "" }) => {
-  const defs = {
-    duration: "Duration: Total time between clock in and clock out, including breaks.",
-    period:   "Period Hours: Productive work time excluding lunch and unauthorized OT.",
-    late:     "Late Hours: Time the employee was late vs their scheduled start.",
-    coffee:   "Coffee Breaks: Total time on coffee/short breaks.",
-    lunch:    "Lunch Break: Time on lunch. Minimum may be auto-deducted.",
-    overtime: "Overtime: Additional hours beyond the regular shift.",
-  };
+// ── Value tooltips (BB-126 follow-up) ──────────────────────────────────────────
+// Quicker open, and a subtle hover highlight instead of a dotted underline. Each
+// tooltip shows the row's own server values, not a fixed definition.
+const BASIS_TEXT = {
+  live:     "As recorded",
+  decided:  "Decided: approved hours (cutoff still open)",
+  reviewed: "Reviewed: final approved hours",
+};
+
+const TipRow = ({ label, value, strong = false }) => (
+  <div className={`flex justify-between gap-4 ${strong ? "font-semibold" : ""}`}>
+    <span className={strong ? "" : "text-muted-foreground"}>{label}</span>
+    <span className="font-mono">{value}</span>
+  </div>
+);
+
+const hrs = (v) => (v != null && v !== "" && v !== "—" ? `${v} h` : "—");
+
+// Title + lines for one value type, from the row (no maths; values are the server's)
+function tipBody(type, row) {
+  const r = row || {};
+  const shift = r.shiftName && r.shiftName !== "—" ? r.shiftName : null;
+  const basis = BASIS_TEXT[r.basis] && r.basis !== "live" ? <p className="pt-1 border-t text-muted-foreground">{BASIS_TEXT[r.basis]}</p> : null;
+  switch (type) {
+    case "duration":
+      return {
+        title: "Worked hours",
+        body: (
+          <>
+            <TipRow label="Worked" value={hrs(r.duration)} strong />
+            {r.grossHours != null && <TipRow label="Gross (clock in to out)" value={hrs(r.grossHours)} />}
+            <TipRow label={`Lunch${r.lunchAutoDeducted ? " (auto)" : ""}`} value={hrs(r.lunchMins)} />
+            <TipRow label="Coffee" value={hrs(r.coffeeMins)} />
+            {r.clockAdjusted && <p className="text-muted-foreground">Clock times were adjusted on approval.</p>}
+            {basis}
+          </>
+        ),
+      };
+    case "gross":
+      return { title: "Gross hours", body: <p className="text-muted-foreground">Clock-in to clock-out, before breaks are taken off.</p> };
+    case "period":
+      return {
+        title: "Scheduled hours",
+        body: <p className="text-muted-foreground">{shift ? `From this day's shift: ${shift}.` : "No shift was scheduled for this day."}</p>,
+      };
+    case "late":
+      return { title: "Late", body: <p className="text-muted-foreground">Clocked in after the scheduled start{shift ? ` of ${shift}` : ""}, past the grace period.</p> };
+    case "undertime":
+      return { title: "Undertime", body: <p className="text-muted-foreground">Clocked out before the scheduled end{shift ? ` of ${shift}` : ""}.</p> };
+    case "coffee": {
+      const n = Array.isArray(r.coffeeBreaks) ? r.coffeeBreaks.length : 0;
+      return {
+        title: "Coffee breaks",
+        body: (
+          <>
+            <TipRow label="Total" value={hrs(r.coffeeMins)} strong />
+            <TipRow label="Breaks" value={n} />
+          </>
+        ),
+      };
+    }
+    case "lunch":
+      return {
+        title: "Lunch",
+        body: (
+          <>
+            <TipRow label="Taken off" value={hrs(r.lunchMins)} strong />
+            <p className="text-muted-foreground">{r.lunchAutoDeducted ? "Deducted automatically (no lunch punched)." : "From the lunch punches."}</p>
+          </>
+        ),
+      };
+    case "overtime":
+      return {
+        title: "Overtime",
+        body: (
+          <>
+            <TipRow label="Hours" value={hrs(r.otHours)} strong />
+            <TipRow label="Status" value={r.otStatus || "—"} />
+          </>
+        ),
+      };
+    default:
+      return { title: null, body: null };
+  }
+}
+
+const TimeDisplayWithTooltip = ({ time, type, row, className = "" }) => {
   if (!time || time === "—" || time === "0.00")
     return <span className={`text-muted-foreground text-xs ${className}`}>—</span>;
+  const { title, body } = tipBody(type, row);
   return (
-    <TooltipProvider delayDuration={200}>
+    <TooltipProvider delayDuration={100} skipDelayDuration={300}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <span className={`cursor-help border-b border-dotted border-muted-foreground ${className}`}>
-            {time}{type !== "coffee" ? " hrs" : ""}
+          <span className={`inline-block rounded px-1.5 py-0.5 cursor-default transition-colors hover:bg-muted ${className}`}>
+            {time} hrs
           </span>
         </TooltipTrigger>
-        <TooltipContent className="max-w-xs"><div className="text-sm">{defs[type] || ""}</div></TooltipContent>
+        <TooltipContent side="top">
+          {title && <p className="mb-1 font-semibold text-foreground">{title}</p>}
+          <div className="space-y-0.5">{body}</div>
+        </TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );
@@ -463,6 +540,77 @@ const DeviceDisplay = ({ device }) => {
   );
 };
 
+// ── Punch device proof (BB-134) ───────────────────────────────────────────────
+// Server-written proof on each punch (proofIn / proofOut from GET /api/timelogs), the
+// stand-in for the MAC address phones don't expose. null when the company setting was off
+// or on older punches — then the location row renders exactly as before.
+const shortDeviceId = (id) => {
+  if (!id) return "";
+  const s = String(id);
+  return s.length > 12 ? `${s.slice(0, 4)}…${s.slice(-2)}` : s;
+};
+
+const ProofLine = ({ proof, timezone }) => {
+  const isWeb = proof.source === "web";
+  const received = proof.serverReceivedAt
+    ? new Date(proof.serverReceivedAt).toLocaleTimeString("en-US", {
+        hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true, timeZone: timezone || "UTC",
+      })
+    : null;
+  return (
+    <>
+      {isWeb ? (
+        <span className="text-xs text-muted-foreground">Web browser</span>
+      ) : proof.deviceId ? (
+        <span className="text-xs inline-flex items-center gap-1.5">
+          <code className="bg-muted px-1.5 py-0.5 rounded" title={proof.deviceId}>{shortDeviceId(proof.deviceId)}</code>
+          {proof.deviceMatch === true  && <span className="text-green-600 font-medium">✓ Registered phone</span>}
+          {proof.deviceMatch === false && (
+            <span className="text-amber-600 font-medium" title={proof.registeredDeviceId ? `Registered: ${proof.registeredDeviceId}` : undefined}>
+              ⚠ Other phone
+            </span>
+          )}
+        </span>
+      ) : (
+        <span className="text-xs text-muted-foreground">Device not identified</span>
+      )}
+      {(received || proof.ipAddress) && (
+        <span className="basis-full text-[11px] text-muted-foreground pl-4">
+          {received && <>Received by server {received}</>}
+          {received && proof.ipAddress && " · "}
+          {proof.ipAddress && <>IP {proof.ipAddress}</>}
+        </span>
+      )}
+    </>
+  );
+};
+
+// Location In / Out row in the expanded details: "📍 coords | device proof".
+const LocationProofRow = ({ label, loc, proof, timezone }) => {
+  if (!loc?.lat && !proof) return null;
+  return (
+    <div>
+      <span className="text-muted-foreground block mb-1">{label}:</span>
+      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+        {loc?.lat ? (
+          <a href={`https://www.google.com/maps?q=${loc.lat},${loc.lng}`} target="_blank" rel="noopener noreferrer"
+            className="text-xs text-blue-600 hover:underline flex items-center gap-1">
+            <MapPin className="h-3 w-3" />{loc.txt}
+          </a>
+        ) : (
+          <span className="text-xs text-muted-foreground flex items-center gap-1"><MapPin className="h-3 w-3" />No location</span>
+        )}
+        {proof && (
+          <>
+            <span className="text-xs text-muted-foreground">|</span>
+            <ProofLine proof={proof} timezone={timezone} />
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ── AutoBreakBadge ─────────────────────────────────────────────────────────────
 const AutoBreakBadge = ({ deductible }) => (
   <span className={`text-[9px] font-semibold px-1 py-0.5 rounded border leading-none ${
@@ -475,19 +623,40 @@ const AutoBreakBadge = ({ deductible }) => (
 );
 
 // ── Summary Stats ──────────────────────────────────────────────────────────────
-const SummaryStats = ({ data }) => {
-  const stats = useMemo(() => ({
-    active:    data.filter((d) => d.status === "active").length,
-    completed: data.filter((d) => d.status === "completed").length,
-    scheduled: data.filter((d) => d.isScheduled).length,
-    avgHours:  data.length ? (data.reduce((s, d) => s + (parseFloat(d.periodHours) || 0), 0) / data.length).toFixed(1) : "0.0",
-  }), [data]);
+// ── BB-126: where a row's values come from ────────────────────────────────────
+// live = the punch as recorded; decided = all its approvals decided (cutoff still open);
+// reviewed = its selected cutoff is locked/processed. Nothing is shown for live rows.
+const BASIS_CHIP = {
+  decided:  { label: "Decided",  tip: "Every approval for this punch is decided, so it shows the approved hours. Resetting an approval to pending shows the punch as recorded again." },
+  reviewed: { label: "Reviewed", tip: "This punch's cutoff is locked or processed, so it shows the final approved values." },
+};
+const BasisChip = ({ basis }) => {
+  const c = BASIS_CHIP[basis];
+  if (!c) return null;
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="inline-flex cursor-help">
+            <Badge variant="outline" className="text-[10px] font-medium text-muted-foreground">{c.label}</Badge>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs text-xs">{c.tip}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+};
+
+// BB-126: numbers from the server's meta.summary (the whole filtered set). When the
+// set is too large the server sends no summary but a note to narrow the filters.
+const SummaryStats = ({ summary, note, loading }) => {
+  const show = (v, digits) => (loading && !summary ? "…" : summary && v != null ? (digits != null ? Number(v).toFixed(digits) : v) : "—");
 
   const cards = [
-    { key: "active",    label: "Active",    value: stats.active,    Icon: Timer,       cls: "blue",   def: "Employees currently clocked in." },
-    { key: "completed", label: "Completed", value: stats.completed, Icon: CheckCircle, cls: "green",  def: "Finished work sessions ready for payroll." },
-    { key: "scheduled", label: "Scheduled", value: stats.scheduled, Icon: Calendar,    cls: "orange", def: "Sessions following a predefined shift schedule." },
-    { key: "avgHours",  label: "Avg Hours", value: stats.avgHours,  Icon: Clock,       cls: "purple", def: "Mean productive hours per session." },
+    { key: "active",    label: "Active",    value: show(summary?.active),            Icon: Timer,       cls: "blue",   def: "Employees currently clocked in." },
+    { key: "completed", label: "Completed", value: show(summary?.completed),         Icon: CheckCircle, cls: "green",  def: "Finished work sessions ready for payroll." },
+    { key: "scheduled", label: "Scheduled", value: show(summary?.scheduled),         Icon: Calendar,    cls: "orange", def: "Punches on a day with a scheduled shift." },
+    { key: "avgHours",  label: "Avg Worked Hours", value: show(summary?.avgWorkedHours, 1), Icon: Clock, cls: "purple", def: "Average worked hours per completed punch." },
   ];
 
   const clsMap = {
@@ -884,64 +1053,26 @@ const ScheduleDialog = ({ open, onOpenChange, scheduleList }) => {
   );
 };
 
-// ── Timelog enrichment (shared by fetchTimelogs + handleGenerateReport) ────────
-function enrichTimelogs(rawData, { companyTimezone, isDayCare, otBasis, locMap, defaultHours }) {
-  return rawData.map((t) => {
-    const coffeeMinsStr = coffeeMinutes(t.coffeeBreaks);
-    const lunchMinsStr  = (!t.lunchBreak?.start && (t.lunchDeductionMinutes ?? 0) > 0)
-      ? (t.lunchDeductionMinutes / 60).toFixed(2)
-      : lunchMinutesStr(t.lunchBreak);
+// ── Timelog rows (BB-126) ───────────────────────────────────────────────────────
+// Every value the table shows is computed on the server (row.display, the same
+// maths as the punch-log report: services/TimeLogs/punchDisplay.js). This only
+// renames fields to what the table reads and formats numbers for display; it does
+// no hour, OT, break, schedule or device arithmetic.
+const fmt2 = (n) => (n != null && Number.isFinite(Number(n)) ? Number(n).toFixed(2) : null);
+const minsToHours = (m) => fmt2(m != null ? Number(m) / 60 : 0);
 
-    const dateKey   = toLocalDateStr(t.timeIn, companyTimezone) ?? "";
+function enrichTimelogs(rawData, { otBasis, locMap }) {
+  return rawData.map((t) => {
+    const d = t.display || {};
     const punchType = t.punchType ?? "REGULAR";
     const isDA    = punchType === "DRIVER_AIDE";
     const isDA_AM = punchType === "DRIVER_AIDE_AM";
     const isDA_PM = punchType === "DRIVER_AIDE_PM";
     const isAnyDA = isDA || isDA_AM || isDA_PM;
-
-    const netWorkedHours = parseFloat(t.netWorkedHours ?? 0);
-    const rawOtMins      = parseFloat(t.rawOtMinutes   ?? 0);
-
-    const daAMHours      = isAnyDA ? (t.driverAmSegmentHours != null ? parseFloat(t.driverAmSegmentHours) : null) : null;
-    const daRegularHours = isAnyDA ? (t.regularSegmentHours  != null ? parseFloat(t.regularSegmentHours)  : null) : null;
-    const daPMHours      = isAnyDA ? (t.driverPmSegmentHours != null ? parseFloat(t.driverPmSegmentHours) : null) : null;
-    const daRawOtHours   = rawOtMins / 60;
-    const daTotalHours   = isAnyDA && daAMHours != null && daRegularHours != null && daPMHours != null
-      ? +((daAMHours) + (daRegularHours) + (daPMHours)).toFixed(2) : null;
-
-    const overtimeArr     = Array.isArray(t.overtime) ? t.overtime : [];
-    const approvedOTHours = overtimeArr
-      .filter((ot) => ot.status === "approved")
-      .reduce((sum, ot) => sum + (parseFloat(ot.requestedHours) || 0), 0);
-    const hasPendingOT    = overtimeArr.some((ot) => ot.status === "pending");
-    const daApprovedOT    = approvedOTHours;
-
-    const duration = t.netWorkedHours != null
-      ? (isAnyDA && daTotalHours != null ? String(daTotalHours) : netWorkedHours.toFixed(2))
-      : t.grossHours != null
-        ? parseFloat(t.grossHours).toFixed(2)
-        : toHour(t.timeIn && t.timeOut ? diffMins(t.timeIn, t.timeOut) : 0);
-
-    const otHours = (rawOtMins / 60).toFixed(2);
-
-    const otStatus = t.otStatus != null
-      ? t.otStatus
-      : approvedOTHours > 0 ? `Approved ${approvedOTHours.toFixed(2)}h`
-      : hasPendingOT        ? "pending"
-      : rawOtMins > 0       ? "No Approval"
-      : "—";
-
-    const periodHours    = t.scheduledHours != null ? parseFloat(t.scheduledHours).toFixed(2) : "0.00";
-    const lateHours      = t.lateHours      != null ? parseFloat(t.lateHours).toFixed(2)      : "0.00";
-    const undertimeHours = t.undertimeHours != null ? parseFloat(t.undertimeHours).toFixed(2) : "0.00";
-    const grossHours     = t.grossHours     != null ? parseFloat(t.grossHours).toFixed(2)     : null;
-
-    const isMissingClockOut = (() => {
-      if (!isDayCare || t.status !== "active") return false;
-      const expectedEndMs = new Date(t.timeIn).getTime() + defaultHours * 60 * 60 * 1000;
-      return Date.now() > expectedEndMs;
-    })();
-
+    const schedule = Array.isArray(d.schedule) ? d.schedule : [];
+    const matched = schedule.find((s) => s.id === d.matchedShiftId || s.shift?.id === d.matchedShiftId) ?? schedule[0] ?? null;
+    const overtimeArr = Array.isArray(t.overtime) ? t.overtime : [];
+    const otApproved = d.otStatus === "Approved" && d.otHours != null ? Number(d.otHours) : 0;
     const locList = locMap[t.userId] ?? [];
 
     return {
@@ -949,36 +1080,43 @@ function enrichTimelogs(rawData, { companyTimezone, isDayCare, otBasis, locMap, 
       // Raw /api/timelogs rows carry the HR employee code as `employeeCode` (server-side
       // alias); normalize to `employeeId` here so the table reads one field name.
       employeeId: t.employeeId ?? t.employeeCode ?? t.userId,
-      dateKey, punchType,
+      punchType,
       isDA, isDA_AM, isDA_PM, isAnyDA,
-      scheduleList: (() => {
-        const raw = t.userShifts?.length ? t.userShifts : (t.userShift ? [t.userShift] : []);
-        const seen = new Set();
-        return raw.filter((s) => {
-          const key = s.shift?.id ?? s.id;
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        });
-      })(),
-      isScheduled:    !!(t.userShifts?.length || t.userShift),
-      duration, lateHours, undertimeHours, grossHours, otHours, otStatus, periodHours,
-      coffeeMins:  coffeeMinsStr,
-      lunchMins:   lunchMinsStr,
-      locIn:       fmtLoc(t.locIn),
-      locOut:      fmtLoc(t.locOut),
-      overtimeRec: overtimeArr[0] ?? null,
-      fullDevIn:   fmtDevice(t.deviceIn)  || "—",
-      fullDevOut:  fmtDevice(t.deviceOut) || "—",
-      shiftName:   t.userShift?.shift?.shiftName ?? "—",
-      schedOut:    "—",
+      basis:          d.basis ?? "live",            // "live" | "decided" | "reviewed"
+      clockIn:        d.clockIn  ?? t.timeIn,
+      clockOut:       d.clockOut ?? t.timeOut,
+      clockAdjusted:  !!d.clockAdjusted,
+      scheduleList:   schedule,
+      isScheduled:    !!d.isScheduled,
+      duration:       fmt2(d.workedHours) ?? "0.00",
+      grossHours:     fmt2(d.grossHours),
+      periodHours:    fmt2(d.scheduledHours) ?? "0.00",
+      lateHours:      fmt2(d.lateHours) ?? "0.00",
+      undertimeHours: fmt2(d.undertimeHours) ?? "0.00",
+      otHours:        d.otHours != null ? fmt2(d.otHours) : null,
+      otStatus:       d.otStatus ?? "—",
+      coffeeMins:     minsToHours(d.coffeeMinutes),
+      lunchMins:      minsToHours(d.lunchMinutes),
+      lunchAutoDeducted: !!d.lunchAuto,
+      // Coordinates for the map link; the text is the server's
+      locIn:          { ...fmtLoc(t.locIn),  txt: d.locationIn  || "—" },
+      locOut:         { ...fmtLoc(t.locOut), txt: d.locationOut || "—" },
+      fullDevIn:      d.deviceIn  || "—",
+      fullDevOut:     d.deviceOut || "—",
+      overtimeRec:    overtimeArr[0] ?? null,
+      shiftName:      matched?.shift?.shiftName ?? "—",
+      cutoffStatusText: d.cutoffStatus ?? null,
       isLocRestricted: locList.length > 0,
       locList,
-      daAMHours, daPMHours, daRegularHours, daApprovedOT, daTotalHours, daRawOtHours,
-      pmStartDT: null, pmEndDT: null, isD4Flag: false,
+      daAMHours:      isAnyDA && d.segments?.am      != null ? Number(d.segments.am)      : null,
+      daRegularHours: isAnyDA && d.segments?.regular != null ? Number(d.segments.regular) : null,
+      daPMHours:      isAnyDA && d.segments?.pm      != null ? Number(d.segments.pm)      : null,
+      daApprovedOT:   otApproved,
+      daRawOtHours:   d.otHours != null ? Number(d.otHours) : 0,
+      isD4Flag: false,
       isDailyBasis: otBasis === "daily",
       otBasis,
-      isMissingClockOut,
+      isMissingClockOut: !!d.missingClockOut,
       isAutoClockOut: SHOW_AUTO_CLOCKOUT_FLAG && t.autoClockOut === true,
       cutoffApproval: t.cutoffApproval ?? null,
       dayCutoffStatus: t.dayCutoffStatus ?? null,
@@ -1193,7 +1331,6 @@ export default function EmployeesPunchLogs() {
   const [departments,    setDepartments]    = useState([]);
   const [employees,      setEmployees]      = useState([]);
   const [locMap,         setLocMap]         = useState({});
-  const [defaultHours,   setDefaultHours]   = useState(8);
   const [minLunchMins,   setMinLunchMins]   = useState(60);
   const [otBasis,          setOtBasis]          = useState("daily");
   const [dailyOtThreshold, setDailyOtThreshold] = useState(8);
@@ -1386,7 +1523,6 @@ export default function EmployeesPunchLogs() {
       ]);
 
       if (cSet.ok) {
-        setDefaultHours(cJ.data?.defaultShiftHours ?? 8);
         const raw = cJ.data?.minimumLunchMinutes;
         setMinLunchMins(raw === null ? 0 : raw ?? 60);
         const tz = cJ.data?.timezone || cJ.data?.companyTimezone || "America/Los_Angeles";
@@ -1509,6 +1645,21 @@ export default function EmployeesPunchLogs() {
   };
 
   // ── Fetch timelogs ────────────────────────────────────────────────────────────
+  // BB-126: every filter goes to the server, so `meta.summary` (cards + totals) covers
+  // exactly what the table shows. Search waits for typing to pause.
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(filters.search.trim()), 350);
+    return () => clearTimeout(id);
+  }, [filters.search]);
+
+  // The selected cutoff's period ids (every department's period for that range), as the report sends
+  const selectedCutoffPeriodIds = useMemo(
+    () => (selectedCutoffId === "all" ? [] : cutoffPeriods.filter((p) => periodRangeKey(p) === selectedCutoffId).map((p) => p.id)),
+    [selectedCutoffId, cutoffPeriods]
+  );
+  const [listMeta, setListMeta] = useState(null); // { total, basis, summary, summaryNote }
+
   const fetchTimelogs = useCallback(
     async () => {
       setLoading(true);
@@ -1520,48 +1671,44 @@ export default function EmployeesPunchLogs() {
         if (filters.from)   qs.append("from",   filters.from);
         if (filters.to)     qs.append("to",     filters.to);
         if (filters.status !== "all") qs.append("status", filters.status);
-        if (filters.employeeIds.length === 1 && filters.employeeIds[0] !== "all")
-          qs.append("employeeId", filters.employeeIds[0]);
+        const ids = filters.employeeIds.filter((id) => id !== "all");
+        if (ids.length) qs.append("employeeIds", ids.join(","));
+        if (debouncedSearch) qs.append("q", debouncedSearch);
+        if (filters.punchType !== "all") qs.append("punchType", filters.punchType);
+        if (selectedCutoffPeriodIds.length) qs.append("cutoffPeriodIds", selectedCutoffPeriodIds.join(","));
 
         const tlRes = await fetch(`${API_URL}/api/timelogs?${qs.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
         const tlJ = await tlRes.json();
-        if (!tlRes.ok) throw new Error(tlJ.error || "Punch Logs fetch failed");
+        if (!tlRes.ok) throw new Error(tlJ.message || tlJ.error || "Punch Logs fetch failed");
         if (tlJ.companyType) setCompanyType(tlJ.companyType);
 
-        const enriched = enrichTimelogs(tlJ.data || [], {
-          companyTimezone, isDayCare, otBasis, locMap, defaultHours,
-        });
+        const enriched = enrichTimelogs(tlJ.data || [], { otBasis, locMap });
 
         setTotalRows(tlJ.meta?.total || enriched.length);
+        setListMeta(tlJ.meta || null);
         setTimelogs(enriched);
       } catch (err) { toast.error(err.message); }
       setLoading(false);
     },
-    [API_URL, token, filters, defaultHours, locMap, otBasis, isDayCare, companyTimezone]
+    [API_URL, token, filters, debouncedSearch, selectedCutoffPeriodIds, locMap, otBasis]
   );
 
   useEffect(() => {
     if (token) { bootstrap(); fetchPendingRequests(); fetchCutoffPeriods(); }
   }, [token, bootstrap, fetchPendingRequests, fetchCutoffPeriods]);
 
+  const employeeIdsKey = filters.employeeIds.join(",");
+  const cutoffIdsKey = selectedCutoffPeriodIds.join(",");
   useEffect(() => {
     if (!token) return;
     setTimelogs([]);
     fetchTimelogs();
   }, [token, filters.departmentId, filters.from, filters.to, filters.status,
-    defaultHours, locMap, otBasis, companyTimezone]);
+    employeeIdsKey, debouncedSearch, filters.punchType, cutoffIdsKey, locMap, otBasis]);
 
-  // ── Displayed (client-side filters + sort) ────────────────────────────────────
+  // ── Displayed (sort only; filtering is done by the server) ────────────────────
   const displayed = useMemo(() => {
-    let data = [...timelogs];
-    if (!filters.employeeIds.includes("all"))
-      data = data.filter((t) => filters.employeeIds.includes(t.userId));
-    if (filters.search) {
-      const q = filters.search.toLowerCase();
-      data = data.filter((t) => t.employeeName?.toLowerCase().includes(q) || t.email?.toLowerCase().includes(q));
-    }
-    if (isDayCare && filters.punchType !== "all")
-      data = data.filter((t) => t.punchType === filters.punchType);
+    const data = [...timelogs];
 
     data.sort((a, b) => {
       if (sortConfig.key === "employee") {
@@ -1584,17 +1731,13 @@ export default function EmployeesPunchLogs() {
       return 0;
     });
     return data;
-  }, [timelogs, filters, sortConfig, isDayCare, employeeNameMap]);
+  }, [timelogs, sortConfig, employeeNameMap]);
 
-  const totalPeriodHours = useMemo(
-    () => displayed.reduce((s, r) => s + (parseFloat(r.periodHours || "0") || 0), 0).toFixed(2),
-    [displayed]
-  );
-
-  const totalDurationHours = useMemo(
-    () => displayed.reduce((s, r) => s + (parseFloat(r.duration || "0") || 0), 0).toFixed(2),
-    [displayed]
-  );
+  // BB-126: totals come from the server (whole filtered set); null above its row cap
+  const summary = listMeta?.summary ?? null;
+  const totalPeriodHours   = summary ? fmt2(summary.totalScheduledHours) : "—";
+  const totalDurationHours = summary ? fmt2(summary.totalWorkedHours)    : "—";
+  const showReviewedNote = listMeta?.basis === "reviewed" || listMeta?.basis === "partial";
 
   // ── Generate report (modal handler) ──────────────────────────────────────────
   const handleGenerateReport = async ({ type, from, to, cutoffId, cutoffPeriodIds }) => {
@@ -1808,7 +1951,10 @@ export default function EmployeesPunchLogs() {
 
       {/* Summary */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-        <SummaryStats data={displayed} />
+        <SummaryStats summary={summary} note={listMeta?.summaryNote} loading={loading} />
+        {!summary && listMeta?.summaryNote && (
+          <p className="-mt-4 mb-6 text-xs text-muted-foreground">{listMeta.summaryNote}</p>
+        )}
       </motion.div>
 
       {/* Filters */}
@@ -2140,6 +2286,14 @@ export default function EmployeesPunchLogs() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
+          {/* BB-126: the selected cutoff is locked/processed (fully or partly) */}
+          {showReviewedNote && (
+            <p className="px-4 py-2 border-b text-xs text-muted-foreground">
+              {listMeta.basis === "partial"
+                ? "Part of this cutoff is final: punches marked Reviewed show the approved values; the rest show the punch as recorded or as decided."
+                : "This cutoff is final: hours and times show the approved values."}
+            </p>
+          )}
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
@@ -2253,7 +2407,7 @@ export default function EmployeesPunchLogs() {
                             return (
                               <TableCell key="dateTimeIn" className="text-center">
                                 <div className="flex flex-col items-center gap-1">
-                                  <CompanyTimeDisplay datetime={t.dayApprovedClockIn ?? t.timeIn} companyTz={companyTimezone} />
+                                  <CompanyTimeDisplay datetime={t.clockIn} companyTz={companyTimezone} />
                                   {SHOW_TOO_EARLY_FLAG && t.isTooEarlyPunch && (
                                     <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
                                       Too Early
@@ -2263,11 +2417,11 @@ export default function EmployeesPunchLogs() {
                               </TableCell>
                             );
                           case "dateTimeOut":
-                            return <TableCell key="dateTimeOut" className="text-center"><CompanyTimeDisplay datetime={t.dayApprovedClockOut ?? t.timeOut} companyTz={companyTimezone} /></TableCell>;
+                            return <TableCell key="dateTimeOut" className="text-center"><CompanyTimeDisplay datetime={t.clockOut} companyTz={companyTimezone} /></TableCell>;
                           case "duration":
-                            return <TableCell key="duration" className="text-center text-sm font-medium"><TimeDisplayWithTooltip time={t.duration} type="duration" /></TableCell>;
+                            return <TableCell key="duration" className="text-center text-sm font-medium"><TimeDisplayWithTooltip time={t.duration} type="duration" row={t} /></TableCell>;
                           case "gross":
-                            return <TableCell key="gross" className="text-center text-sm">{t.grossHours != null ? <TimeDisplayWithTooltip time={t.grossHours} type="duration" /> : <span className="text-muted-foreground">—</span>}</TableCell>;
+                            return <TableCell key="gross" className="text-center text-sm">{t.grossHours != null ? <TimeDisplayWithTooltip time={t.grossHours} type="gross" row={t} /> : <span className="text-muted-foreground">—</span>}</TableCell>;
                           case "coffee": {
                             const coffeeAuto = t.autoCoffeeApplied || t.coffeeBreaks?.some(b => b.auto);
                             const coffeeDeductible = t.coffeeBreaks?.find(b => b.auto)?.deductible ?? true;
@@ -2280,7 +2434,7 @@ export default function EmployeesPunchLogs() {
                                 <div className="flex flex-col items-center gap-0.5">
                                   <div className="flex items-center justify-center gap-1">
                                     <Coffee className="w-3 h-3 text-amber-600" />
-                                    <TimeDisplayWithTooltip time={t.coffeeMins} type="coffee" />
+                                    <TimeDisplayWithTooltip time={t.coffeeMins} type="coffee" row={t} />
                                     {coffeeAuto && <AutoBreakBadge deductible={coffeeDeductible} />}
                                   </div>
                                   {coffeeWindow && (
@@ -2291,7 +2445,7 @@ export default function EmployeesPunchLogs() {
                             );
                           }
                           case "lunch": {
-                            const lunchAuto = t.autoLunchApplied || t.lunchBreak?.auto || (!t.lunchBreak?.start && (t.lunchDeductionMinutes ?? 0) > 0);
+                            const lunchAuto = t.autoLunchApplied || t.lunchBreak?.auto || t.lunchAutoDeducted;
                             const lunchDeductible = t.lunchBreak?.deductible ?? true;
                             const lunchWindow = (lunchAuto && t.lunchBreak?.start && t.lunchBreak?.end)
                               ? `${safeTime(t.lunchBreak.start, companyTimezone)} – ${safeTime(t.lunchBreak.end, companyTimezone)}`
@@ -2300,7 +2454,7 @@ export default function EmployeesPunchLogs() {
                               <TableCell key="lunch" className="text-center text-sm">
                                 <div className="flex flex-col items-center gap-0.5">
                                   <div className="flex items-center justify-center gap-1">
-                                    <TimeDisplayWithTooltip time={t.lunchMins} type="lunch" />
+                                    <TimeDisplayWithTooltip time={t.lunchMins} type="lunch" row={t} />
                                     {lunchAuto && <AutoBreakBadge deductible={lunchDeductible} />}
                                   </div>
                                   {lunchWindow && (
@@ -2311,7 +2465,7 @@ export default function EmployeesPunchLogs() {
                             );
                           }
                           case "ot":
-                            return <TableCell key="ot" className="text-center text-sm font-medium"><TimeDisplayWithTooltip time={parseFloat(t.otHours) > 0 ? t.otHours : null} type="overtime" /></TableCell>;
+                            return <TableCell key="ot" className="text-center text-sm font-medium"><TimeDisplayWithTooltip time={parseFloat(t.otHours) > 0 ? t.otHours : null} type="overtime" row={t} /></TableCell>;
                           case "otStatus":
                             return (
                               <TableCell key="otStatus" className="text-center">
@@ -2354,9 +2508,9 @@ export default function EmployeesPunchLogs() {
                               </TableCell>
                             );
                           case "late":
-                            return <TableCell key="late" className="text-center text-sm">{t.dayCutoffStatus !== "approved" && parseFloat(t.lateHours) > 0 ? <TimeDisplayWithTooltip time={t.lateHours} type="late" className="text-red-600 font-medium" /> : <span className="text-muted-foreground">—</span>}</TableCell>;
+                            return <TableCell key="late" className="text-center text-sm">{t.dayCutoffStatus !== "approved" && parseFloat(t.lateHours) > 0 ? <TimeDisplayWithTooltip time={t.lateHours} type="late" row={t} className="text-red-600 font-medium" /> : <span className="text-muted-foreground">—</span>}</TableCell>;
                           case "undertime":
-                            return <TableCell key="undertime" className="text-center text-sm">{t.dayCutoffStatus !== "approved" && parseFloat(t.undertimeHours) > 0 ? <TimeDisplayWithTooltip time={t.undertimeHours} type="late" className="text-amber-600 font-medium" /> : <span className="text-muted-foreground">—</span>}</TableCell>;
+                            return <TableCell key="undertime" className="text-center text-sm">{t.dayCutoffStatus !== "approved" && parseFloat(t.undertimeHours) > 0 ? <TimeDisplayWithTooltip time={t.undertimeHours} type="undertime" row={t} className="text-amber-600 font-medium" /> : <span className="text-muted-foreground">—</span>}</TableCell>;
                           case "deviceIn":
                             return <TableCell key="deviceIn" className="text-center"><DeviceDisplay device={t.fullDevIn} /></TableCell>;
                           case "deviceOut":
@@ -2366,7 +2520,7 @@ export default function EmployeesPunchLogs() {
                           case "locationOut":
                             return <TableCell key="locationOut" className="text-center"><LocationDisplay location={t.locOut} /></TableCell>;
                           case "period":
-                            return <TableCell key="period" className="text-center text-sm font-semibold"><TimeDisplayWithTooltip time={t.periodHours} type="period" /></TableCell>;
+                            return <TableCell key="period" className="text-center text-sm font-semibold"><TimeDisplayWithTooltip time={t.periodHours} type="period" row={t} /></TableCell>;
 
                           // ── D-5: Status cell with missing clock-out badge ──────
                           case "status":
@@ -2404,7 +2558,10 @@ export default function EmployeesPunchLogs() {
                           case "cutoffApproval":
                             return (
                               <TableCell key="cutoffApproval" className="text-center">
-                                <CutoffApprovalBadge cutoffApproval={t.cutoffApproval} dayCutoffStatus={t.dayCutoffStatus} />
+                                <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                                  <CutoffApprovalBadge cutoffApproval={t.cutoffApproval} dayCutoffStatus={t.dayCutoffStatus} />
+                                  <BasisChip basis={t.basis} />
+                                </div>
                               </TableCell>
                             );
                           case "actions":
@@ -2537,7 +2694,7 @@ export default function EmployeesPunchLogs() {
                                             <span className="font-medium flex flex-col items-end gap-0.5">
                                               <span className="flex items-center gap-1">
                                                 {t.lunchMins}h
-                                                {(t.autoLunchApplied || t.lunchBreak?.auto || (!t.lunchBreak?.start && (t.lunchDeductionMinutes ?? 0) > 0)) && <AutoBreakBadge deductible={t.lunchBreak?.deductible ?? true} />}
+                                                {(t.autoLunchApplied || t.lunchBreak?.auto || t.lunchAutoDeducted) && <AutoBreakBadge deductible={t.lunchBreak?.deductible ?? true} />}
                                               </span>
                                               {(t.autoLunchApplied || t.lunchBreak?.auto) && t.lunchBreak?.start && t.lunchBreak?.end && (
                                                 <span className="text-[10px] font-mono text-muted-foreground">
@@ -2577,24 +2734,9 @@ export default function EmployeesPunchLogs() {
                                           <span className="text-muted-foreground block mb-1">Device Out:</span>
                                           <code className="text-xs bg-muted px-2 py-1 rounded block truncate" title={t.fullDevOut}>{t.fullDevOut}</code>
                                         </div>
-                                        {t.locIn?.lat && (
-                                          <div>
-                                            <span className="text-muted-foreground block mb-1">Location In:</span>
-                                            <a href={`https://www.google.com/maps?q=${t.locIn.lat},${t.locIn.lng}`} target="_blank" rel="noopener noreferrer"
-                                              className="text-xs text-blue-600 hover:underline flex items-center gap-1">
-                                              <MapPin className="h-3 w-3" />{t.locIn.txt}
-                                            </a>
-                                          </div>
-                                        )}
-                                        {t.locOut?.lat && (
-                                          <div>
-                                            <span className="text-muted-foreground block mb-1">Location Out:</span>
-                                            <a href={`https://www.google.com/maps?q=${t.locOut.lat},${t.locOut.lng}`} target="_blank" rel="noopener noreferrer"
-                                              className="text-xs text-blue-600 hover:underline flex items-center gap-1">
-                                              <MapPin className="h-3 w-3" />{t.locOut.txt}
-                                            </a>
-                                          </div>
-                                        )}
+                                        {/* BB-134: coords | device proof (proof only when the company setting was on) */}
+                                        <LocationProofRow label="Location In"  loc={t.locIn}  proof={t.proofIn}  timezone={companyTimezone} />
+                                        <LocationProofRow label="Location Out" loc={t.locOut} proof={t.proofOut} timezone={companyTimezone} />
                                       </div>
                                     </div>
 
@@ -2637,7 +2779,10 @@ export default function EmployeesPunchLogs() {
                                         </div>
                                         <div className="flex justify-between">
                                           <span className="text-muted-foreground">Cutoff:</span>
-                                          <CutoffApprovalBadge cutoffApproval={t.cutoffApproval} dayCutoffStatus={t.dayCutoffStatus} />
+                                          <span className="flex items-center gap-1.5">
+                                            <CutoffApprovalBadge cutoffApproval={t.cutoffApproval} dayCutoffStatus={t.dayCutoffStatus} />
+                                            <BasisChip basis={t.basis} />
+                                          </span>
                                         </div>
                                       </div>
 

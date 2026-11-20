@@ -98,7 +98,8 @@ app/
 │   │   │   └── deletion/
 │   │   ├── contest-requests/
 │   │   ├── cutoff-periods/[id]/review/
-│   │   ├── employee-schedules/
+│   │   ├── employee-map/       # Locations → Employee Map: heat / points / routes (BB-128)
+│   │   ├── employee-schedules/ # Redirect → /dashboard/company/schedules (merged in BB-135)
 │   │   └── notifications/
 │   │
 │   ├── employee/               # Role: Employee (self-service)
@@ -138,6 +139,7 @@ app/
 │   ├── users/                  # User Activity analytics (BB-112)
 │   ├── security/               # Security Monitor — graded signals (BB-112)
 │   ├── requests/               # Request Logs, opened from "View requests" (BB-112)
+│   ├── emails/                 # Emails: email log, sandboxed preview, image check, test send (BB-140)
 │   └── server/                 # Live Server — health + live log (BB-112)
 │
 └── api/
@@ -212,6 +214,7 @@ components/
 │   ├── bbuddy/                 # B. Buddy page tabs, Add company drawer (BB-107) + api.js
 │   ├── database/               # Database page sections + shared.jsx
 │   ├── subscription-plans/     # Subscription Plans page: cards, feature comparison, plan drawer, format.js (BB-132)
+│   ├── emails/                 # Emails page: EmailDetailSheet (iframe sandbox=""), SendTestDialog, format.jsx (BB-140)
 │   └── server/                 # Live Server HealthCard + LogPanel (BB-112)
 │
 ├── Theme/ThemeProvider.jsx     # next-themes dark mode provider
@@ -295,6 +298,7 @@ A separate app under `/system-admin/*` for BizBuddy staff. It doesn't use `useAu
 | `database` | Read-only database overview + cleanup preview |
 | `subscription-plans` | Subscription Plans (BB-132, view only): totals tiles (no estimated-monthly tile — `totals.estimatedMonthly` is deliberately not shown), plan cards, feature comparison from the server's `featureKeys`, plan drawer with its companies + "Show N retired". `GET /subscription-plans/overview`, `/subscription-plans/:id[?includeRetired=true]` (server v2.11.15) |
 | `requests` | Request Logs (opened with filters from Security) |
+| `emails` | Emails (BB-140, under More): every email the server sends — filters (UTC days, ≤ 92), summary + per-day chart, detail drawer with the email **only in an `<iframe sandbox="">`** (never `dangerouslySetInnerHTML`), image check, and Send test email (templates from the server). `GET /emails`, `/emails/:id`, `/emails/templates`, `POST /emails/test` |
 | `server` | Live Server: health card + live log tail (BB-112) |
 | `account`, `admins` | My account; System Admins (owners only) |
 
@@ -335,6 +339,28 @@ B. Buddy is a hidden `admin` account in each company that BizBuddy support staff
 - **Partial success is a 207.** Show created / failed per row with the server's reason and the real line number in the file. Whole-file problems (bad headers, row caps) come back as 400 with a `message`.
 - **Who can be picked:** the import dialogs load `GET /api/employee/team` themselves (`lib/hooks/useImportTeam.js`), active only. Admins get the whole company; supervisors get their **team**: own department plus direct reports (`EmploymentDetail.supervisorId`) in any department. That's the same rule the server checks; anyone else is a 403. Don't feed the pickers from `/api/employee?all=1` (whole company for every role).
 - **Template downloads:** only a 200 is the CSV. Anything else is JSON `{ message }`; show it in the dialog (under Download), not in a toast behind it. For "everyone", leave `departmentId` out.
+
+---
+
+## Company panel notes (v2.16.0)
+
+- **Supervisors' menu** (`filterCompanyPanelByRole` in `components/Dashboard/sidebar.jsx`):
+  - Organizations & People and Requests & Logs.
+  - Shifts & Schedules with **only Employees Schedule** (view only: no Create, Upload, Edit or Delete; Calendar is `readOnly`).
+  - Locations with **only Employee Map**.
+  - The in-app guide (`Documentation.jsx`) hides guides for pages taken out of a group.
+- **Employees Schedule** (`Shifts&Schedules/Schedules.jsx`):
+  - views: Recurring | Calendar | Roster (`SchedulesRosterView.jsx`, `GET /api/usershifts/range`, OT warning via `includeOt=1`);
+  - coverage cards from `/api/usershifts/company-stats`;
+  - the old `/dashboard/company/employee-schedules` redirects here.
+- **Employees Punch Logs** (`EmployeesPunchLogs.jsx`) shows **server-computed values only** (BB-126):
+  - each `GET /api/timelogs` row's `display` object, and `meta.summary` for the cards and totals (same calculation as the punch-log report);
+  - filters (employees, search, punch type, cutoff periods) are server params.
+  - Don't add hour, OT, break or schedule maths back on the client.
+- **Face capture** (BB-141):
+  - while it applies, the web Punch page is view only;
+  - the end-of-shift form is answered before clock-out (`ClockOutFormDialog.jsx`, answers sent with `/time-out`);
+  - cutoff approvals show face photos (`cutoffFacePhotos.jsx`).
 
 ---
 

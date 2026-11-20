@@ -5,8 +5,11 @@
 // Data: GET /api/employee-map (server v2.11.14). Supervisors see their department + direct
 // reports, admins the whole company; the server decides. Privacy: exact punch locations, so
 // the response is never cached or stored (no-store, nothing in local/session storage).
+// BB-128 part 2: "Routes" view — breadcrumb tracks (data.layers.breadcrumbs), recorded by the
+// mobile app while clocked in when Configurations → Trial Features → Track location is on.
+// Routes come back only for one day or one employee; otherwise summary.breadcrumbs.reason.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { MapPinned, RefreshCw, X } from "lucide-react";
 import useAuthStore from "@/store/useAuthStore";
@@ -16,6 +19,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { TRACK_COLORS, trackColorIndex, DISTANCE_UNITS, fmtTrackDistance, fmtClock, suspiciousLines } from "./employeeMapRoutes";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 const EmployeeMapCanvas = dynamic(() => import("./EmployeeMapCanvas"), {
   ssr: false,
@@ -32,6 +37,7 @@ const TYPES = [
 const VIEWS = [
   { id: "heat", label: "Heat map" },
   { id: "points", label: "Points" },
+  { id: "routes", label: "Routes" }, // BB-128 part 2
 ];
 const dayCount = (a, b) => (Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000 + 1;
 
@@ -73,6 +79,7 @@ export default function EmployeeMap() {
   const [departmentId, setDepartmentId] = useState(ALL);
   const [userId, setUserId] = useState(ALL);
   const [view, setView] = useState("heat");
+  const [unit, setUnit] = useState("mi"); // BB-128 part 2: route distances, mi or km
 
   const [departments, setDepartments] = useState([]);
   const [roster, setRoster] = useState([]);       // employees from the last call without userId
@@ -152,6 +159,24 @@ export default function EmployeeMap() {
 
   const selectedEmployee = userId !== ALL ? roster.find((e) => e.id === userId) : null;
 
+  // ── Routes (BB-128 part 2) ──
+  const crumbs = summary?.breadcrumbs;
+  const tracks = data?.layers?.breadcrumbs || [];
+  const colorIndex = useMemo(() => trackColorIndex(data?.layers?.breadcrumbs || []), [data]);
+  const routesNotice = !data || view !== "routes"
+    ? null
+    : crumbs?.enabled === false && !tracks.length
+      ? "Location tracking is off. An admin can turn it on in Configurations → Trial Features."
+      : crumbs && crumbs.available === false
+        ? crumbs.reason || "Pick one day or one employee to see routes."
+        : !tracks.length
+          ? "No routes for these filters."
+          : null;
+  const fmtSpan = (t) => {
+    const day = singleDay ? "" : `${new Date(t.startedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: tz || "UTC" })}, `;
+    return `${day}${fmtClock(t.startedAt, tz)} – ${t.endedAt ? fmtClock(t.endedAt, tz) : "still clocked in"}`;
+  };
+
   return (
     <div className="p-4 sm:p-6 space-y-5 max-w-7xl mx-auto">
       {/* Header */}
@@ -162,7 +187,7 @@ export default function EmployeeMap() {
             Employee Map
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Where employees clocked in and out.{tz && <> Times are in the company time zone ({tz}).</>}
+            Where employees clocked in and out, and their routes during shifts.{tz && <> Times are in the company time zone ({tz}).</>}
           </p>
         </div>
         <Button variant="outline" onClick={() => !rangeError && load(rangeMode ? current : { ...current, from: "", to: "" })} disabled={loading}>
@@ -273,8 +298,18 @@ export default function EmployeeMap() {
         <Card className="min-w-0 overflow-hidden">
           <CardHeader className="pb-3 flex flex-row items-center justify-between gap-2 space-y-0 flex-wrap">
             <Segmented options={VIEWS} value={view} onChange={setView} />
-            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              {view === "points" && (
+            <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+              {view === "routes" && (
+                <>
+                  <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full border-2 border-foreground bg-background" />Start</span>
+                  <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-foreground" />End</span>
+                  <span className="flex items-center gap-1"><span className="w-4 border-t-2 border-dashed border-muted-foreground" />No location</span>
+                  <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-red-500" />Fake GPS</span>
+                  <span className="flex items-center gap-1"><span className="w-4 border-t-2 border-dashed border-red-600" />Suspicious movement</span>
+                  <Segmented options={DISTANCE_UNITS} value={unit} onChange={setUnit} />
+                </>
+              )}
+              {view !== "heat" && (
                 <>
                   <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />Clock-in</span>
                   <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-blue-500" />Clock-out</span>
@@ -284,12 +319,91 @@ export default function EmployeeMap() {
             </div>
           </CardHeader>
           <CardContent className="p-0">
+            {(routesNotice || (view === "routes" && crumbs?.truncated)) && (
+              <div className="px-6 pb-3 space-y-1 text-sm text-muted-foreground">
+                {routesNotice && <p>{routesNotice}</p>}
+                {view === "routes" && crumbs?.truncated && (
+                  <p className="text-orange-600">Only the first 50,000 points are shown. Pick one employee to see the full route.</p>
+                )}
+              </div>
+            )}
             <div className="h-[28rem] sm:h-[34rem] relative">
               {data ? <EmployeeMapCanvas data={data} view={view} singleDay={singleDay} /> : <Skeleton className="h-full w-full rounded-none" />}
             </div>
           </CardContent>
         </Card>
 
+        {view === "routes" ? (
+        <Card className="min-w-0 self-start">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">
+              Routes
+              {data && <span className="ml-2 text-sm font-normal text-muted-foreground">{tracks.length}</span>}
+              {crumbs?.suspiciousTracks > 0 && (
+                <span className="ml-2 text-sm font-normal text-red-600">· ⚠ {crumbs.suspiciousTracks} suspicious</span>
+              )}
+            </CardTitle>
+            {selectedEmployee && (
+              <Button variant="ghost" size="sm" className="h-7 px-2 w-fit text-xs" onClick={() => setUserId(ALL)}>
+                <X /> Show everyone
+              </Button>
+            )}
+          </CardHeader>
+          <CardContent className="max-h-[30rem] overflow-y-auto">
+            {loading && !data ? (
+              <div className="space-y-2">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
+            ) : !tracks.length ? (
+              <p className="text-sm text-muted-foreground">{routesNotice || "No routes for these filters."}</p>
+            ) : (
+              <TooltipProvider delayDuration={200}>
+              <ul className="divide-y">
+                {tracks.map((t) => (
+                  <li key={t.timeLogId}>
+                    <button
+                      type="button"
+                      onClick={() => setUserId(userId === t.employeeId ? ALL : t.employeeId)}
+                      aria-pressed={userId === t.employeeId}
+                      className={`w-full text-left py-2 px-1 rounded-sm transition-colors ${userId === t.employeeId ? "bg-muted" : "hover:bg-muted/50"}`}
+                    >
+                      <p className="text-sm font-medium truncate flex items-center gap-2">
+                        <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${TRACK_COLORS[colorIndex(t.employeeId)].bg}`} />
+                        {t.employeeName}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">{fmtSpan(t)}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {fmtTrackDistance(t.distanceMeters, unit)} · {t.pointCount} point{t.pointCount === 1 ? "" : "s"}
+                        {t.gaps?.length > 0 && <> · {t.gaps.length} gap{t.gaps.length === 1 ? "" : "s"}</>}
+                        {t.mockedPoints > 0 && <span className="text-red-600"> · ⚠ {t.mockedPoints} fake GPS</span>}
+                      </p>
+                      {/* BB-128 2b: impossible moves + route not connecting to its punch pins */}
+                      {t.suspicious > 0 && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="mt-1 inline-flex items-center rounded-md border border-red-300 px-1.5 py-0.5 text-[11px] font-semibold text-red-600 dark:border-red-800">
+                              ⚠ Suspicious movement ({t.suspicious})
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs">
+                            <ul className="space-y-0.5 text-xs">
+                              {suspiciousLines(t, unit, tz).map((line, i) => <li key={i}>{line}</li>)}
+                            </ul>
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                      {t.gaps?.map((g, i) => (
+                        <p key={i} className="text-xs text-muted-foreground">
+                          No location {fmtClock(g.from, tz)}–{fmtClock(g.to, tz)} ({g.minutes} min)
+                        </p>
+                      ))}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              </TooltipProvider>
+            )}
+          </CardContent>
+        </Card>
+        ) : (
         <Card className="min-w-0 self-start">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">
@@ -332,6 +446,7 @@ export default function EmployeeMap() {
             )}
           </CardContent>
         </Card>
+        )}
       </div>
     </div>
   );

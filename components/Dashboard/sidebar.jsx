@@ -91,7 +91,8 @@ export const CompanyPanelItems = [
     id: "punch-logs",
     label: "Requests & Logs",
     children: [
-      { id: "company/employee-schedules", label: "Employee Schedule", notifyKey: "unscheduled", variant: "dot" },
+      // BB-135: "Employee Schedule" (coverage + one employee's shifts) merged into
+      // Shifts & Schedules → Employees Schedule; the old URL redirects there.
       { id: "company/punch-logs", label: "Employees Punch logs" },
       { id: "company/contest-requests", label: "Employee Requests", notifyKey: "contest" },
       { id: "company/leave-requests", label: "Employees Leave Requests", notifyKey: "leave" },
@@ -99,8 +100,6 @@ export const CompanyPanelItems = [
       { id: "company/cutoff-periods", label: "Employee Cutoff", notifyKey: "cutoff" },
       // BB-129: only while Configurations → Trial Features → Clock-out documentation is on
       { id: "company/employee-report", label: "Employee Report", requires: "taskReport" },
-      // BB-128: supervisors and admins (this group is already hidden from employees)
-      { id: "company/employee-map", label: "Employee Map" },
     ],
   },
   {
@@ -108,13 +107,18 @@ export const CompanyPanelItems = [
     label: "Shifts & Schedules",
     children: [
       { id: "company/shifts", label: "Company Shift Templates" },
-      { id: "company/schedules", label: "Employees Schedule" },
+      // BB-135: orange dot = some employees have no shifts this month (moved from Employee Schedule)
+      { id: "company/schedules", label: "Employees Schedule", notifyKey: "unscheduled", variant: "dot" },
     ],
   },
   {
     id: "locations",
     label: "Locations",
-    children: [{ id: "company/locations", label: "Employees Location Restriction" }],
+    children: [
+      { id: "company/locations", label: "Employees Location Restriction" },
+      // BB-128: supervisors and admins (supervisors see only this item in Locations)
+      { id: "company/employee-map", label: "Employee Map" },
+    ],
   },
   {
     id: "account",
@@ -181,8 +185,15 @@ export function lockChildByPlan(child, plan) {
 export function filterCompanyPanelByRole(items, role) {
   const r = role.toLowerCase();
   if (r === "employee") return [];
-  if (r === "supervisor")
-    return items.filter((g) => ["organizations&people", "punch-logs"].includes(g.id));
+  if (r === "supervisor") {
+    // Groups supervisors only see part of: group id → the one page they get
+    // BB-135: Employees Schedule (view only), not Company Shift Templates
+    // BB-128: Employee Map, not Employees Location Restriction
+    const partial = { "shifts&schedules": "company/schedules", locations: "company/employee-map" };
+    return items
+      .filter((g) => ["organizations&people", "punch-logs", "shifts&schedules", "locations"].includes(g.id))
+      .map((g) => (partial[g.id] ? { ...g, children: g.children.filter((c) => c.id === partial[g.id]) } : g));
+  }
   return items;
 }
 
@@ -690,6 +701,18 @@ export default function Sidebar({ isSidebarOpen, closeSidebar, onNavigateStart, 
   const role    = profileData?.user?.role || "employee";
   const roleLower = role.toLowerCase();
 
+  // Extra entries that only admin accounts load (kept out of everyone else's bundle)
+  const isAdminRole = ["admin", "superadmin"].includes(roleLower);
+  const [adminEntries, setAdminEntries] = useState([]);
+  useEffect(() => {
+    if (!isAdminRole) { setAdminEntries([]); return; }
+    let cancelled = false;
+    import("@/components/Dashboard/DashboardContent/CompanyPanel/EmployeeLogins/menuEntry")
+      .then((m) => { if (!cancelled) setAdminEntries([m.default]); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [isAdminRole]);
+
   const payrollItem            = getPayrollItems(role);
   const employeePanelWithPayroll = [...EmployeePanelItems, payrollItem];
 
@@ -698,7 +721,19 @@ export default function Sidebar({ isSidebarOpen, closeSidebar, onNavigateStart, 
   const companyItems = (isSystemAgent
     ? CompanyPanelItems.map((g) => ({ ...g, children: g.children.filter((c) => c.id !== "company/deletion") }))
     : CompanyPanelItems
-  ).map((g) => ({ ...g, children: g.children.filter((c) => !c.requires || featureOn[c.requires]) }));
+  )
+    .map((g) => ({ ...g, children: g.children.filter((c) => !c.requires || featureOn[c.requires]) }))
+    .reduce((groups, g) => {
+      // Admin-only groups go in front of the group they name in `before`
+      if (isAdminRole) adminEntries.filter((e) => e.before === g.id).forEach((e) => groups.push(e.group));
+      groups.push(g);
+      return groups;
+    }, []);
+  if (isAdminRole) {
+    adminEntries
+      .filter((e) => !companyItems.some((g) => g.id === e.group.id))
+      .forEach((e) => companyItems.push(e.group));
+  }
 
   // BB-120: B. Buddy has no payroll access (it kept Payroll Management under BB-110),
   // so it gets no Employee Panel section at all

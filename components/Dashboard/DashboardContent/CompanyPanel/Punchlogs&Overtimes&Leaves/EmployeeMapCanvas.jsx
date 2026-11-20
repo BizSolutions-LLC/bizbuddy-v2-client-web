@@ -3,13 +3,14 @@
 
 // BB-128: the Leaflet map for the Employee Map page. Loaded with next/dynamic (ssr: false)
 // because Leaflet needs `window`. Tiles: OpenStreetMap (free, no key).
-// Layers: work sites (always), then either a heat layer or individual punch points.
-// Breadcrumbs (part 2) will be one more layer here.
+// Layers: work sites (always), then a heat layer, individual punch points, or (part 2)
+// routes: the breadcrumb tracks with the punch points at their ends.
 
-import { useEffect, useMemo } from "react";
+import { Fragment, useEffect, useMemo } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { MapContainer, TileLayer, Circle, CircleMarker, Marker, Popup, Tooltip, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, Circle, CircleMarker, Marker, Polyline, Popup, Tooltip, useMap } from "react-leaflet";
+import { TRACK_COLORS, ROUTE_START_CLASS, ROUTE_END_CLASS, trackColorIndex, splitTrack } from "./employeeMapRoutes";
 
 // Default marker images (same fix as Locations.jsx: bundlers break Leaflet's own paths)
 delete L.Icon.Default.prototype._getIconUrl;
@@ -149,8 +150,100 @@ const POINT_CLASS = {
   out: "fill-blue-500 stroke-blue-700",
 };
 
+// ── Routes (BB-128 part 2) ───────────────────────────────────────────────────
+// Above this many points in total, only start/end and fake-GPS dots are drawn (SVG
+// markers get slow); the lines are always drawn. One employee is always below it.
+const MAX_DOTS = 2000;
+
+const pct = (v) => (v == null ? null : `${Math.round(v * 100)}%`);
+
+function BreadcrumbTip({ track, pt }) {
+  return (
+    <div className="space-y-0.5 text-xs">
+      <p className="font-semibold">{track.employeeName}</p>
+      <p>{pt.atLocal}</p>
+      {pt.accuracy != null && <p>±{Math.round(pt.accuracy)} m</p>}
+      {pt.speed != null && <p>{(pt.speed * 3.6).toFixed(1)} km/h · {(pt.speed * 2.23694).toFixed(1)} mph</p>}
+      {pt.batteryLevel != null && <p>Battery {pct(pt.batteryLevel)}</p>}
+      {pt.isMocked && <p className="font-semibold text-red-600">⚠ Fake GPS reported by the phone</p>}
+      {pt.jumpedHere && <p className="font-semibold text-red-600">⚠ Suspicious movement: reached by an impossible move</p>}
+    </div>
+  );
+}
+
+// BB-128 2b: faint dashed link between a punch pin and its route (clock-in pin → first point,
+// last point → clock-out pin). Red when the server's pin check says they don't connect.
+function PinLink({ from, to, check, label }) {
+  if (!from || !to) return null;
+  const bad = Boolean(check?.suspicious);
+  return (
+    <Polyline
+      positions={[from, to]}
+      pathOptions={{
+        className: bad ? "stroke-red-600" : "stroke-neutral-500",
+        weight: bad ? 2 : 1.5,
+        opacity: bad ? 0.8 : 0.45,
+        dashArray: "2 6",
+      }}
+    >
+      {bad && <Tooltip sticky>⚠ {label} doesn&apos;t connect to the route</Tooltip>}
+    </Polyline>
+  );
+}
+
+function RouteLayer({ tracks, intervalMinutes, colorIndex, pinsByLog }) {
+  const totalPoints = tracks.reduce((n, t) => n + (t.points?.length || 0), 0);
+  const allDots = totalPoints <= MAX_DOTS;
+  return tracks.map((t) => {
+    const pts = t.points || [];
+    if (!pts.length) return null;
+    const c = TRACK_COLORS[colorIndex(t.employeeId)];
+    const { solid, gaps, jumps } = splitTrack(pts, intervalMinutes);
+    const last = pts.length - 1;
+    const pins = pinsByLog.get(t.timeLogId) || {};
+    return (
+      <Fragment key={t.timeLogId}>
+        <PinLink from={pins.in} to={[pts[0].lat, pts[0].lng]} check={t.pinChecks?.clockIn} label="Clock-in pin" />
+        <PinLink from={[pts[last].lat, pts[last].lng]} to={pins.out} check={t.pinChecks?.clockOut} label="Clock-out pin" />
+        {solid.map((run, i) => (
+          <Polyline key={`s${i}`} positions={run} pathOptions={{ className: c.stroke, weight: 3, opacity: 0.85 }} />
+        ))}
+        {gaps.map((seg, i) => (
+          <Polyline key={`g${i}`} positions={seg} pathOptions={{ className: c.stroke, weight: 2, opacity: 0.7, dashArray: "6 6" }} />
+        ))}
+        {/* BB-128 2b: impossible moves — dashed red, never part of the route line */}
+        {jumps.map((seg, i) => (
+          <Polyline key={`j${i}`} positions={seg} pathOptions={{ className: "stroke-red-600", weight: 2.5, opacity: 0.9, dashArray: "8 6" }}>
+            <Tooltip sticky>⚠ Suspicious movement</Tooltip>
+          </Polyline>
+        ))}
+        {pts.map((pt, i) => {
+          const isEnd = i === 0 || i === last;
+          if (!pt.isMocked && !pt.jumpedHere && !isEnd && !allDots) return null;
+          const cls = pt.isMocked || pt.jumpedHere
+            ? "fill-red-500 stroke-red-700"
+            : i === 0 ? ROUTE_START_CLASS : i === last ? ROUTE_END_CLASS : `${c.fill} ${c.stroke}`;
+          return (
+            <CircleMarker
+              key={`p${i}`}
+              center={[pt.lat, pt.lng]}
+              radius={pt.isMocked || pt.jumpedHere || isEnd ? 5 : 2.5}
+              pathOptions={{ className: cls, weight: isEnd ? 2 : 1, fillOpacity: 1 }}
+            >
+              <Tooltip><BreadcrumbTip track={t} pt={pt} /></Tooltip>
+            </CircleMarker>
+          );
+        })}
+      </Fragment>
+    );
+  });
+}
+
 export default function EmployeeMapCanvas({ data, view, singleDay }) {
   const sites = data?.sites || [];
+  const tracks = useMemo(() => (view === "routes" ? data?.layers?.breadcrumbs || [] : []), [data, view]);
+  const intervalMinutes = data?.summary?.breadcrumbs?.intervalMinutes || 5;
+  const colorIndex = useMemo(() => trackColorIndex(data?.layers?.breadcrumbs || []), [data]);
   const heat = data?.heat || [];
   const points = useMemo(
     () => [
@@ -160,13 +253,26 @@ export default function EmployeeMapCanvas({ data, view, singleDay }) {
     [data]
   );
 
+  // BB-128 2b: timeLogId → { in: [lat, lng], out: [lat, lng] } for the pin-to-route links
+  const pinsByLog = useMemo(() => {
+    const map = new Map();
+    points.forEach((p) => {
+      if (!p.timeLogId || p.lat == null || p.lng == null) return;
+      const entry = map.get(p.timeLogId) || {};
+      entry[p.type] = [p.lat, p.lng];
+      map.set(p.timeLogId, entry);
+    });
+    return map;
+  }, [points]);
+
   const bounds = useMemo(() => {
     const latlngs = [
       ...points.map((p) => [p.lat, p.lng]),
+      ...tracks.flatMap((t) => (t.points || []).map((pt) => [pt.lat, pt.lng])),
       ...sites.filter((s) => s.latitude != null && s.longitude != null).map((s) => [s.latitude, s.longitude]),
     ];
     return latlngs.length ? L.latLngBounds(latlngs) : null;
-  }, [points, sites]);
+  }, [points, sites, tracks]);
 
   return (
     <MapContainer center={[20, 0]} zoom={2} scrollWheelZoom className="h-full w-full z-0">
@@ -193,6 +299,8 @@ export default function EmployeeMapCanvas({ data, view, singleDay }) {
           </Marker>
         )
       )}
+
+      {view === "routes" && <RouteLayer tracks={tracks} intervalMinutes={intervalMinutes} colorIndex={colorIndex} pinsByLog={pinsByLog} />}
 
       {view === "heat" ? (
         <HeatLayer points={heat} />

@@ -86,6 +86,7 @@ import {
   SyncOverlay,
   CutoffReviewDialogs,
 } from "./cutoffReviewShared";
+import { FacePhotoProvider, FacePhotoIcons, FacePhotoViewer } from "./cutoffFacePhotos"; // BB-141
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SUB-COMPONENTS
@@ -435,6 +436,9 @@ const TimelineRow = ({ rec, onApprove, onApproveOT, onApproveSchedule, onApprove
       {/* Detail column */}
       <td className="px-3 py-3 align-top">
 
+        {/* BB-141: face photo In / Out (only when this punch has one) */}
+        <FacePhotoIcons timeLogId={rec.timeLogId} className="mb-2" />
+
         {/* Schedule strip */}
         {rec.scheduleInfo && (
           <div className="flex items-center gap-2 mb-2">
@@ -623,6 +627,8 @@ const PunchSubRow = ({ rec, onApprove, onApproveOT, onApproveSchedule, onApprove
         </div>
       </td>
       <td className="px-3 py-3 align-top">
+        {/* BB-141: face photo In / Out */}
+        <FacePhotoIcons timeLogId={rec.timeLogId} className="mb-2" />
         {rec.scheduleInfo && (
           <div className="flex items-center gap-2 mb-2">
             <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-neutral-500">
@@ -875,6 +881,8 @@ const DriverGroupRow = ({ group, onApprove, onApproveOT, onApproveSchedule, onAp
                 <InfoTooltip text="Raw punch time — the actual clock in/out for this TimeLog, before schedule-window snapping." />
               </span>
             )}
+            {/* BB-141: one photo per clock-in / clock-out, not per segment */}
+            <FacePhotoIcons timeLogId={group.timeLogId} />
           </div>
         </td>
         <td className="px-3 py-2 text-right align-middle">
@@ -1388,6 +1396,7 @@ const EmployeeCard = ({ emp, expanded, onToggle, onApprove, onApproveOT, onAppro
 export default function CutoffReview({ cutoffId }) {
   const r = useCutoffReview(cutoffId);
   const {
+    facePhotos, // BB-141
     token,
     router,
     cutoff,
@@ -1522,6 +1531,7 @@ export default function CutoffReview({ cutoffId }) {
   }
 
   return (
+    <FacePhotoProvider value={facePhotos}>
     <div className="flex flex-col min-h-screen bg-neutral-50 dark:bg-neutral-950">
       {/* BB-104: no Toaster was mounted on this route, so every toast here rendered nothing */}
       <Toaster position="top-center" />
@@ -1616,6 +1626,10 @@ export default function CutoffReview({ cutoffId }) {
 
       <CutoffReviewDialogs r={r} />
 
+      {/* BB-141: face photo viewer (opened from the camera icons on the rows) */}
+      <FacePhotoViewer fp={facePhotos} token={token} timeZone={companyTimezone} />
+
     </div>
+    </FacePhotoProvider>
   );
 }
