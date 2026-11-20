@@ -8,6 +8,7 @@ import { Crown, Shield, UserCheck, User, Eye, EyeOff, Check, Headset } from "luc
 import useAuthStore from "@/store/useAuthStore";
 import Footer from "@/components/Partial/Footer";
 import { motion } from "framer-motion";
+import { getClientId } from "@/lib/clientId";
 
 export default function SignInPage() {
   const router = useRouter();
@@ -99,6 +100,7 @@ export default function SignInPage() {
           email: formData.email.trim().toLowerCase(),
           password: formData.password,
           companyId: selectedCompanyId,
+          browserId: getClientId(),
           ...(withAgent
             ? { agentCode: agentData.agentCode.trim(), agentPin: agentData.agentPin }
             : {}),

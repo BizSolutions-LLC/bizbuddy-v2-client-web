@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export default function ConfigurationsPage() {
   return (
     <Suspense fallback={<DashboardSkeleton />}>
-      <CompanyConfigurations />;
+      <CompanyConfigurations />
     </Suspense>
   );
 }

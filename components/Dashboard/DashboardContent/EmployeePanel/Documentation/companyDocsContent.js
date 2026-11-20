@@ -22,7 +22,7 @@ const companyDocsContent = [
     topics: [
       {
         title: "Who sees the Company Panel",
-        body: "The Company Panel appears in the sidebar under your Employee Panel when your role allows it. Supervisors see Organizations & People and Requests & Logs. Admins also see Shifts & Schedules, Locations and Settings. This guide only shows the parts you can use.",
+        body: "The Company Panel appears in the sidebar under your Employee Panel when your role allows it. Supervisors see Organizations & People, Requests & Logs, Employees Schedule (view only) and Employee Map. Admins see every Shifts & Schedules and Locations page, plus Settings. This guide only shows the parts you can use.",
       },
       {
         title: "Locked pages",
@@ -144,24 +144,7 @@ const companyDocsContent = [
   },
 
   // ── Requests & Logs ───────────────────────────────────────────────────────
-  {
-    id: "employee-schedules",
-    groupId: "punch-logs",
-    routeId: "company/employee-schedules",
-    title: "Employee Schedule",
-    summary: "Check schedule coverage and view any employee's upcoming shifts.",
-    topics: [
-      {
-        title: "Checking coverage",
-        body: "The top cards show Total Employees, With Shifts, Without Shifts and Coverage. An orange dot in the sidebar means some employees have no shifts assigned.",
-        steps: [
-          "Go to Requests & Logs → Employee Schedule.",
-          "Use Select Employee to pick someone and view their shifts, with date, start and end time, timezone and total hours.",
-        ],
-        tips: ["If an employee's shifts span more than one timezone, a Multiple timezones notice lists the zones."],
-      },
-    ],
-  },
+  // BB-135: "Employee Schedule" moved into Shifts & Schedules → Employees Schedule (see "schedules").
   {
     id: "company-punch-logs",
     groupId: "punch-logs",
@@ -452,8 +435,17 @@ const companyDocsContent = [
     groupId: "shifts&schedules",
     routeId: "company/schedules",
     title: "Employees Schedule",
-    summary: "Assign shift templates to employees on recurring days.",
+    summary: "Assign shift templates to employees on recurring days, and check schedule coverage.",
     topics: [
+      {
+        title: "Checking coverage",
+        body: "The top cards show Total Schedules, Assigned Employees, Without Shifts (employees with no shifts this month, in orange when there are any) and Coverage (the share of employees with shifts this month). An orange dot next to Employees Schedule in the sidebar means some employees have no shifts.",
+        steps: [
+          "Go to Shifts & Schedules → Employees Schedule.",
+          "Open Calendar and pick an employee to see their shifts by day, or open Roster to see everyone side by side.",
+        ],
+        tips: ["Supervisors can view schedules here but can't create, upload, edit or delete them."],
+      },
       {
         title: "Creating a schedule",
         steps: [
@@ -464,7 +456,7 @@ const companyDocsContent = [
         ],
         tips: [
           "If the new schedule overlaps existing shifts, Schedule Conflicts Detected lets you choose Keep Current or Create Custom for each conflict.",
-          "Switch between List and Calendar views. In Calendar, click a day to see who's scheduled.",
+          "Switch between the Recurring, Calendar and Roster views. In Calendar, pick an employee and click a day to see their shifts; Roster shows every employee by date.",
         ],
       },
       {

@@ -28,6 +28,7 @@ import {
   UserCheck,
   CalendarX,
   Info,
+  Smartphone,
 } from "lucide-react";
 
 import LocationGuard from "@/components/common/LocationGuard";
@@ -38,6 +39,8 @@ import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import TaskReportFormAnswerDialog from "../../TaskReportForms/TaskReportFormAnswerDialog";
+import ClockOutFormDialog from "../../TaskReportForms/ClockOutFormDialog";
+import { getMyOpenForm } from "@/lib/taskReportFormsApi";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -100,6 +103,11 @@ const PUNCH_TYPE_LABELS = {
   [PUNCH_TYPES.DRIVER_AIDE_AM]: { label: "Driver AM",      icon: Car,       color: "blue"   },
   [PUNCH_TYPES.DRIVER_AIDE_PM]: { label: "Driver PM",      icon: Car,       color: "blue"   },
 };
+
+// BB-141: face capture applies only with documentation on, in Custom forms mode, with the switch on.
+// While it applies the server refuses web clock-in/out (WEB_PUNCH_DISABLED): the page is view only.
+const faceCaptureApplies = (s) =>
+  Boolean(s?.taskReportEnabled) && s?.taskReportMode === "forms" && Boolean(s?.taskReportFaceCapture);
 
 const BADGE_COLOR_CLASSES = {
   blue:   "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-800",
@@ -165,6 +173,15 @@ export default function Punch() {
   // BB-129 phase 2: questionnaire to answer after clock-out ({ timeLogId, form, shiftName, closesAt } | null)
   const [clockOutForm, setClockOutForm] = useState(null);
   const [confirmAction, setConfirmAction]         = useState(null);
+
+  // BB-141: web punching turned off by face capture (page is view only)
+  const [webPunchOff, setWebPunchOff] = useState(false);
+  // BB-141: questionnaire answered before clock-out ({ form, shiftName } | null)
+  const [preClockOutForm, setPreClockOutForm]             = useState(null);
+  const [preClockOutSubmitting, setPreClockOutSubmitting] = useState(false);
+  const [preClockOutError, setPreClockOutError]           = useState(null);
+  // Last failed punch call's { message, code }, so callers can react to the server's code
+  const lastPunchErrorRef = useRef(null);
 
   // Driver-aide threshold — loaded from company settings, defaults to 45
   const [driverAideThresholdMinutes, setDriverAideThresholdMinutes] = useState(45);
@@ -277,6 +294,7 @@ export default function Punch() {
         if (typeof threshold === "number" && threshold > 0) {
           setDriverAideThresholdMinutes(threshold);
         }
+        setWebPunchOff(faceCaptureApplies(settingsRes?.data)); // BB-141
         const assignmentWindow = settingsRes?.data?.shiftAssignmentWindowMinutes;
         if (typeof assignmentWindow === "number" && assignmentWindow > 0) {
           setShiftAssignmentWindowMinutes(assignmentWindow);
@@ -378,8 +396,18 @@ export default function Punch() {
     setNoScheduleRemarks("");
   };
 
+  // ── BB-141: re-read the face capture rule (settings can change while the page is open) ──
+  const reloadWebPunchRule = async () => {
+    try {
+      const r = await fetch(`${API_URL}/api/company-settings`, { headers: { Authorization: `Bearer ${token}` } });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) setWebPunchOff(faceCaptureApplies(j.data));
+    } catch {}
+  };
+
   // ── Shared API caller ─────────────────────────────────────────────────────────
   async function doCall(endpoint, extraBody = {}) {
+    lastPunchErrorRef.current = null;
     setLoading(true);
     setLocationLoading(true);
     const loc = await fetchLocation();
@@ -410,14 +438,26 @@ export default function Punch() {
           ...extraBody,
         }),
       });
-      const d = await res.json();
-      if (!res.ok) throw new Error(d.message || "Request failed");
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err = new Error(d.message || "Request failed");
+        err.code = d.code || null;
+        throw err;
+      }
       toast.message(d.message || "Success", {
         icon: <Check className="h-5 w-5 text-orange-500" />,
       });
       return d || {}; // BB-129 phase 2: callers read taskReportForm from the time-out body
 
     } catch (e) {
+      lastPunchErrorRef.current = { message: e.message, code: e.code || null };
+      // BB-141: face capture was turned on while the page was open → switch to view only
+      if (e.code === "WEB_PUNCH_DISABLED") {
+        setWebPunchOff(true);
+        setConfirmDialogOpen(false);
+        setPreClockOutForm(null);
+        reloadWebPunchRule();
+      }
       toast.message(e.message, {
         icon: <AlertCircle className="h-5 w-5 text-red-500" />,
         duration: 5000,
@@ -567,10 +607,53 @@ export default function Punch() {
     setConfirmDialogOpen(true);
   };
 
+  // ── BB-141: questionnaire for the open punch, asked before clock-out ─────────
+  // Returns true when a form applies (the form dialog is opened instead of timing out).
+  // If the lookup fails, the clock-out goes ahead; the server still says if answers are needed.
+  const openPreClockOutFormIfRequired = async () => {
+    let open = null;
+    try { open = await getMyOpenForm(API_URL, token); } catch { open = null; }
+    if (!open?.required) return false;
+    setConfirmDialogOpen(false);
+    setPreClockOutError(null);
+    setPreClockOutForm({ form: open.form, shiftName: open.shift?.name || null });
+    return true;
+  };
+
   // ── Confirmation dialog confirm ───────────────────────────────────────────────
   const confirmPunch = async () => {
     const isTimeIn = confirmAction === "timein";
+    if (!isTimeIn) {
+      setLoading(true);
+      const needsForm = await openPreClockOutFormIfRequired();
+      setLoading(false);
+      if (needsForm) return;
+    }
+    await sendPunch(isTimeIn);
+  };
 
+  // BB-141: "Submit and time out" in the questionnaire → time out with the answers
+  const submitPreClockOutForm = async (answers) => {
+    setPreClockOutSubmitting(true);
+    setPreClockOutError(null);
+    const ok = await sendPunch(false, answers);
+    setPreClockOutSubmitting(false);
+    if (ok) setPreClockOutForm(null);
+    else setPreClockOutError(lastPunchErrorRef.current?.message || null);
+  };
+
+  // "Stay clocked in": nothing was sent, so just forget this clock-out attempt
+  const cancelPreClockOut = () => {
+    setPreClockOutForm(null);
+    setPreClockOutError(null);
+    setConfirmAction(null);
+    setSelectedPunchType(null);
+    setPunchTypeContext(null);
+  };
+
+  // Sends the time-in / time-out. `answers` (BB-141) only on a time-out after the questionnaire.
+  // Returns true when the punch went through.
+  const sendPunch = async (isTimeIn, answers) => {
     // For time-in: send selectedPunchType if set (covers DRIVER_AIDE and DRIVER_AIDE_AM)
     // For time-out: send selectedPunchType only if it's DRIVER_AIDE_PM (updating the log)
     const extraBody = {};
@@ -603,8 +686,16 @@ export default function Punch() {
       extraBody.autoLunchMinutes   = autoLunchConfig.durationMinutes;
     }
 
+    if (!isTimeIn && answers) extraBody.answers = answers; // BB-141
+
     const result = await doCall(isTimeIn ? "/time-in" : "/time-out", extraBody);
-    if (!result) return;
+    if (!result) {
+      // BB-141: a form applies after all (lookup failed or assignment changed) → ask for it now
+      if (!isTimeIn && !answers && lastPunchErrorRef.current?.code === "TASK_REPORT_FORMS_REQUIRED") {
+        await openPreClockOutFormIfRequired();
+      }
+      return false;
+    }
 
     if (isTimeIn) {
       const now = Date.now();
@@ -623,6 +714,7 @@ export default function Punch() {
     setSelectedPunchType(null);
     setPunchTypeContext(null);
     setPendingSnapTimestamp(null);
+    return true;
   };
 
   // ── Break handlers ────────────────────────────────────────────────────────────
@@ -982,6 +1074,19 @@ export default function Punch() {
               </CardContent>
 
               <CardFooter className="p-4 sm:p-6 flex flex-col gap-4 sm:gap-6 pt-4 pb-6 sm:pb-8">
+                {webPunchOff ? (
+                  // BB-141: face capture is on → punching (and breaks) happen in the mobile app only
+                  <div className="w-full flex items-start gap-3 rounded-xl border p-4">
+                    <Smartphone className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold">Clock in and out from the BizBuddy mobile app.</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Your company takes a face photo with each punch, so this page is view only.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                <>
                 {/* Location restriction banners */}
                 <AnimatePresence>
                   {locationStatus === "outside" && (
@@ -1135,6 +1240,8 @@ export default function Punch() {
                     </motion.div>
                   )}
                 </AnimatePresence>
+                </>
+                )}
               </CardFooter>
             </Card>
           </motion.div>
@@ -1471,6 +1578,17 @@ export default function Punch() {
             apiUrl={API_URL}
             token={token}
             intro="You've clocked out. Answer this questionnaire now, or close it and answer later from Punch logs → Questionnaires."
+          />
+
+          {/* BB-141: questionnaire before clock-out; the answers go with the time out */}
+          <ClockOutFormDialog
+            open={Boolean(preClockOutForm)}
+            form={preClockOutForm?.form}
+            shiftName={preClockOutForm?.shiftName}
+            submitting={preClockOutSubmitting}
+            error={preClockOutError}
+            onCancel={cancelPreClockOut}
+            onSubmit={submitPreClockOutForm}
           />
 
         </div>

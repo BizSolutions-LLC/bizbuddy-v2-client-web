@@ -27,6 +27,7 @@ import {
   ScrollText,
   Server,
   CreditCard,
+  Mail,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -55,6 +56,7 @@ const moreItems = [
   { href: "/system-admin/database", label: "Database", icon: Database },
   { href: "/system-admin/subscription-plans", label: "Subscription plans", icon: CreditCard },
   { href: "/system-admin/requests", label: "Request logs", icon: ScrollText },
+  { href: "/system-admin/emails", label: "Emails", icon: Mail }, // BB-140
   { href: "/system-admin/server", label: "Live Server", icon: Server },
 ];
 

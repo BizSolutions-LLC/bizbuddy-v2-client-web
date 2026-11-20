@@ -10,7 +10,7 @@ import {
   Building2, Loader2, Save, Clock, User, CheckSquare, AlertCircle,
   Info, Trash2, Plus, Settings, Users, Calendar, TrendingUp,
   Edit3, Timer, RefreshCw, Globe, Coffee, ChevronDown, X,
-  Zap, Check, BookOpen, AlarmClock, ClipboardList,
+  Zap, Check, BookOpen, AlarmClock, ClipboardList, Smartphone, Route,
 } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
@@ -122,6 +122,31 @@ const GUIDE_SECTIONS = [
       "Build forms and assign them (shift → employee → department → everyone) on Settings → Clock-out Forms",
       "Time to answer — after it ends the questionnaire locks; unsubmitted drafts become Incomplete",
       "Supervisors and admins read submitted reports and questionnaires on Requests & Logs → Employee Report",
+      "Saves immediately, no save button needed",
+    ],
+  },
+  {
+    icon: Smartphone, color: "orange", title: "Trial Features: Record punch device", badge: "Admin", badgeColor: "purple",
+    who: "Admin / Superadmin",
+    desc: "Records which phone or browser each clock-in and clock-out came from. Off by default.",
+    bullets: [
+      "Stands in for the phone's MAC address, which phones and browsers don't give to apps",
+      "Shows on Employees Punch Logs → row details, next to Location In / Out: device ID, registered phone or not, time the server received the punch, IP",
+      "Record only — never blocks a punch; hours, approvals and payroll don't use it",
+      "Only new punches get it; older punches are not changed",
+      "Tell employees before switching it on (California: device IDs and IP addresses are personal information)",
+      "Saves immediately, no save button needed",
+    ],
+  },
+  {
+    icon: Route, color: "orange", title: "Trial Features: Track location during shifts", badge: "Admin", badgeColor: "purple",
+    who: "Admin / Superadmin",
+    desc: "The mobile app records each employee's location every few minutes, only while they're clocked in. Off by default.",
+    bullets: [
+      "Every 1–60 minutes (default 5); routes are kept for 90 days",
+      "Routes show on Locations → Employee Map → Routes, for one day or one employee at a time",
+      "Gaps (phone off, no signal, permission removed) and fake GPS reported by the phone are marked",
+      "Tell employees before switching it on (California: continuous location is personal information)",
       "Saves immediately, no save button needed",
     ],
   },
@@ -1818,6 +1843,7 @@ const TASK_REPORT_MODE_OPTIONS = [
 function TaskReportSettingCard({
   loading, enabled, canEdit, saving, onChange, mode, savingMode, onModeChange,
   windowHours, savingWindow, onWindowChange,
+  faceCapture, faceCaptureClockIn, savingFaceCapture, onFaceCaptureChange,
 }) {
   const currentMode = mode === TASK_REPORT_MODES.forms ? TASK_REPORT_MODES.forms : TASK_REPORT_MODES.freeform;
   const [pendingMode, setPendingMode] = useState(null); // mode waiting for confirmation
@@ -1895,6 +1921,13 @@ function TaskReportSettingCard({
                       saving={savingWindow}
                       onSave={onWindowChange}
                     />
+                    <FaceCaptureSetting
+                      on={Boolean(faceCapture)}
+                      clockIn={Boolean(faceCapture && faceCaptureClockIn)}
+                      canEdit={canEdit}
+                      saving={savingFaceCapture}
+                      onChange={onFaceCaptureChange}
+                    />
                     {canEdit && (
                       <Button asChild variant="outline" size="sm">
                         <Link href="/dashboard/company/clock-out-forms"><ClipboardList /> Manage forms and assignments</Link>
@@ -1922,6 +1955,225 @@ function TaskReportSettingCard({
               onClick={() => { const m = pendingMode; setPendingMode(null); onModeChange(m); }}
             >
               Switch to {pendingOpt?.label}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
+// ── Face capture (BB-141) ────────────────────────────────────────────────────
+// Shown only in Custom forms mode (the server ignores it in free-form). The phone takes
+// a live photo on every clock-out, and on every clock-in too when "Also at clock-in" is
+// on. That one is a child switch: disabled while face capture is off. Each saves alone.
+function FaceCaptureSetting({ on, clockIn, canEdit, saving, onChange }) {
+  return (
+    <div className="space-y-3 border-t pt-3">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <p className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">Include face capture</p>
+          <p className="text-xs text-neutral-500">Every clock-out needs a live photo taken in the mobile app.</p>
+        </div>
+        <Toggle
+          on={on}
+          loading={saving === "taskReportFaceCapture"}
+          disabled={!canEdit || Boolean(saving)}
+          onChange={(v) => onChange("taskReportFaceCapture", v)}
+        />
+      </div>
+      <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+        <Info className="w-3.5 h-3.5 mt-px shrink-0" />
+        While face capture is on, employees can&apos;t clock in or out on the web. The web shows punches as view
+        only; punching is done in the mobile app.
+      </p>
+      <div className="flex items-center justify-between gap-4 pl-4 border-l-2 border-border">
+        <div>
+          <p className={`text-sm font-semibold ${on ? "text-neutral-700 dark:text-neutral-300" : "text-muted-foreground"}`}>
+            Also at clock-in
+          </p>
+          <p className="text-xs text-neutral-500">Every clock-in needs a live photo too.</p>
+        </div>
+        <Toggle
+          on={clockIn}
+          loading={saving === "taskReportFaceCaptureClockIn"}
+          disabled={!canEdit || !on || Boolean(saving)}
+          onChange={(v) => onChange("taskReportFaceCaptureClockIn", v)}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ── Record punch device (BB-134, trial) ──────────────────────────────────────
+// Company switch for the server-written punch proof (device ID vs registered phone,
+// server received time, IP, source). Stands in for the MAC address, which phones and
+// browsers don't expose. Record only: it never blocks a punch. Saves the moment it's
+// flipped. Turning it on asks first, because employees should be told beforehand.
+const PUNCH_DEVICE_NOTICE =
+  "When you clock in or out, BizBuddy records the device you used, its network address and the time our server received the punch. This confirms that your punches are genuine and protects both you and the company.";
+
+function PunchDeviceProofCard({ loading, enabled, canEdit, saving, onChange }) {
+  const [confirmOn, setConfirmOn] = useState(false);
+  const handleToggle = (next) => {
+    if (next) setConfirmOn(true);
+    else onChange(false);
+  };
+  return (
+    <Card className="border-[1.5px] shadow-md overflow-hidden">
+      <CardStripe />
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2.5 text-[15px] font-extrabold">
+          <SectionIcon icon={Smartphone} color="orange" />
+          Record punch device (trial)
+        </CardTitle>
+        <p className="text-xs text-neutral-500 mt-0.5">
+          Saves which phone or browser each clock-in and clock-out came from, and the time our server received it.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {loading ? (
+          <Skeleton className="h-10 w-full" />
+        ) : (
+          <>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
+                  {enabled ? "On" : "Off"}
+                </p>
+                <p className="text-xs text-neutral-500">
+                  Record only: it never blocks a punch, and hours, approvals and payroll don&apos;t use it.
+                  Only new punches are recorded. Shown on Employees Punch Logs → row details.
+                </p>
+              </div>
+              <Toggle on={Boolean(enabled)} loading={saving} disabled={!canEdit} onChange={handleToggle} />
+            </div>
+            <p className="text-xs text-neutral-500">
+              Phones don&apos;t give apps their MAC address, so BizBuddy records the device ID, whether it&apos;s the
+              employee&apos;s registered phone, the network (IP) address and the server&apos;s own time instead.
+            </p>
+            {!canEdit && <p className="text-xs text-neutral-500">Only admins can change this setting.</p>}
+          </>
+        )}
+      </CardContent>
+
+      <Dialog open={confirmOn} onOpenChange={(o) => { if (!o) setConfirmOn(false); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Turn on Record punch device?</DialogTitle>
+            <DialogDescription>
+              Device IDs and IP addresses count as personal information in California. Tell your employees before
+              turning this on. Suggested notice:
+            </DialogDescription>
+          </DialogHeader>
+          <p className="text-sm italic text-neutral-600 dark:text-neutral-400 border-l-2 border-border pl-3">
+            {PUNCH_DEVICE_NOTICE}
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmOn(false)}>Cancel</Button>
+            <Button
+              className="bg-orange-500 hover:bg-orange-600 text-white"
+              onClick={() => { setConfirmOn(false); onChange(true); }}
+            >
+              Turn on
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
+// ── Track location during shifts (BB-128 part 2, trial) ──────────────────────
+// Company switch + interval for GPS breadcrumbs. The mobile app records the location every
+// N minutes while clocked in; routes show on Employee Map → Routes and are kept 90 days.
+// Each field saves on its own. Turning it on asks first: employees should be told.
+const BREADCRUMB_NOTICE =
+  "When location tracking is on, the BizBuddy mobile app records your location every few minutes, only while you are clocked in. It stops when you clock out. Your supervisor and company administrators can see the route, and so can you. Locations are deleted after 90 days.";
+const BREADCRUMB_INTERVALS = [1, 2, 3, 5, 10, 15, 20, 30, 45, 60];
+
+function BreadcrumbsSettingCard({
+  loading, enabled, intervalMinutes, canEdit, saving, savingInterval, onChange, onIntervalChange,
+}) {
+  const [confirmOn, setConfirmOn] = useState(false);
+  const minutes = Number(intervalMinutes) || 5;
+  const options = BREADCRUMB_INTERVALS.includes(minutes)
+    ? BREADCRUMB_INTERVALS
+    : [...BREADCRUMB_INTERVALS, minutes].sort((a, b) => a - b);
+  return (
+    <Card className="border-[1.5px] shadow-md overflow-hidden">
+      <CardStripe />
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2.5 text-[15px] font-extrabold">
+          <SectionIcon icon={Route} color="orange" />
+          Track location during shifts (trial)
+        </CardTitle>
+        <p className="text-xs text-neutral-500 mt-0.5">
+          The mobile app records each employee&apos;s location every {minutes} minute{minutes === 1 ? "" : "s"}, only
+          while they&apos;re clocked in. Routes are kept for 90 days.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {loading ? (
+          <Skeleton className="h-10 w-full" />
+        ) : (
+          <>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
+                  {enabled ? "On" : "Off"}
+                </p>
+                <p className="text-xs text-neutral-500">
+                  Routes show on Requests &amp; Logs → Employee Map → Routes. Needs the mobile app; web punches have no route.
+                </p>
+              </div>
+              <Toggle
+                on={Boolean(enabled)}
+                loading={saving}
+                disabled={!canEdit}
+                onChange={(next) => (next ? setConfirmOn(true) : onChange(false))}
+              />
+            </div>
+            <div className="flex items-center gap-3">
+              <Label className="text-xs font-semibold text-neutral-700 dark:text-neutral-300">Record every</Label>
+              <Select
+                value={String(minutes)}
+                onValueChange={(v) => onIntervalChange(Number(v))}
+                disabled={!canEdit || savingInterval}
+              >
+                <SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {options.map((m) => (
+                    <SelectItem key={m} value={String(m)}>{m} minute{m === 1 ? "" : "s"}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {savingInterval && <Loader2 className="w-3.5 h-3.5 animate-spin text-neutral-500" />}
+            </div>
+            {!canEdit && <p className="text-xs text-neutral-500">Only admins can change this setting.</p>}
+          </>
+        )}
+      </CardContent>
+
+      <Dialog open={confirmOn} onOpenChange={(o) => { if (!o) setConfirmOn(false); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Turn on location tracking?</DialogTitle>
+            <DialogDescription>
+              Tell your employees before turning this on. In California, continuous location is personal information
+              and needs notice. Suggested notice:
+            </DialogDescription>
+          </DialogHeader>
+          <p className="text-sm italic text-neutral-600 dark:text-neutral-400 border-l-2 border-border pl-3">
+            {BREADCRUMB_NOTICE}
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmOn(false)}>Cancel</Button>
+            <Button
+              className="bg-orange-500 hover:bg-orange-600 text-white"
+              onClick={() => { setConfirmOn(false); onChange(true); }}
+            >
+              Turn on
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2056,6 +2308,10 @@ export default function ModernCompanyConfigurations() {
   const canEditTaskReport = ["admin", "superadmin"].includes((role || "").toLowerCase());
   const [savingTaskReportMode,    setSavingTaskReportMode]    = useState(false); // BB-129 phase 1
   const [savingFormWindow,        setSavingFormWindow]        = useState(false); // BB-129 phase 2
+  const [savingPunchDeviceProof,  setSavingPunchDeviceProof]  = useState(false); // BB-134
+  const [savingBreadcrumbs,       setSavingBreadcrumbs]       = useState(false); // BB-128 part 2
+  const [savingBreadcrumbInterval, setSavingBreadcrumbInterval] = useState(false); // BB-128 part 2
+  const [savingFaceCapture,       setSavingFaceCapture]       = useState(null);  // BB-141: field being saved, or null
 
   // ── Live clock ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -2240,7 +2496,13 @@ export default function ModernCompanyConfigurations() {
       // BB-129: same for taskReportEnabled (saveTaskReportEnabled) and taskReportMode (saveTaskReportMode).
       const {
         timezone, cutoffPageView: _cutoffPageView, taskReportEnabled: _taskReportEnabled,
-        taskReportMode: _taskReportMode, taskReportFormWindowHours: _taskReportFormWindowHours, ...rest
+        taskReportMode: _taskReportMode, taskReportFormWindowHours: _taskReportFormWindowHours,
+        punchDeviceProofEnabled: _punchDeviceProofEnabled, // BB-134: saves on its own (savePunchDeviceProof)
+        breadcrumbsEnabled: _breadcrumbsEnabled,            // BB-128 part 2: saveBreadcrumbsEnabled
+        breadcrumbIntervalMinutes: _breadcrumbIntervalMinutes, // BB-128 part 2: saveBreadcrumbInterval
+        taskReportFaceCapture: _taskReportFaceCapture,         // BB-141: saveFaceCapture
+        taskReportFaceCaptureClockIn: _taskReportFaceCaptureClockIn, // BB-141: saveFaceCapture
+        ...rest
       } = draft || {};
       const timezoneChanged = timezone !== savedTimezoneRef.current;
       const r = await fetch(`${API}/api/company-settings`, {
@@ -2289,7 +2551,12 @@ export default function ModernCompanyConfigurations() {
       const j = await r.json();
       if (r.ok) {
         const saved = Boolean(j.data?.taskReportEnabled ?? value);
-        setDraft((p) => ({ ...p, taskReportEnabled: saved }));
+        // BB-141: turning documentation off also turns both face capture switches off on the server
+        setDraft((p) => ({
+          ...p,
+          taskReportEnabled: saved,
+          ...(!saved && { taskReportFaceCapture: false, taskReportFaceCaptureClockIn: false }),
+        }));
         announceTaskReportSetting(saved);
         toast.success(`Clock-out documentation turned ${saved ? "on" : "off"}`);
       } else toast.error(j.error || j.message || "Failed to save clock-out documentation setting");
@@ -2335,6 +2602,92 @@ export default function ModernCompanyConfigurations() {
       } else toast.error(j.error || j.message || "Failed to save the time to answer");
     } catch { toast.error("Network error saving the time to answer"); }
     setSavingFormWindow(false);
+  };
+
+  // ── API: PATCH /api/company-settings { taskReportFaceCapture | taskReportFaceCaptureClockIn } (BB-141) ──
+  // Sends only the flipped field. Admin only. Turning face capture off also turns
+  // "Also at clock-in" off on the server, so both are read back from the response.
+  const saveFaceCapture = async (field, value) => {
+    setSavingFaceCapture(field);
+    try {
+      const r = await fetch(`${API}/api/company-settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ [field]: value }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) {
+        const face = Boolean(j.data?.taskReportFaceCapture ?? (field === "taskReportFaceCapture" ? value : draft?.taskReportFaceCapture));
+        const clockIn = face && Boolean(j.data?.taskReportFaceCaptureClockIn ?? (field === "taskReportFaceCaptureClockIn" ? value : draft?.taskReportFaceCaptureClockIn));
+        setDraft((p) => ({ ...p, taskReportFaceCapture: face, taskReportFaceCaptureClockIn: clockIn }));
+        toast.success(
+          field === "taskReportFaceCapture"
+            ? `Face capture turned ${face ? "on" : "off"}`
+            : `Face capture at clock-in turned ${clockIn ? "on" : "off"}`
+        );
+      } else toast.error(j.error || j.message || "Failed to save the face capture setting");
+    } catch { toast.error("Network error saving the face capture setting"); }
+    setSavingFaceCapture(null);
+  };
+
+  // ── API: PATCH /api/company-settings { punchDeviceProofEnabled } (BB-134) ──
+  // Sends only this field. Admin only. Errors come back as { error }.
+  // ── API: PATCH /api/company-settings { breadcrumbsEnabled } (BB-128 part 2) ──
+  // Sends only this field. Admin only. Errors come back as { error } or { message }.
+  const saveBreadcrumbsEnabled = async (value) => {
+    setSavingBreadcrumbs(true);
+    try {
+      const r = await fetch(`${API}/api/company-settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ breadcrumbsEnabled: value }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) {
+        const saved = Boolean(j.data?.breadcrumbsEnabled ?? value);
+        setDraft((p) => ({ ...p, breadcrumbsEnabled: saved }));
+        toast.success(`Location tracking turned ${saved ? "on" : "off"}`);
+      } else toast.error(j.error || j.message || "Failed to save the location tracking setting");
+    } catch { toast.error("Network error saving the location tracking setting"); }
+    setSavingBreadcrumbs(false);
+  };
+
+  // ── API: PATCH /api/company-settings { breadcrumbIntervalMinutes } (BB-128 part 2) ──
+  // Whole minutes 1–60 (server returns 400 otherwise). Sends only this field.
+  const saveBreadcrumbInterval = async (minutes) => {
+    setSavingBreadcrumbInterval(true);
+    try {
+      const r = await fetch(`${API}/api/company-settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ breadcrumbIntervalMinutes: minutes }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) {
+        const saved = j.data?.breadcrumbIntervalMinutes ?? minutes;
+        setDraft((p) => ({ ...p, breadcrumbIntervalMinutes: saved }));
+        toast.success(`Location recorded every ${saved} minute${saved === 1 ? "" : "s"}`);
+      } else toast.error(j.error || j.message || "Failed to save the tracking interval");
+    } catch { toast.error("Network error saving the tracking interval"); }
+    setSavingBreadcrumbInterval(false);
+  };
+
+  const savePunchDeviceProof = async (value) => {
+    setSavingPunchDeviceProof(true);
+    try {
+      const r = await fetch(`${API}/api/company-settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ punchDeviceProofEnabled: value }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) {
+        const saved = Boolean(j.data?.punchDeviceProofEnabled ?? value);
+        setDraft((p) => ({ ...p, punchDeviceProofEnabled: saved }));
+        toast.success(`Record punch device turned ${saved ? "on" : "off"}`);
+      } else toast.error(j.error || j.message || "Failed to save the punch device setting");
+    } catch { toast.error("Network error saving the punch device setting"); }
+    setSavingPunchDeviceProof(false);
   };
 
   const handleTimezoneChange = (val) => { setPendingTimezone(val); setShowTimezoneModal(true); };
@@ -2526,6 +2879,27 @@ export default function ModernCompanyConfigurations() {
             windowHours={draft?.taskReportFormWindowHours}
             savingWindow={savingFormWindow}
             onWindowChange={saveFormWindowHours}
+            faceCapture={draft?.taskReportFaceCapture}
+            faceCaptureClockIn={draft?.taskReportFaceCaptureClockIn}
+            savingFaceCapture={savingFaceCapture}
+            onFaceCaptureChange={saveFaceCapture}
+          />
+          <PunchDeviceProofCard
+            loading={loadingSettings}
+            enabled={draft?.punchDeviceProofEnabled}
+            canEdit={canEditTaskReport}
+            saving={savingPunchDeviceProof}
+            onChange={savePunchDeviceProof}
+          />
+          <BreadcrumbsSettingCard
+            loading={loadingSettings}
+            enabled={draft?.breadcrumbsEnabled}
+            intervalMinutes={draft?.breadcrumbIntervalMinutes}
+            canEdit={canEditTaskReport}
+            saving={savingBreadcrumbs}
+            savingInterval={savingBreadcrumbInterval}
+            onChange={saveBreadcrumbsEnabled}
+            onIntervalChange={saveBreadcrumbInterval}
           />
         </div>
       )}

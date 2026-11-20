@@ -3,11 +3,13 @@
 // BB-110: every company and whether it has a B. Buddy account. Retired
 // companies (no active users, BB-107) are greyed out and hidden by default.
 // BB-107: "Add company" (AddCompanySheet) and "Set up" B. Buddy per row.
+// BB-139: "Onboarding workbook" downloads the blank Excel form a new business
+// fills in before its company is created (GET /onboarding-workbook).
 
 "use client";
 
 import { useState } from "react";
-import { Plus } from "lucide-react";
+import { Download, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -25,8 +27,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { systemAdminDownload } from "@/lib/systemAdminFetch";
 import AddCompanySheet from "./AddCompanySheet";
 import { bbuddyFetch, formatDateTime } from "./api";
+
+const WORKBOOK_FALLBACK_NAME = "BizBuddy_New_Business_Requirements.xlsx";
 
 // The table primitive centres by default; this table reads left to right
 const HEAD = "text-left px-3";
@@ -47,6 +53,18 @@ export default function AccountsTab({ accounts, agents, loading, error, onChange
   const [adding, setAdding] = useState(false);
   const [setupFor, setSetupFor] = useState(null);
   const [settingUp, setSettingUp] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  const downloadWorkbook = async () => {
+    setDownloading(true);
+    try {
+      await systemAdminDownload("/api/system-admin/onboarding-workbook", WORKBOOK_FALLBACK_NAME);
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const setUpBBuddy = async () => {
     const company = setupFor;
@@ -86,9 +104,25 @@ export default function AccountsTab({ accounts, agents, loading, error, onChange
               {retiredCount > 0 && ` · ${retiredCount} retired`}
             </span>
           </CardTitle>
-          <Button size="sm" onClick={() => setAdding(true)}>
-            <Plus /> Add company
-          </Button>
+          <div className="flex items-center gap-2">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button size="sm" variant="outline" onClick={downloadWorkbook} disabled={downloading}>
+                    <Download /> {downloading ? "Downloading…" : "Onboarding workbook"}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  Blank Excel form for a new business to fill in. Required: Company, Admin Account, Supervisors,
+                  Employees. Optional: Departments, Shifts &amp; Schedules, Payroll &amp; Cutoff, Leave, Holidays,
+                  Locations. No passwords are collected; each person gets a welcome email.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <Button size="sm" onClick={() => setAdding(true)}>
+              <Plus /> Add company
+            </Button>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {VIEWS.map((v) => (

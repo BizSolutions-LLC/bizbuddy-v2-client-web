@@ -78,7 +78,8 @@ const toDecimalHour = (iso) => {
   return d.getUTCHours() + d.getUTCMinutes() / 60;
 };
 
-export default function SchedulesCalendarView({ employees, shifts, token, API_URL }) {
+// BB-135: readOnly (supervisors) — browse and open a day, but no add / edit / remove / extend.
+export default function SchedulesCalendarView({ employees, shifts, token, API_URL, readOnly = false }) {
   const [companyTimezone, setCompanyTimezone] = useState("UTC");
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [selectedDate, setSelectedDate] = useState(null);
@@ -510,7 +511,7 @@ export default function SchedulesCalendarView({ employees, shifts, token, API_UR
                   ${isSelected && isCurrentMonth ? "bg-orange-50 dark:bg-orange-950/20 ring-1 ring-inset ring-orange-300 dark:ring-orange-700" : ""}
                 `}
                 onClick={canInteract ? () => setSelectedDate(day) : undefined}
-                onContextMenu={canInteract ? (e) => handleCellRightClick(e, day) : undefined}
+                onContextMenu={canInteract && !readOnly ? (e) => handleCellRightClick(e, day) : undefined}
               >
                 {/* Date number */}
                 <div
@@ -559,7 +560,7 @@ export default function SchedulesCalendarView({ employees, shifts, token, API_UR
                 )}
 
                 {/* Plus button on hover */}
-                {canInteract && (
+                {canInteract && !readOnly && (
                   <button
                     onClick={(e) => { e.stopPropagation(); setSelectedDate(day); openCreate(day); }}
                     className="absolute top-1 right-1 w-5 h-5 rounded-full bg-orange-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
@@ -585,7 +586,7 @@ export default function SchedulesCalendarView({ employees, shifts, token, API_UR
               <p className="text-xs text-muted-foreground">{format(selectedDate, "yyyy")}</p>
             </div>
             <div className="flex items-center gap-1 shrink-0">
-              {selectedEmployee && (
+              {selectedEmployee && !readOnly && (
                 <Button
                   size="sm"
                   onClick={() => openCreate(selectedDate)}
@@ -610,7 +611,7 @@ export default function SchedulesCalendarView({ employees, shifts, token, API_UR
             <div className="flex-1 flex flex-col items-center justify-center py-10 text-center">
               <Clock className="h-8 w-8 text-muted-foreground/30 mb-2" />
               <p className="text-sm text-muted-foreground">No shifts on this day</p>
-              {selectedEmployee && (
+              {selectedEmployee && !readOnly && (
                 <Button
                   size="sm" variant="outline"
                   className="mt-3 text-xs h-7 gap-1"
@@ -665,7 +666,7 @@ export default function SchedulesCalendarView({ employees, shifts, token, API_UR
                             <p className="text-[10px] text-muted-foreground mt-0.5">{dur}</p>
                           )}
                         </div>
-                        <div className="flex gap-0.5 shrink-0">
+                        {!readOnly && <div className="flex gap-0.5 shrink-0">
                           <button
                             onClick={(e) => { e.stopPropagation(); openEdit(s); }}
                             className="w-5 h-5 rounded flex items-center justify-center text-orange-600 hover:bg-orange-200 dark:hover:bg-orange-800 transition-colors"
@@ -686,7 +687,7 @@ export default function SchedulesCalendarView({ employees, shifts, token, API_UR
                           >
                             <Trash2 className="h-3 w-3" />
                           </button>
-                        </div>
+                        </div>}
                       </div>
                     </div>
                   );

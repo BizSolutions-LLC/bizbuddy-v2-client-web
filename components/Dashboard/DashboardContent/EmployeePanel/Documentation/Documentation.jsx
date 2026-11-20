@@ -305,7 +305,14 @@ export default function Documentation() {
 
   const visibleTabs = useMemo(() => {
     if (loading) return [];
-    const allowedGroups = new Set(filterCompanyPanelByRole(CompanyPanelItems, role).map((g) => g.id));
+    const allowedItems = filterCompanyPanelByRole(CompanyPanelItems, role);
+    const allowedGroups = new Set(allowedItems.map((g) => g.id));
+    // BB-135: a group can be allowed with some pages taken out (supervisors: Shifts & Schedules
+    // without Company Shift Templates), so guides for those pages are hidden too.
+    const allowedRoutes = new Set(allowedItems.flatMap((g) => (g.children || []).map((c) => c.id)));
+    const hiddenRoutes = new Set(
+      CompanyPanelItems.flatMap((g) => (g.children || []).map((c) => c.id)).filter((id) => !allowedRoutes.has(id))
+    );
     const canSeePayrollDocs = ["admin", "supervisor", "superadmin"].includes(String(role || "").toLowerCase());
 
     return TABS.filter((tab) => !(isSupport && tab.id === "employee")).map((tab) => {
@@ -313,6 +320,7 @@ export default function Documentation() {
         // Employee guide is ungrouped; company/settings sections follow the sidebar's role filter.
         // Payroll is documented here even though those pages live on the Employee Panel.
         .filter((s) => !s.groupId || allowedGroups.has(s.groupId) || (s.groupId === "payroll" && canSeePayrollDocs))
+        .filter((s) => !(s.groupId && allowedGroups.has(s.groupId) && s.routeId && hiddenRoutes.has(s.routeId)))
         .filter((s) => !(isSupport && s.routeId && isBlockedForSystemAgent(`/dashboard/${s.routeId}`)))
         .filter((s) => matchesCompanyType(s, companyType))
         .map((s) => ({

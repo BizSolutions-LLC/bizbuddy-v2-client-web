@@ -8,6 +8,20 @@ import useAuthStore from "@/store/useAuthStore";
 import Link from "next/link";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { getClientId } from "@/lib/clientId";
+
+// Tell the server about the sign-out; never blocks or fails the local sign-out.
+function notifySignOut(token) {
+  if (!token) return;
+  try {
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/account/sign-out`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ browserId: getClientId() }),
+      keepalive: true,
+    }).catch(() => {});
+  } catch {}
+}
 
 export default function UserMenu() {
   const { token, logout } = useAuthStore();
@@ -185,6 +199,7 @@ export default function UserMenu() {
               <motion.button
                 whileHover={{ backgroundColor: "rgba(239, 68, 68, 0.1)" }}
                 onClick={() => {
+                  notifySignOut(token);
                   logout();
                   setIsOpen(false);
                 }}

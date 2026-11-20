@@ -34,6 +34,7 @@ import ModalPortal from "@/components/ui/modal-portal";
 import { toast } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
 import { fromZonedTime } from "date-fns-tz";
+import { useCutoffFacePhotos } from "./cutoffFacePhotos"; // BB-141
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS
@@ -292,6 +293,10 @@ export {
 export function useCutoffReview(cutoffId) {
   const { token } = useAuthStore();
   const router = useRouter();
+
+  // BB-141: face photos per punch (timeLogId). Reloaded with the page and after approve / reset.
+  const facePhotos = useCutoffFacePhotos(cutoffId, token);
+  const reloadFacePhotos = facePhotos.reload;
 
   // ── Server data ──
   const [cutoff,           setCutoff]           = useState(null);
@@ -584,13 +589,14 @@ export function useCutoffReview(cutoffId) {
         ...emp,
         records: groupRecordsByDate(emp.records, ps, pe, tz),
       })));
+      reloadFacePhotos(); // BB-141: not awaited; the rows show icons once it lands
     } catch (err) {
       console.error("CutoffReview fetchData:", err);
       toast.error("Failed to load review data");
     } finally {
       setIsLoading(false);
     }
-  }, [token, cutoffId]);
+  }, [token, cutoffId, reloadFacePhotos]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -786,12 +792,13 @@ export function useCutoffReview(cutoffId) {
       setLocalStatus((s) => { const n = { ...s }; delete n[recId]; return n; });
       setLocalApprovedTimes((s) => { const n = { ...s }; delete n[recId]; return n; });
       setResetIds((s) => { const n = new Set(s); n.delete(recId); return n; });
+      reloadFacePhotos(); // BB-141: approved → photo hidden, reset to pending → viewable again
     } catch {
       // silent — stale data stays; resolves on next full reload
     } finally {
       setApprovingIds((s) => { const n = new Set(s); n.delete(recId); return n; });
     }
-  }, [token, cutoffId, companyTimezone, isBNC, cutoff]);
+  }, [token, cutoffId, companyTimezone, isBNC, cutoff, reloadFacePhotos]);
 
   // ─────────────────────────────────────────────────────────────────────
   // SYNC — picks up new employees / punch records added after cutoff creation
@@ -1519,6 +1526,7 @@ export function useCutoffReview(cutoffId) {
       if (!res.ok) throw new Error(data.message || "Bulk approve failed");
       toast.success(`${data.data?.approved ?? toApprove.length} record(s) approved`);
       if (isBNC || otBasis === "cutoff") refreshOTBlocks();
+      reloadFacePhotos(); // BB-141: approved punches hide their photos
     } catch (err) {
       setLocalStatus((s) => {
         const n = { ...s };
@@ -1527,7 +1535,7 @@ export function useCutoffReview(cutoffId) {
       });
       toast.error(err.message || "Bulk approve failed");
     }
-  }, [token, cutoffId, mergedEmployees, isBNC, otBasis, refreshOTBlocks]);
+  }, [token, cutoffId, mergedEmployees, isBNC, otBasis, refreshOTBlocks, reloadFacePhotos]);
 
   const doBulkApproveRaw      = useCallback((empId) => doBulkApprove(empId, "raw"),      [doBulkApprove]);
 
@@ -1722,6 +1730,7 @@ export function useCutoffReview(cutoffId) {
     cutoffId,
     token,
     router,
+    facePhotos, // BB-141
     cutoff,
     setCutoff,
     departments,
