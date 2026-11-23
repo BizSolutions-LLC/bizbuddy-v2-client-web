@@ -51,6 +51,17 @@ module.exports = {
           4: "hsl(var(--chart-4))",
           5: "hsl(var(--chart-5))",
         },
+        // BB-145 — public site (landing, nav, footer). Not used inside the dashboard.
+        brand: {
+          DEFAULT: "#F68525", // buttons, accents (black text on it)
+          hover: "#FF9A45",
+          ink: "#1A1A1A", // headings and body text
+          link: "#B4440A", // orange that passes contrast on white
+          "link-hover": "#7C2D12",
+          band: "#F2F2F2", // grey sections
+          stage: "#121212", // dark backdrop behind product screens
+          footer: "#111111",
+        },
         // sidebar: {
         // 	DEFAULT: 'hsl(var(--sidebar-background))',
         // 	foreground: 'hsl(var(--sidebar-foreground))',
@@ -66,6 +77,12 @@ module.exports = {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        brand: "2px", // BB-145 public site corners
+      },
+      fontFamily: {
+        // BB-145 — loaded with next/font in app/layout.jsx
+        landing: ["var(--font-inter)", "system-ui", "sans-serif"],
+        display: ["var(--font-inter-tight)", "var(--font-inter)", "sans-serif"],
       },
       keyframes: {
         "accordion-down": {
@@ -84,10 +101,16 @@ module.exports = {
             height: "0",
           },
         },
+        "rail-fill": {
+          from: { width: "0%" },
+          to: { width: "100%" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
+        "rail-fill": "rail-fill 7s linear both", // BB-145 hero rail progress
+
       },
     },
   },

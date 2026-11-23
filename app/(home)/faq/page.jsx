@@ -1,15 +1,13 @@
 // app/(home)/faq/page.jsx
-"use client";
-
-import FAQ from "@/components/Home/Accordion";
+// BB-145 — full FAQ list in the new public-site style.
+import FAQSection from "@/components/Home/landing/FAQSection";
 import Footer from "@/components/Partial/Footer";
-import React from "react";
-function page() {
+
+export default function FaqPage() {
   return (
-    <div className="flex flex-col justify-between items-center bg-white dark:bg-black">
-      <FAQ />
-      <Footer />
+    <div className="w-full bg-white font-landing text-brand-ink">
+      <FAQSection full />
+      <Footer flush />
     </div>
   );
 }
-export default page;
