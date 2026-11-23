@@ -1,173 +1,186 @@
 // components/Home/Terms.jsx
-"use client";
-
-import React from "react";
+// BB-145 — Terms of Service. Layout: components/Home/legal/LegalDocument.jsx. Draft: Carlo reviews the wording.
+// Corrected against the app (2026-11-23): there is a Free plan (plus Basic and Pro), paid plans are monthly,
+// company accounts are deleted from Settings. Same public-copy rules as the Privacy Policy: no provider names,
+// no internal or security details.
 import Link from "next/link";
-import { motion } from "framer-motion";
-import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
+import LegalDocument, { CompanyAddress, LegalList, legalLink } from "@/components/Home/legal/LegalDocument";
 
-const termsItems = [
-  {
-    value: "intro",
-    title: "Welcome to MyBizBuddy.co",
-    content: `
-MyBizBuddy.co is a cloud-based time-keeping and payroll platform operated by BizSolutions LLC (“Company,” “we,” “us,” or “our”).
-By accessing our website, mobile application, or services (“Platform”), you agree to be bound by these Terms and Conditions (“Terms”).`,
-  },
-  {
-    value: "subscription",
-    title: "1. Subscription and Billing",
-    content: `
-a. Subscription Requirement  
-   Access is available only through a paid subscription, priced by user count and selected features.
+const LAST_UPDATED = "November 23, 2026";
 
-b. Billing Cycle  
-   Subscriptions are billed monthly or annually in advance; payments are non-refundable except where required by law.
-
-c. Auto-Renewal  
-   Plans renew automatically unless cancelled at least five (5) business days before the renewal date.
-
-d. Payment Method  
-   You authorize BizSolutions LLC to charge your designated payment method for all subscription fees.`,
-  },
+const SECTIONS = [
   {
-    value: "accounts",
-    title: "2. User Accounts and Responsibilities",
-    content: `
-a. Account Registration  
-   You must register an account with accurate information and keep your credentials secure.
-
-b. Authorized Use  
-   The Platform may be used only for lawful time-keeping, payroll, and workforce-management purposes. You are responsible for all activity under your account.
-
-c. User Content  
-   You retain ownership of your data but grant us a limited license to process, store, and display it as necessary to deliver the service.`,
-  },
-  {
-    value: "privacy",
-    title: "3. Data Privacy and Security",
-    content: `
-We handle all personal and payroll information in accordance with our Privacy Policy (incorporated here by reference).`,
-  },
-  {
-    value: "availability",
-    title: "4. Service Availability and Support",
-    content: `
-a. Uptime Commitment – We target 99.9 % uptime but cannot guarantee uninterrupted service.  
-b. Maintenance – Planned updates are scheduled during off-peak hours with prior notice where possible.  
-c. Technical Support – Available 9 AM – 6 PM PST, Monday–Friday, via help-desk or info@bizsolutions.us.`,
-  },
-  {
-    value: "termination",
-    title: "5. Termination and Suspension",
-    content: `
-a. By User – Cancel any time in account settings; service ends at the current billing cycle’s close.  
-b. By Company – We may suspend or terminate accounts for Terms violations, including non-payment or abuse.  
-c. Data Retention – Data is retained up to 60 days after termination, then permanently deleted unless law requires otherwise.`,
-  },
-  {
-    value: "ip",
-    title: "6. Intellectual Property",
-    content: `
-All content, trademarks, logos, and software are the property of BizSolutions LLC. You may not reproduce, distribute, or reverse-engineer any part of the Platform without prior written consent.`,
-  },
-  {
-    value: "liability",
-    title: "7. Limitation of Liability",
-    content: `
-To the maximum extent permitted by law, BizSolutions LLC is not liable for indirect, incidental, special, or consequential damages (including loss of data or income) arising from use of—or inability to use—the Platform.`,
-  },
-  {
-    value: "indemnification",
-    title: "8. Indemnification",
-    content: `
-You agree to indemnify and hold harmless BizSolutions LLC, its affiliates, and employees from any claims or damages arising out of your Platform use or breach of these Terms.`,
-  },
-  {
-    value: "modifications",
-    title: "9. Modifications to Terms",
-    content: `
-We may modify these Terms at any time. Updated versions will appear on our site with a new “Effective Date.” Continued use after changes indicates acceptance.`,
-  },
-  {
-    value: "law",
-    title: "10. Governing Law and Dispute Resolution",
-    content: `
-These Terms are governed by the laws of the State of California. Any dispute will be resolved in the courts of Santa Clara County, California.`,
-  },
-  {
-    value: "contact",
-    title: "11. Contact Information",
-    content: (
-      <div className="space-y-2">
-        <p>BizSolutions&nbsp;LLC</p>
+    id: "about",
+    title: "About these Terms",
+    body: (
+      <>
         <p>
-          <Link
-            href="https://www.google.com/maps/search/?api=1&query=20289+Stevens+Creek+Boulevard+%231039+Cupertino+California+95014"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-orange-600 underline"
-          >
-            20289&nbsp;Stevens&nbsp;Creek&nbsp;Boulevard&nbsp;#1039
-            <br />
-            Cupertino,&nbsp;CA&nbsp;95014&nbsp;USA
+          BizBuddy (mybizbuddy.co) is a time keeping, leave and payroll service provided by BizSolutions LLC (“we”,
+          “our”, “us”). These Terms apply to our website, web app and mobile apps (the “Services”).
+        </p>
+        <p>
+          By using the Services, you agree to these Terms. If you use BizBuddy through your employer, your employer
+          manages your account and decides how BizBuddy is set up.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: "plans-billing",
+    title: "Plans and billing",
+    body: (
+      <LegalList
+        items={[
+          "BizBuddy offers a free plan and paid plans. Paid plans are priced by plan and features.",
+          "Paid plans are billed monthly in advance and renew automatically each month until cancelled.",
+          "Fees are non-refundable, except where the law requires otherwise.",
+          "By choosing a paid plan, you authorize us to charge your payment method for the plan’s fees.",
+        ]}
+      />
+    ),
+  },
+  {
+    id: "accounts",
+    title: "Accounts",
+    body: (
+      <LegalList
+        items={[
+          "You must give accurate information and keep your login details secure.",
+          "You are responsible for activity under your account.",
+          "Company admins are responsible for the people they add and for the settings they choose.",
+        ]}
+      />
+    ),
+  },
+  {
+    id: "your-data",
+    title: "Your data",
+    body: (
+      <>
+        <p>
+          You and your company own the data you put into BizBuddy. You give us permission to store, process and
+          display it only as needed to provide the Services.
+        </p>
+        <p>
+          We handle personal information as described in our{" "}
+          <Link href="/privacy-policy" className={legalLink}>
+            Privacy Policy
           </Link>
+          , which is part of these Terms.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: "acceptable-use",
+    title: "Acceptable use",
+    body: (
+      <>
+        <p>Use BizBuddy only for lawful time keeping, payroll and workforce management. Don’t:</p>
+        <LegalList
+          items={[
+            "Access accounts or data you aren’t authorized to use.",
+            "Interfere with or disrupt the Services.",
+            "Copy, resell or reverse engineer any part of the Services.",
+          ]}
+        />
+      </>
+    ),
+  },
+  {
+    id: "availability-support",
+    title: "Availability and support",
+    body: (
+      <>
+        <p>
+          We work to keep BizBuddy available, but we can’t guarantee uninterrupted service. We may update the Services
+          from time to time and will try to schedule maintenance at quiet hours.
         </p>
         <p>
-          Email:&nbsp;
-          <a href="mailto:info@bizsolutions.us" className="text-orange-600 underline">
-            info@bizsolutions.us
-          </a>
+          Support is available 24 hours a day, by email or phone (see Contact us).
         </p>
-        <p>
-          Website:&nbsp;
-          <Link href="https://mybizbuddy.co" target="_blank" rel="noopener noreferrer" className="text-orange-600 underline">
-            mybizbuddy.co
-          </Link>
-        </p>
-      </div>
+      </>
+    ),
+  },
+  {
+    id: "termination",
+    title: "Cancellation and termination",
+    body: (
+      <LegalList
+        items={[
+          "You can stop using BizBuddy at any time. To cancel a paid plan, contact us. Paid service continues to the end of the current billing period.",
+          "Company admins can delete the company account in Settings. Deleted data can’t be recovered.",
+          "We may suspend or end an account that breaks these Terms, including for non-payment or misuse.",
+          "After an account ends, we delete its data, except where the law requires us to keep it.",
+        ]}
+      />
+    ),
+  },
+  {
+    id: "intellectual-property",
+    title: "Intellectual property",
+    body: (
+      <p>
+        BizBuddy, its software, content, trademarks and logos belong to BizSolutions LLC. These Terms don’t give you
+        any rights to them beyond using the Services.
+      </p>
+    ),
+  },
+  {
+    id: "liability",
+    title: "Limitation of liability",
+    body: (
+      <p>
+        To the maximum extent permitted by law, BizSolutions LLC is not liable for indirect, incidental, special or
+        consequential damages, including loss of data or income, arising from use of, or inability to use, the
+        Services.
+      </p>
+    ),
+  },
+  {
+    id: "indemnification",
+    title: "Indemnification",
+    body: (
+      <p>
+        You agree to indemnify and hold harmless BizSolutions LLC, its affiliates and employees from claims or damages
+        arising from your use of the Services or your breach of these Terms.
+      </p>
+    ),
+  },
+  {
+    id: "changes",
+    title: "Changes to these Terms",
+    body: (
+      <p>
+        We may update these Terms. When we do, we’ll update the date at the top of this page. If you keep using the
+        Services after a change takes effect, you accept the updated Terms.
+      </p>
+    ),
+  },
+  {
+    id: "governing-law",
+    title: "Governing law",
+    body: (
+      <p>
+        These Terms are governed by the laws of the State of California. Any dispute will be resolved in the courts of
+        Santa Clara County, California.
+      </p>
+    ),
+  },
+  {
+    id: "contact",
+    title: "Contact us",
+    body: (
+      <>
+        <p>For questions about these Terms, contact:</p>
+        <CompanyAddress />
+      </>
     ),
   },
 ];
 
-const containerVariants = {
-  hidden: { opacity: 0 },
-  visible: { opacity: 1, transition: { staggerChildren: 0.1 } },
-};
-const itemVariants = {
-  hidden: { y: 20, opacity: 0 },
-  visible: { y: 0, opacity: 1 },
-};
-
 export default function Terms() {
   return (
-    <motion.section
-      className="py-10 md:py-10 px-4 mx-auto w-full max-w-7xl"
-      initial="hidden"
-      animate="visible"
-      variants={containerVariants}
-    >
-      <motion.h2
-        className="text-orange-500 font-bold text-center pb-2 text-xl sm:text-2xl md:text-4xl lg:text-5xl"
-        variants={itemVariants}
-      >
-        Terms&nbsp;and&nbsp;Conditions
-      </motion.h2>
-
-      <motion.div className="flex flex-col items-center mt-10 max-w-3xl mx-auto" variants={containerVariants}>
-        <Accordion type="single" collapsible className="w-full">
-          {termsItems.map((term, i) => (
-            <motion.div key={`term-${term.value}-${i}`} variants={itemVariants}>
-              <AccordionItem value={term.value} className="border-b last:border-b-0">
-                <AccordionTrigger className="py-4 px-2 text-left">{term.title}</AccordionTrigger>
-                <AccordionContent className="px-2 pb-4">
-                  {typeof term.content === "string" ? <span className="whitespace-pre-line">{term.content}</span> : term.content}
-                </AccordionContent>
-              </AccordionItem>
-            </motion.div>
-          ))}
-        </Accordion>
-      </motion.div>
-    </motion.section>
+    <LegalDocument title="Terms of Service" lastUpdated={LAST_UPDATED} sections={SECTIONS} />
   );
 }

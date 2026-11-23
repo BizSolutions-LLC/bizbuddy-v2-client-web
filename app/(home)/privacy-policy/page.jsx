@@ -1,17 +1,13 @@
 // app/(home)/privacy-policy/page.jsx
-"use client";
-
+// BB-145 — privacy policy in the new public-site style.
 import PrivacyPolicy from "@/components/Home/PrivacyPolicy";
 import Footer from "@/components/Partial/Footer";
-import React from "react";
 
-function page() {
+export default function PrivacyPolicyPage() {
   return (
-    <div className="flex flex-col justify-between items-center">
+    <div className="w-full bg-white">
       <PrivacyPolicy />
-      <Footer />
+      <Footer flush />
     </div>
   );
 }
-
-export default page;

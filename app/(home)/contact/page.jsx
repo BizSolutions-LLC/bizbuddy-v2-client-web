@@ -1,15 +1,13 @@
-// app/(home)/faq/page.jsx
-"use client";
-
-import Contact from "@/components/Home/Contact";
+// app/(home)/contact/page.jsx
+// BB-145 — contact page in the new public-site style.
+import ContactSection from "@/components/Home/landing/ContactSection";
 import Footer from "@/components/Partial/Footer";
-import React from "react";
-function page() {
+
+export default function ContactPage() {
   return (
-    <div className="flex flex-col justify-between items-center bg-white dark:bg-black">
-      <Contact />
-      <Footer />
+    <div className="w-full bg-white font-landing text-brand-ink">
+      <ContactSection />
+      <Footer flush />
     </div>
   );
 }
-export default page;

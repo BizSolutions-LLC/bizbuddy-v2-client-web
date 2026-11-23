@@ -1,181 +1,159 @@
 // components/Home/PrivacyPolicy.jsx
-"use client";
-
-import React from "react";
+// BB-145 — privacy policy. Layout: components/Home/legal/LegalDocument.jsx. Draft: Carlo reviews the wording.
+// Kept general on purpose (Carlo, 2026-11-23): name the categories of information, the purposes and
+// who it's shared with, but not how features work. Don't name payment or other providers, don't
+// mention face capture, and don't describe security measures or detection methods.
 import Link from "next/link";
-import { motion } from "framer-motion";
-import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
+import LegalDocument, { CompanyAddress, LegalList, legalLink } from "@/components/Home/legal/LegalDocument";
 
-const policyItems = [
-  {
-    value: "intro",
-    title: "Privacy Policy Overview",
-    content: `
-This Privacy Policy outlines how MyBizBuddy.co, a platform developed and owned by BizSolutions LLC ("we", "our", or "us"), collects, uses, stores, and protects your information when you use our cloud-based timekeeping and payroll services via our website and mobile application (collectively, the “Services”).
-By accessing or using our Services, you agree to the practices described in this policy.`,
-  },
-  {
-    value: "information",
-    title: "1. Information We Collect",
-    content: `
-a. User Information  
-   • Name, email address, phone number  
-   • Login credentials and authentication data  
-   • Company name and employee role  
+const LAST_UPDATED = "November 23, 2026";
 
-b. Timekeeping and Payroll Data  
-   • Clock-in and clock-out times  
-   • Work hours, schedules, time-off requests  
-   • Payroll details (wage rates, tax deductions, pay stubs)  
+const CATEGORIES = [
+  ["Account and profile", "Your name, contact details, login details, and employment details your employer records."],
+  ["Work records", "Time and attendance, schedules, leave, overtime and payroll information."],
+  ["Location", "Location information when you use location-based features your employer turns on."],
+  ["Device and usage", "Information such as device identifiers, IP address, browser type and sign-in activity."],
+  ["Communications", "Messages you send us."],
+];
 
-c. Device and Usage Information  
-   • IP address and geolocation (if enabled)  
-   • Browser type, device type, OS version  
-   • Usage logs and in-app interaction data  
-
-d. Optional Biometric Data (if enabled)  
-   • Fingerprint or facial recognition for clock-ins (used only for authentication and not stored on our servers without explicit consent)`,
-  },
+const SECTIONS = [
   {
-    value: "usage",
-    title: "2. How We Use Your Information",
-    content: `
-• Provide timekeeping and payroll processing services  
-• Ensure secure access and account verification  
-• Generate payroll reports and timecard summaries  
-• Improve platform functionality and user experience  
-• Comply with labor, tax, and regulatory requirements`,
-  },
-  {
-    value: "sharing",
-    title: "3. Data Sharing and Disclosure",
-    content: `
-We do not sell your personal information. We may share it with:  
-• Your employer (if you are an employee user)  
-• Payroll processors, banks, or payment platforms  
-• Regulatory or legal authorities when required by law  
-• Third-party service providers under strict confidentiality agreements`,
-  },
-  {
-    value: "security",
-    title: "4. Data Storage and Security",
-    content: `
-Data is encrypted and stored on secure cloud infrastructure:  
-• SSL/TLS encryption during transmission  
-• AES-256 encryption at rest  
-• Role-based access control  
-• Regular audits and vulnerability scans  
-
-We retain data while your account is active or as required by law.`,
-  },
-  {
-    value: "rights",
-    title: "5. Your Rights and Choices",
-    content: `
-You may:  
-• Access or correct your personal data  
-• Request data deletion (where legally permitted)  
-• Withdraw consent for optional data (e.g., biometrics)  
-• Object to certain processing activities  
-
-Submit requests via email: info@bizsolutions.us`,
-  },
-  {
-    value: "cookies",
-    title: "6. Cookies and Tracking Technologies",
-    content: `
-We use cookies and similar technologies to:  
-• Maintain session data  
-• Analyze app usage trends  
-• Improve performance and personalization  
-
-Manage cookies through your browser settings.`,
-  },
-  {
-    value: "children",
-    title: "7. Children's Privacy",
-    content: `
-Our Services are not intended for individuals under 16. We do not knowingly collect data from children without parental consent.`,
-  },
-  {
-    value: "changes",
-    title: "8. Changes to This Privacy Policy",
-    content: `
-We may update this policy periodically. Changes will appear here with a new effective date. Review this page regularly.`,
-  },
-  {
-    value: "contact",
-    title: "9. Contact Us",
-    content: (
-      <div className="space-y-2">
-        <p>BizSolutions&nbsp;LLC</p>
+    id: "who-we-are",
+    title: "Who we are",
+    body: (
+      <>
         <p>
-          <Link
-            href="https://www.google.com/maps/search/?api=1&query=20289+Stevens+Creek+Boulevard+%231039+Cupertino+California+95014"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-orange-500 underline"
-          >
-            20289&nbsp;Stevens&nbsp;Creek&nbsp;Boulevard&nbsp;#1039
-            <br />
-            Cupertino,&nbsp;CA&nbsp;95014&nbsp;USA
-          </Link>
+          BizBuddy (mybizbuddy.co) is a time keeping, leave and payroll service provided by BizSolutions LLC (“we”,
+          “our”, “us”).
         </p>
         <p>
-          Email:&nbsp;
-          <a href="mailto:info@bizsolutions.us" className="text-orange-500 underline">
-            info@bizsolutions.us
-          </a>
+          If you use BizBuddy through your employer, your employer decides how BizBuddy is set up and how your work
+          records are used, and we handle that information on their behalf.
         </p>
+      </>
+    ),
+  },
+  {
+    id: "information-we-collect",
+    title: "Information we collect",
+    body: (
+      <LegalList
+        items={CATEGORIES.map(([cat, ex]) => (
+          <>
+            <strong className="text-brand-ink">{cat}:</strong> {ex}
+          </>
+        ))}
+      />
+    ),
+  },
+  {
+    id: "how-we-use",
+    title: "How we use information",
+    body: (
+      <>
+        <p>We use the information we collect to:</p>
+        <LegalList
+          items={[
+            "Provide BizBuddy, including time keeping, schedules, leave and payroll.",
+            "Keep accounts and records secure.",
+            "Send service messages and provide support.",
+            "Improve BizBuddy.",
+            "Meet our legal obligations.",
+          ]}
+        />
+      </>
+    ),
+  },
+  {
+    id: "sharing",
+    title: "How we share information",
+    body: (
+      <>
+        <p>We do not sell your personal information or share it for advertising. We share it only with:</p>
+        <LegalList
+          items={[
+            "Your employer.",
+            "Service providers that help us run BizBuddy, who may use it only for that purpose.",
+            "Authorities, when the law requires it.",
+          ]}
+        />
+      </>
+    ),
+  },
+  {
+    id: "security",
+    title: "Security",
+    body: <p>We use reasonable measures to protect the information we hold.</p>,
+  },
+  {
+    id: "retention",
+    title: "Retention",
+    body: (
+      <p>
+        We keep information for as long as it’s needed to provide BizBuddy, for your employer’s records, or as the
+        law requires. After that, we delete it or make it anonymous.
+      </p>
+    ),
+  },
+  {
+    id: "your-rights",
+    title: "Your rights and choices",
+    body: (
+      <>
+        <LegalList
+          items={[
+            "You can ask to see, correct or delete your personal information. For work records, your employer may need to approve the change.",
+            <>
+              You can delete your account on the{" "}
+              <Link href="/account-deletion" className={legalLink}>
+                account deletion page
+              </Link>
+              .
+            </>,
+            "You can turn off location access in your device settings. Some features may not work without it.",
+          ]}
+        />
         <p>
-          Website:&nbsp;
-          <Link href="https://mybizbuddy.co" target="_blank" rel="noopener noreferrer" className="text-orange-500 underline">
-            mybizbuddy.co
-          </Link>
+          Depending on where you live, such as California, you may have additional rights. To use any of them,
+          contact us as described below.
         </p>
-      </div>
+      </>
+    ),
+  },
+  {
+    id: "cookies",
+    title: "Cookies",
+    body: (
+      <p>
+        We use cookies and similar browser storage to keep you signed in and remember your preferences. We don’t use
+        them for advertising.
+      </p>
+    ),
+  },
+  {
+    id: "children",
+    title: "Children",
+    body: <p>BizBuddy isn’t meant for anyone under 16, and we don’t knowingly collect their information.</p>,
+  },
+  {
+    id: "changes",
+    title: "Changes to this policy",
+    body: <p>When we change this policy, we’ll update the “Last updated” date at the top of this page.</p>,
+  },
+  {
+    id: "contact",
+    title: "Contact us",
+    body: (
+      <>
+        <p>For questions about this policy or to use your rights, contact:</p>
+        <CompanyAddress />
+      </>
     ),
   },
 ];
 
-const containerVariants = {
-  hidden: { opacity: 0 },
-  visible: { opacity: 1, transition: { staggerChildren: 0.1 } },
-};
-const itemVariants = {
-  hidden: { y: 20, opacity: 0 },
-  visible: { y: 0, opacity: 1 },
-};
-
 export default function PrivacyPolicy() {
   return (
-    <motion.section
-      className="py-10 md:py-10 px-4 mx-auto w-full max-w-7xl"
-      initial="hidden"
-      animate="visible"
-      variants={containerVariants}
-    >
-      <motion.h2
-        className="text-orange-500 font-bold text-center pb-2 text-xl sm:text-2xl md:text-4xl lg:text-5xl"
-        variants={itemVariants}
-      >
-        Privacy&nbsp;Policy
-      </motion.h2>
-
-      <motion.div className="flex flex-col items-center mt-10 max-w-3xl mx-auto" variants={containerVariants}>
-        <Accordion type="single" collapsible className="w-full">
-          {policyItems.map((item, i) => (
-            <motion.div key={`policy-${item.value}-${i}`} variants={itemVariants}>
-              <AccordionItem value={item.value} className="border-b last:border-b-0">
-                <AccordionTrigger className="py-4 px-2 text-left">{item.title}</AccordionTrigger>
-                <AccordionContent className="px-2 pb-4">
-                  {typeof item.content === "string" ? <span className="whitespace-pre-line">{item.content}</span> : item.content}
-                </AccordionContent>
-              </AccordionItem>
-            </motion.div>
-          ))}
-        </Accordion>
-      </motion.div>
-    </motion.section>
+    <LegalDocument title="Privacy Policy" lastUpdated={LAST_UPDATED} sections={SECTIONS} />
   );
 }

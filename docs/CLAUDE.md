@@ -142,8 +142,7 @@ app/
 │   ├── emails/                 # Emails: email log, sandboxed preview, image check, test send (BB-140)
 │   └── server/                 # Live Server — health + live log (BB-112)
 │
-└── api/
-    └── contact/route.js        # Contact form POST handler
+└── (no api/ routes: the contact form posts to the server's POST /api/public/contact, BB-145)
 ```
 
 ---
@@ -192,10 +191,13 @@ components/
 │       ├── BizBuddyPanel/      # Partner/referrer UI
 │       └── Others/
 │
-├── Home/                       # Landing page sections (11 files)
-│   └── (LandingHero, KeyFeatures, Accordion, Testimonials,
-│       TrustedPartners, DataDisplay, PrivacyPolicy, Terms,
-│       Contact, BizChat, FeaturesIcon)
+├── Home/                       # Public site
+│   ├── landing/                # Landing redesign (BB-145): content.js (all copy, FAQ, links, QR),
+│   │                           # PublicNav (signed-out header), HeroRail (6 features, 7 s autoplay),
+│   │                           # Sections (highlights, overtime, pricing — no prices), DownloadSection
+│   │                           # (+ QR pop-up), FAQSection (/faq uses `full`), ContactSection (mailto)
+│   ├── legal/                  # LegalDocument: shared layout for Privacy Policy + Terms (BB-145)
+│   └── (PrivacyPolicy, Terms, BizChat, BizChatLoader)
 │
 ├── Partial/
 │   ├── Navbar/
@@ -243,7 +245,6 @@ No Redux or Context API used. Zustand is the sole global state solution.
 ```
 lib/
 ├── auth.js                     # Auth helper functions
-├── data.js                     # Data fetching / transformation
 ├── dateTimeFormatter.js        # Date/time formatting utilities
 ├── exportUtils.js              # PDF + Excel export logic (large file, ~114KB)
 ├── notificationApi.js          # Notification API calls
@@ -393,7 +394,7 @@ npm run lint      # ESLint
 
 ## Notes
 
-- The app communicates with an **external backend API** via Axios. There is minimal Next.js API route usage (only `app/api/contact/route.js`).
+- The app communicates with an **external backend API** via Axios. There are no Next.js API routes; the public contact form posts to the server (`POST /api/public/contact`, BB-145), so this repo holds no mail credentials.
 - Real-time features use **Socket.io** (`lib/socketService.js`).
 - `public/bizbuddy.apk` (~80MB) is the companion Android app bundled in the public folder.
 - `lib/exportUtils.js` is a large file — be careful when editing to avoid regressions in PDF/Excel exports.

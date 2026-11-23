@@ -11,8 +11,8 @@ import { Button } from "@/components/ui/button";
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import useAuthStore from "@/store/useAuthStore";
 import UserMenu from "./Navbar/UserMenu";
-import MobileMenu from "./Navbar/MobileMenu";
 import NotificationBell from '@/components/common/NotificationBell';
+import PublicNav from "@/components/Home/landing/PublicNav";
 
 const navLinks = [
   { href: "/", label: "Home" },
@@ -94,6 +94,9 @@ export default function NavBar() {
   // The system-admin dashboard has its own nav
   if (pathname?.startsWith("/system-admin")) return null;
 
+  // BB-145 — signed-out visitors on public pages get the new public header
+  if (!token && !isDashboard) return <PublicNav />;
+
   return (
     <motion.header
       initial={{ y: -100 }}
@@ -169,7 +172,6 @@ export default function NavBar() {
               <ThemeToggle />
               {!token ? (
                 <>
-                  <MobileMenu />
                   <SignInButton />
                 </>
               ) : (

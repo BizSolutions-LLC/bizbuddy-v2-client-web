@@ -1,17 +1,13 @@
-// File: biz-web-app/app/(home)/terms/page.jsx
-
-"use client";
+// app/(home)/terms/page.jsx
+// BB-145 — Terms of Service in the new legal-document style.
 import Terms from "@/components/Home/Terms";
 import Footer from "@/components/Partial/Footer";
-import React from "react";
 
-function page() {
+export default function TermsPage() {
   return (
-    <div className="flex flex-col justify-between items-center">
+    <div className="w-full bg-white">
       <Terms />
-      <Footer />
+      <Footer flush />
     </div>
   );
 }
-
-export default page;

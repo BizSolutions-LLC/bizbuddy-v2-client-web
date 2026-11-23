@@ -36,6 +36,18 @@ import useAuthStore from "@/store/useAuthStore";
 import { fromZonedTime } from "date-fns-tz";
 import { useCutoffFacePhotos } from "./cutoffFacePhotos"; // BB-141
 
+// BB-146 — record `detail` strings are rendered as HTML (dangerouslySetInnerHTML in CutoffReview.jsx).
+// Any text typed by users (e.g. leave type names) must go through escapeHtml before it's put in them,
+// so it shows as text and can never run as a script.
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────────
@@ -518,7 +530,7 @@ export function useCutoffReview(cutoffId) {
           segmentType:  null,
           date:         dateOnlyToLabel(leaveRow.leaveDate, tz),
           type:         "leave",
-          detail:       `${leaveRow.leave.leaveType} — <strong>Approved</strong>`,
+          detail:       `${escapeHtml(leaveRow.leave.leaveType)} — <strong>Approved</strong>`,
           tags:         [leavePayTag],
           actions:      ["pre-approved"],
           hours:        leaveScheduledHours,
@@ -723,7 +735,7 @@ export function useCutoffReview(cutoffId) {
           segmentType:    null,
           date:           dateOnlyToLabel(leaveRow.leaveDate, companyTimezone),
           type:           "leave",
-          detail:         `${leaveRow.leave.leaveType} — <strong>Approved</strong>`,
+          detail:         `${escapeHtml(leaveRow.leave.leaveType)} — <strong>Approved</strong>`,
           tags:           [leavePayTag],
           actions:        ["pre-approved"],
           hours:          leaveScheduledHours,
@@ -871,7 +883,7 @@ export function useCutoffReview(cutoffId) {
     }
     let detail = `<strong>In: ${inTime}</strong> &rarr; <strong>Out: ${outTime}</strong>`;
     if (isConflict && approval.leaveRecord) {
-      detail = `<strong>Punch:</strong> ${inTime} &rarr; ${outTime} &nbsp;|&nbsp; <strong>Leave:</strong> ${approval.leaveRecord.leaveType} (${approval.leaveRecord.status === "reverted" ? "Reverted" : "Approved"})`;
+      detail = `<strong>Punch:</strong> ${inTime} &rarr; ${outTime} &nbsp;|&nbsp; <strong>Leave:</strong> ${escapeHtml(approval.leaveRecord.leaveType)} (${approval.leaveRecord.status === "reverted" ? "Reverted" : "Approved"})`;
     }
 
     // Tags
@@ -1105,7 +1117,7 @@ export function useCutoffReview(cutoffId) {
         if (!t && !isApproving && !ptOverride) return rec;
         const newTimeIn  = t?.timeIn  ?? rec.timeIn;
         const newTimeOut = t?.timeOut ?? rec.timeOut;
-        const newDetail  = t ? `<strong>In: ${newTimeIn}</strong> &rarr; <strong>Out: ${newTimeOut}</strong>` : rec.detail;
+        const newDetail  = t ? `<strong>In: ${escapeHtml(newTimeIn)}</strong> &rarr; <strong>Out: ${escapeHtml(newTimeOut)}</strong>` : rec.detail;
         return { ...rec, timeIn: newTimeIn, timeOut: newTimeOut, detail: newDetail, isApproving, ...(ptOverride && { punchType: ptOverride }) };
       };
 
