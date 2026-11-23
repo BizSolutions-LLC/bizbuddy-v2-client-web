@@ -115,6 +115,23 @@ const StatusBadge = ({ status }) => {
   );
 };
 
+// BB-124: one line per server punch-overlap entry, from the server's *Local
+// strings — already in the day's own zone (shift zone on a shift day, else the
+// company zone), display-ready, no conversion. `zoneLabel` makes the zone explicit.
+// The date prefix is dropped when it matches the day.
+const overlapTime = (local, date) =>
+  local && date && local.startsWith(`${date} `) ? local.slice(date.length + 1) : (local ?? "");
+const fmtPunchOverlap = (o) => {
+  const day = o.date
+    ? toLocalDate(o.date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+    : "";
+  const zone = o.zoneLabel ? ` (${o.zoneLabel} time)` : "";
+  const punchIn = overlapTime(o.punchInLocal, o.date);
+  return o.stillClockedIn
+    ? `${day} — clocked in since ${punchIn}${zone}, still clocked in`
+    : `${day} — punched ${punchIn} – ${overlapTime(o.punchOutLocal, o.date)}; leave covers ${overlapTime(o.leaveFromLocal, o.date)} – ${overlapTime(o.leaveToLocal, o.date)}${zone}`;
+};
+
 // Detail-panel section label + label/value row — matches the employee-side
 // LeaveLogs.jsx panel's plain list presentation (no boxed cards).
 const DetailSectionLabel = ({ children }) => (
@@ -458,7 +475,15 @@ export default function SupervisorLeaveRequests() {
         setActionLoading(false);
         return;
       }
-      toast.success(`Leave request ${type}d successfully!`);
+      // BB-124: final approval returns punchOverlaps (escalations don't)
+      if (type === "approve" && Array.isArray(data.punchOverlaps) && data.punchOverlaps.length > 0) {
+        toast.warning("Leave request approved", {
+          description: `Note: the employee punched during this leave — ${data.punchOverlaps.map(fmtPunchOverlap).join("; ")}.`,
+          duration: 8000,
+        });
+      } else {
+        toast.success(`Leave request ${type}d successfully!`);
+      }
       closeActionDialog();
       fetchLeaves();
       fetchLeaveMatrix();
@@ -1552,6 +1577,25 @@ export default function SupervisorLeaveRequests() {
                   )}
                 </div>
               )
+            )}
+
+            {/* BB-124: employee punched during this leave — warning only, approval still allowed */}
+            {actionDialog.request && !previewLoading && Array.isArray(preview?.punchOverlaps) && preview.punchOverlaps.length > 0 && (
+              <div>
+                <DetailSectionLabel>Punch Overlap</DetailSectionLabel>
+                <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400 text-xs font-medium">
+                  <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                  This employee punched during this leave:
+                </div>
+                <ul className="pl-5 mt-1 list-disc text-xs text-amber-600 dark:text-amber-400">
+                  {preview.punchOverlaps.map((o, i) => (
+                    <li key={o.timeLogId ?? i}>{fmtPunchOverlap(o)}</li>
+                  ))}
+                </ul>
+                <p className="text-xs text-muted-foreground mt-1">
+                  You can still approve. Payroll would count both, so consider correcting the punch first.
+                </p>
+              </div>
             )}
 
             <div className="space-y-2">

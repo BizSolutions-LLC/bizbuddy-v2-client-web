@@ -86,6 +86,25 @@ const fmtShiftTime = (t) => {
   }
 };
 
+// BB-124: one line per server punch-overlap entry. Uses the server's *Local
+// strings ("2026-11-09 6:51 AM"), already in the day's own zone (`timeZone`:
+// the shift's zone on a shift day, else the company zone) — display-ready, no
+// conversion here. `zoneLabel` ("Manila") is appended so the zone is explicit.
+// The date prefix is dropped when it matches the conflict's day.
+const overlapTime = (local, date) =>
+  local && date && local.startsWith(`${date} `) ? local.slice(date.length + 1) : (local ?? "");
+const overlapZone = (o) => (o.zoneLabel ? ` (${o.zoneLabel} time)` : "");
+
+function fmtPunchOverlap(o) {
+  const day = o.date ? fmtDate(o.date) : "";
+  const punchIn = overlapTime(o.punchInLocal, o.date);
+  if (o.stillClockedIn) return `${day} — you are clocked in since ${punchIn}${overlapZone(o)}`;
+  const punchOut = overlapTime(o.punchOutLocal, o.date);
+  const from = overlapTime(o.leaveFromLocal, o.date);
+  const to   = overlapTime(o.leaveToLocal, o.date);
+  return `${day} — you punched ${punchIn} – ${punchOut}; this leave covers ${from} – ${to}${overlapZone(o)}`;
+}
+
 const daysBetween = (s, e) =>
   Math.floor((toLocalDate(e) - toLocalDate(s)) / 864e5) + 1;
 
@@ -205,6 +224,10 @@ export default function EmployeeLeaveRequests() {
   const [includeWeekends,  setIncludeWeekends]  = useState(true);
   const [errors,           setErrors]           = useState({});
   const [submitting,       setSubmitting]       = useState(false);
+  // BB-124: punches the leave would overlap — preview from /affected-schedules
+  // (doesn't know about unticked shifts) and the final 409 from /submit.
+  const [punchOverlaps,    setPunchOverlaps]    = useState([]);
+  const [submitConflicts,  setSubmitConflicts]  = useState([]);
   const scheduleTimerRef = useRef(null);
 
   // ── Derived / computed ────────────────────────────────────────────────────
@@ -531,6 +554,7 @@ export default function EmployeeLeaveRequests() {
 
     if (!token || !startDate || !endDate || new Date(startDate) > new Date(endDate)) {
       setAffectedSchedules([]);
+      setPunchOverlaps([]);
       setLoadingSchedules(false);
       return;
     }
@@ -544,8 +568,10 @@ export default function EmployeeLeaveRequests() {
         );
         const data = await res.json();
         setAffectedSchedules(Array.isArray(data.data) ? data.data : []);
+        setPunchOverlaps(Array.isArray(data.punchOverlaps) ? data.punchOverlaps : []);
       } catch {
         setAffectedSchedules([]);
+        setPunchOverlaps([]);
       } finally {
         setLoadingSchedules(false);
       }
@@ -566,6 +592,12 @@ export default function EmployeeLeaveRequests() {
       return next;
     });
   }, [affectedSchedules]);
+
+  // BB-124: a submit refusal is about the exact dates/times/shifts that were
+  // sent — drop it as soon as any of those change.
+  useEffect(() => {
+    setSubmitConflicts([]);
+  }, [startDate, endDate, startTime, endTime, includeWeekends, shiftSelection]);
 
   useEffect(() => { fetchLeaves(); fetchPolicies(); fetchCutoffPeriods(); }, [fetchLeaves, fetchPolicies, fetchCutoffPeriods]);
 
@@ -595,6 +627,7 @@ export default function EmployeeLeaveRequests() {
     setEndDate("");   setEndTime("17:00");
     setAffectedSchedules([]); setLoadingSchedules(false);
     setShiftSelection({}); setIncludeWeekends(true);
+    setPunchOverlaps([]); setSubmitConflicts([]);
     setErrors({});
     if (scheduleTimerRef.current) clearTimeout(scheduleTimerRef.current);
   }
@@ -650,6 +683,12 @@ export default function EmployeeLeaveRequests() {
         }),
       });
       const data = await res.json();
+      // BB-124: leave overlaps a punch — keep the form open and list the days
+      if (res.status === 409 && data.code === "LEAVE_OVERLAPS_PUNCH") {
+        setSubmitConflicts(Array.isArray(data.conflicts) ? data.conflicts : []);
+        toast.error(data.message ?? "This leave overlaps time you already punched.");
+        return;
+      }
       if (!res.ok) throw new Error(data.message ?? "Failed to submit");
       toast.success("Leave request submitted successfully!");
       setModalOpen(false); resetForm(); fetchLeaves(); fetchPolicies();
@@ -1496,7 +1535,11 @@ export default function EmployeeLeaveRequests() {
                                   <div style={{ fontSize: 11, color: "#888", marginTop: 1 }}>{s.shiftName}</div>
                                   <div style={{ fontSize: 11, color: "#bbb", marginTop: 1, display: "flex", alignItems: "center", gap: 4 }}>
                                     <Clock size={11} />
-                                    {fmtShiftTime(s.startTime)} → {fmtShiftTime(s.endTime)}
+                                    {/* BB-124: shift's own zone from the server (display-ready);
+                                        falls back to browser-local until the server sends it */}
+                                    {s.startTimeLocal && s.endTimeLocal
+                                      ? <>{overlapTime(s.startTimeLocal, s.assignedDate.slice(0, 10))} → {overlapTime(s.endTimeLocal, s.assignedDate.slice(0, 10))}{s.zoneLabel ? ` (${s.zoneLabel} time)` : ""}</>
+                                      : <>{fmtShiftTime(s.startTime)} → {fmtShiftTime(s.endTime)}</>}
                                   </div>
                                 </>
                               )}
@@ -1513,6 +1556,27 @@ export default function EmployeeLeaveRequests() {
                       <span style={{ fontSize: 11, color: "#888" }}>Total hours affected</span>
                       <span style={{ fontSize: 11, fontWeight: 500, color: "#f97316" }}>{totalAffectedHours.toFixed(2)}h</span>
                     </div>
+                  </div>
+                )}
+
+                {/* BB-124: leave overlaps a punch — submit refusal wins over the preview */}
+                {!loadingSchedules && (submitConflicts.length > 0 || punchOverlaps.length > 0) && (
+                  <div className="flex flex-col gap-1 mt-1 text-xs text-amber-700 dark:text-amber-400">
+                    <div className="flex items-center gap-1.5 font-medium">
+                      <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                      {submitConflicts.length > 0
+                        ? "This leave can't be submitted — it overlaps time you already punched:"
+                        : "This leave overlaps time you already punched:"}
+                    </div>
+                    <ul className="pl-5 list-disc">
+                      {(submitConflicts.length > 0 ? submitConflicts : punchOverlaps).map((o, i) => (
+                        <li key={o.timeLogId ?? i}>{fmtPunchOverlap(o)}</li>
+                      ))}
+                    </ul>
+                    <p className="text-muted-foreground">
+                      Clock out first, choose times outside the punch, or untick that shift. Your supervisor can also correct the punch.
+                      {submitConflicts.length === 0 && " Unticking a shift may clear this — the final check happens when you submit."}
+                    </p>
                   </div>
                 )}
               </div>
