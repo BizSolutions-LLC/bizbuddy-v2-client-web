@@ -5,7 +5,7 @@ These are standing collaboration rules for this repo. Follow them on every task,
 ## Cross-repo context
 
 This client repo has a companion server repo (separate repository, not merged) at
-`github.com/biz-admin-carlo/bizbuddy-v2-server` that it communicates with via a shared
+`github.com/BizSolutions-LLC/bizbuddy-v2-server` that it communicates with via a shared
 API/contract (hand-written fetch/axios calls reading `NEXT_PUBLIC_API_URL` — no generated
 client). Whenever a task touches something the server owns — endpoints, payloads, auth
 behavior, response shapes — flag that explicitly so the user knows the server repo also
@@ -51,6 +51,9 @@ up anywhere.
   8. Claude opens the PR (`gh pr create`, or a compare link if `gh` isn't installed).
 
   The push itself stays with Carlo.
+- **`/version-of BB-xxx …`** (`.claude/commands/version-of.md`) is a read-only lookup of which
+  released version each ticket shipped in. It checks the changelogs and the master commits, and
+  reports "none" for unreleased tickets.
 
 ## The four workflow types
 
