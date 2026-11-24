@@ -54,6 +54,9 @@ app/
 ├── layout.jsx                  # Root layout with ThemeProvider
 ├── page.jsx                    # Landing page (public)
 ├── globals.css
+├── favicon.ico, icon.png, apple-icon.png   # Site icons; icon.png = orange mark 512px (BB-145 follow-up)
+├── robots.js                   # /robots.txt: disallows /system-admin, /dashboard, /payment, /reset-password
+├── sitemap.js                  # /sitemap.xml: public pages only (no /system-admin, /dashboard, /pricing)
 │
 ├── (home)/                     # Public informational pages
 │   ├── account-deletion/
