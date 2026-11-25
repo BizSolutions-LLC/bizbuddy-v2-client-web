@@ -51,6 +51,9 @@ module.exports = {
           4: "hsl(var(--chart-4))",
           5: "hsl(var(--chart-5))",
         },
+        // Dashboard pilot (Employee Map, 2026-11-25): brand orange as a thin accent (rules, markers),
+        // with a dark-mode value in globals.css. Never for filled boxes or large backgrounds.
+        "accent-brand": "hsl(var(--accent-brand) / <alpha-value>)",
         // BB-145 — public site (landing, nav, footer). Not used inside the dashboard.
         brand: {
           DEFAULT: "#F68525", // buttons, accents (black text on it)
@@ -77,10 +80,11 @@ module.exports = {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
-        brand: "2px", // BB-145 public site corners
+        brand: "2px", // BB-145 public site corners; also the Employee Map pilot (dashboard)
       },
       fontFamily: {
-        // BB-145 — loaded with next/font in app/layout.jsx
+        // BB-145 — loaded with next/font in app/layout.jsx. font-display is also used for
+        // page titles in the Employee Map pilot (dashboard).
         landing: ["var(--font-inter)", "system-ui", "sans-serif"],
         display: ["var(--font-inter-tight)", "var(--font-inter)", "sans-serif"],
       },

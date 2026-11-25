@@ -2,15 +2,20 @@
 "use client";
 
 // BB-128: the Leaflet map for the Employee Map page. Loaded with next/dynamic (ssr: false)
-// because Leaflet needs `window`. Tiles: OpenStreetMap (free, no key).
-// Layers: work sites (always), then a heat layer, individual punch points, or (part 2)
-// routes: the breadcrumb tracks with the punch points at their ends.
+// because Leaflet needs `window`. Map style (basemap) is chosen on the page: Street (OSM),
+// Light (Esri Light Gray) or Satellite (Esri), the last two when the Esri key is set, see BASEMAPS in employeeMapRoutes.js.
+// Map views (2026-11-25): one mode per tab, each with its own server response:
+//   punches → GET /api/employee-map/punches  (initials pins, or the heat layer)
+//   routes  → GET /api/employee-map/routes   (breadcrumb tracks + their punch pins)
+//   live    → GET /api/employee-map/live     (latest position per clocked-in employee)
+// Work sites are drawn on every tab. People are drawn as round initials badges in the
+// server's per-employee `color`.
 
-import { Fragment, useEffect, useMemo } from "react";
+import { Fragment, useEffect, useMemo, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { MapContainer, TileLayer, Circle, CircleMarker, Marker, Polyline, Popup, Tooltip, useMap } from "react-leaflet";
-import { TRACK_COLORS, ROUTE_START_CLASS, ROUTE_END_CLASS, trackColorIndex, splitTrack } from "./employeeMapRoutes";
+import { ROUTE_START_CLASS, ROUTE_END_CLASS, BASEMAPS, DEFAULT_BASEMAP, splitTrack, fmtAgo, fmtBattery, fmtClock } from "./employeeMapRoutes";
 
 // Default marker images (same fix as Locations.jsx: bundlers break Leaflet's own paths)
 delete L.Icon.Default.prototype._getIconUrl;
@@ -113,13 +118,59 @@ function HeatLayer({ points }) {
   return null;
 }
 
-// Fit the view to everything drawn whenever the data changes
-function FitToData({ bounds }) {
+// ── Initials pins ────────────────────────────────────────────────────────────
+// A round badge: the employee's server colour (a runtime value, so inline) with white
+// initials. Variants: "in" solid, "out" with a white inner ring, stale at 50% opacity,
+// fake GPS with a red outline.
+const FALLBACK_COLOR = "#525252";
+const safeColor = (c) => (typeof c === "string" && /^#[0-9a-f]{3,8}$/i.test(c) ? c : FALLBACK_COLOR);
+const escapeHtml = (v) =>
+  String(v ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
+
+const PIN_SIZE = 26;
+const iconCache = new Map();
+function initialsIcon({ initials, color, variant = "in", stale = false, mocked = false }) {
+  const key = `${initials}|${color}|${variant}|${stale}|${mocked}`;
+  if (iconCache.has(key)) return iconCache.get(key);
+  const cls = [
+    "flex h-[26px] w-[26px] items-center justify-center rounded-full text-[10px] font-semibold leading-none text-white shadow-md select-none",
+    variant === "out" ? "ring-2 ring-inset ring-white" : "",
+    stale ? "opacity-50" : "",
+    mocked ? "outline outline-2 outline-offset-1 outline-red-600" : "",
+  ].filter(Boolean).join(" ");
+  const icon = L.divIcon({
+    className: "", // no default white box
+    html: `<div class="${cls}" style="background:${safeColor(color)}">${escapeHtml((initials || "?").slice(0, 3))}</div>`,
+    iconSize: [PIN_SIZE, PIN_SIZE],
+    iconAnchor: [PIN_SIZE / 2, PIN_SIZE / 2],
+    popupAnchor: [0, -PIN_SIZE / 2],
+    tooltipAnchor: [PIN_SIZE / 2, 0],
+  });
+  iconCache.set(key, icon);
+  return icon;
+}
+
+// ── View helpers ─────────────────────────────────────────────────────────────
+// Fit the view to everything drawn, once per `fitKey` (a new load or new filters; Live
+// polls keep the same key so the map doesn't jump every minute).
+function FitToData({ bounds, fitKey }) {
+  const map = useMap();
+  const lastKey = useRef(null);
+  useEffect(() => {
+    if (!bounds || !bounds.isValid() || lastKey.current === fitKey) return;
+    lastKey.current = fitKey;
+    map.fitBounds(bounds, { padding: [32, 32], maxZoom: 17 });
+  }, [map, bounds, fitKey]);
+  return null;
+}
+
+// Live side panel: clicking a person flies the map to their pin
+function FlyTo({ focus }) {
   const map = useMap();
   useEffect(() => {
-    if (!bounds) return;
-    if (bounds.isValid()) map.fitBounds(bounds, { padding: [32, 32], maxZoom: 17 });
-  }, [map, bounds]);
+    if (!focus) return;
+    map.flyTo([focus.lat, focus.lng], Math.max(map.getZoom(), 16), { duration: 0.6 });
+  }, [map, focus]);
   return null;
 }
 
@@ -138,33 +189,36 @@ function PunchPopup({ p, singleDay }) {
     <div className="space-y-0.5 text-sm">
       <p className="font-semibold">{p.employeeName}</p>
       <p>{p.type === "out" ? "Clock-out" : "Clock-in"} {when}</p>
-      <p className="text-muted-foreground">{placeText(p)}</p>
-      {p.accuracy != null && <p className="text-muted-foreground">±{p.accuracy} m</p>}
+      {p.siteName !== undefined && <p className="text-muted-foreground">{placeText(p)}</p>}
+      {p.accuracy != null && <p className="text-muted-foreground">±{Math.round(p.accuracy)} m</p>}
     </div>
   );
 }
 
-// Point colours as Tailwind classes on the SVG paths (CSS beats Leaflet's attributes)
-const POINT_CLASS = {
-  in: "fill-emerald-500 stroke-emerald-700",
-  out: "fill-blue-500 stroke-blue-700",
-};
+function PunchPin({ p, singleDay }) {
+  return (
+    <Marker position={[p.lat, p.lng]} icon={initialsIcon({ initials: p.initials, color: p.color, variant: p.type })}>
+      <Popup><PunchPopup p={p} singleDay={singleDay} /></Popup>
+    </Marker>
+  );
+}
 
-// ── Routes (BB-128 part 2) ───────────────────────────────────────────────────
-// Above this many points in total, only start/end and fake-GPS dots are drawn (SVG
+// ── Routes ───────────────────────────────────────────────────────────────────
+// Above this many points in total, only start/end, fake-GPS and jump dots are drawn (SVG
 // markers get slow); the lines are always drawn. One employee is always below it.
 const MAX_DOTS = 2000;
 
-const pct = (v) => (v == null ? null : `${Math.round(v * 100)}%`);
-
 function BreadcrumbTip({ track, pt }) {
+  const battery = fmtBattery(pt.batteryLevel);
   return (
     <div className="space-y-0.5 text-xs">
       <p className="font-semibold">{track.employeeName}</p>
       <p>{pt.atLocal}</p>
-      {pt.accuracy != null && <p>±{Math.round(pt.accuracy)} m</p>}
+      {pt.accuracy != null && (
+        <p>±{Math.round(pt.accuracy)} m{pt.lowAccuracy && ", not counted in distance"}</p>
+      )}
       {pt.speed != null && <p>{(pt.speed * 3.6).toFixed(1)} km/h · {(pt.speed * 2.23694).toFixed(1)} mph</p>}
-      {pt.batteryLevel != null && <p>Battery {pct(pt.batteryLevel)}</p>}
+      {battery && <p>Battery {battery}</p>}
       {pt.isMocked && <p className="font-semibold text-red-600">⚠ Fake GPS reported by the phone</p>}
       {pt.jumpedHere && <p className="font-semibold text-red-600">⚠ Suspicious movement: reached by an impossible move</p>}
     </div>
@@ -191,25 +245,33 @@ function PinLink({ from, to, check, label }) {
   );
 }
 
-function RouteLayer({ tracks, intervalMinutes, colorIndex, pinsByLog }) {
+const hasLatLng = (p) => p && p.lat != null && p.lng != null;
+
+function RouteLayer({ tracks, intervalMinutes, singleDay }) {
   const totalPoints = tracks.reduce((n, t) => n + (t.points?.length || 0), 0);
   const allDots = totalPoints <= MAX_DOTS;
   return tracks.map((t) => {
     const pts = t.points || [];
-    if (!pts.length) return null;
-    const c = TRACK_COLORS[colorIndex(t.employeeId)];
+    const color = safeColor(t.color);
     const { solid, gaps, jumps } = splitTrack(pts, intervalMinutes);
     const last = pts.length - 1;
-    const pins = pinsByLog.get(t.timeLogId) || {};
+    // Punch pins come with the track (server: tracks[].pins); missing until the server sends them
+    const pinIn = hasLatLng(t.pins?.clockIn) ? t.pins.clockIn : null;
+    const pinOut = hasLatLng(t.pins?.clockOut) ? t.pins.clockOut : null;
+    const person = { employeeName: t.employeeName, initials: t.initials, color: t.color };
     return (
       <Fragment key={t.timeLogId}>
-        <PinLink from={pins.in} to={[pts[0].lat, pts[0].lng]} check={t.pinChecks?.clockIn} label="Clock-in pin" />
-        <PinLink from={[pts[last].lat, pts[last].lng]} to={pins.out} check={t.pinChecks?.clockOut} label="Clock-out pin" />
+        {pts.length > 0 && (
+          <>
+            <PinLink from={pinIn && [pinIn.lat, pinIn.lng]} to={[pts[0].lat, pts[0].lng]} check={t.pinChecks?.clockIn} label="Clock-in pin" />
+            <PinLink from={[pts[last].lat, pts[last].lng]} to={pinOut && [pinOut.lat, pinOut.lng]} check={t.pinChecks?.clockOut} label="Clock-out pin" />
+          </>
+        )}
         {solid.map((run, i) => (
-          <Polyline key={`s${i}`} positions={run} pathOptions={{ className: c.stroke, weight: 3, opacity: 0.85 }} />
+          <Polyline key={`s${i}`} positions={run} pathOptions={{ color, weight: 3, opacity: 0.85 }} />
         ))}
         {gaps.map((seg, i) => (
-          <Polyline key={`g${i}`} positions={seg} pathOptions={{ className: c.stroke, weight: 2, opacity: 0.7, dashArray: "6 6" }} />
+          <Polyline key={`g${i}`} positions={seg} pathOptions={{ color, weight: 2, opacity: 0.7, dashArray: "6 6" }} />
         ))}
         {/* BB-128 2b: impossible moves — dashed red, never part of the route line */}
         {jumps.map((seg, i) => (
@@ -219,68 +281,104 @@ function RouteLayer({ tracks, intervalMinutes, colorIndex, pinsByLog }) {
         ))}
         {pts.map((pt, i) => {
           const isEnd = i === 0 || i === last;
-          if (!pt.isMocked && !pt.jumpedHere && !isEnd && !allDots) return null;
-          const cls = pt.isMocked || pt.jumpedHere
-            ? "fill-red-500 stroke-red-700"
-            : i === 0 ? ROUTE_START_CLASS : i === last ? ROUTE_END_CLASS : `${c.fill} ${c.stroke}`;
+          const flagged = pt.isMocked || pt.jumpedHere;
+          if (!flagged && !isEnd && !allDots) return null;
+          // Low accuracy (> 100 m): still drawn, lighter; not counted in distance
+          const options = flagged
+            ? { className: "fill-red-500 stroke-red-700", weight: 1, fillOpacity: 1 }
+            : i === 0
+              ? { className: ROUTE_START_CLASS, weight: 2, fillOpacity: 1 }
+              : i === last
+                ? { className: ROUTE_END_CLASS, weight: 2, fillOpacity: 1 }
+                : { color, fillColor: color, weight: 1, fillOpacity: pt.lowAccuracy ? 0.25 : 1, opacity: pt.lowAccuracy ? 0.35 : 1 };
           return (
-            <CircleMarker
-              key={`p${i}`}
-              center={[pt.lat, pt.lng]}
-              radius={pt.isMocked || pt.jumpedHere || isEnd ? 5 : 2.5}
-              pathOptions={{ className: cls, weight: isEnd ? 2 : 1, fillOpacity: 1 }}
-            >
+            <CircleMarker key={`p${i}`} center={[pt.lat, pt.lng]} radius={flagged || isEnd ? 5 : 2.5} pathOptions={options}>
               <Tooltip><BreadcrumbTip track={t} pt={pt} /></Tooltip>
             </CircleMarker>
           );
         })}
+        {pinIn && <PunchPin p={{ ...person, ...pinIn, type: "in" }} singleDay={singleDay} />}
+        {pinOut && <PunchPin p={{ ...person, ...pinOut, type: "out" }} singleDay={singleDay} />}
       </Fragment>
     );
   });
 }
 
-export default function EmployeeMapCanvas({ data, view, singleDay }) {
-  const sites = data?.sites || [];
-  const tracks = useMemo(() => (view === "routes" ? data?.layers?.breadcrumbs || [] : []), [data, view]);
-  const intervalMinutes = data?.summary?.breadcrumbs?.intervalMinutes || 5;
-  const colorIndex = useMemo(() => trackColorIndex(data?.layers?.breadcrumbs || []), [data]);
-  const heat = data?.heat || [];
-  const points = useMemo(
-    () => [
-      ...(data?.layers?.clockIn || []).map((p) => ({ ...p, type: "in" })),
-      ...(data?.layers?.clockOut || []).map((p) => ({ ...p, type: "out" })),
-    ],
-    [data]
+// ── Live ─────────────────────────────────────────────────────────────────────
+function LivePopup({ e, ageSeconds, tz }) {
+  const pos = e.position;
+  const battery = fmtBattery(pos.batteryLevel);
+  return (
+    <div className="space-y-0.5 text-sm">
+      <p className="font-semibold">{e.name}</p>
+      <p>
+        {pos.source === "clockIn"
+          ? `At clock-in, ${fmtClock(pos.at || e.clockedInAt, tz)}`
+          : `Seen ${fmtAgo(ageSeconds)}`}
+        {pos.stale && pos.source !== "clockIn" && <span className="text-muted-foreground"> (stale)</span>}
+      </p>
+      <p className="text-muted-foreground">Clocked in {fmtClock(e.clockedInAt, tz)}</p>
+      {pos.accuracy != null && <p className="text-muted-foreground">±{Math.round(pos.accuracy)} m</p>}
+      {battery && <p className="text-muted-foreground">Battery {battery}</p>}
+      {pos.isMocked && <p className="font-semibold text-red-600">⚠ Fake GPS reported by the phone</p>}
+    </div>
   );
+}
 
-  // BB-128 2b: timeLogId → { in: [lat, lng], out: [lat, lng] } for the pin-to-route links
-  const pinsByLog = useMemo(() => {
-    const map = new Map();
-    points.forEach((p) => {
-      if (!p.timeLogId || p.lat == null || p.lng == null) return;
-      const entry = map.get(p.timeLogId) || {};
-      entry[p.type] = [p.lat, p.lng];
-      map.set(p.timeLogId, entry);
-    });
-    return map;
-  }, [points]);
+// ── Map ──────────────────────────────────────────────────────────────────────
+/**
+ * @param mode       "punches" | "routes" | "live"
+ * @param data       that tab's server `data`
+ * @param punchView  "pins" | "heat" (punches only)
+ * @param basemap    key of BASEMAPS
+ * @param fitKey     changes when the view should refit to the data
+ * @param focus      { lat, lng } to fly to (Live side panel)
+ * @param ageOf      (employee) → seconds since their position, re-counted between polls (Live)
+ * @param tz         company time zone for Live labels
+ */
+export default function EmployeeMapCanvas({ mode, data, punchView = "pins", singleDay, basemap, fitKey, focus, ageOf, tz }) {
+  const tile = Object.hasOwn(BASEMAPS, basemap || "") ? BASEMAPS[basemap] : BASEMAPS[DEFAULT_BASEMAP];
+  const sites = data?.sites || [];
+  const tracks = useMemo(() => (mode === "routes" ? data?.tracks || [] : []), [data, mode]);
+  const intervalMinutes = data?.summary?.intervalMinutes || 5;
+  const heat = mode === "punches" ? data?.heat || [] : [];
+  const points = useMemo(
+    () =>
+      mode !== "punches"
+        ? []
+        : [
+            ...(data?.layers?.clockIn || []).map((p) => ({ ...p, type: "in" })),
+            ...(data?.layers?.clockOut || []).map((p) => ({ ...p, type: "out" })),
+          ],
+    [data, mode]
+  );
+  const live = useMemo(() => (mode === "live" ? (data?.employees || []).filter((e) => hasLatLng(e.position)) : []), [data, mode]);
 
   const bounds = useMemo(() => {
     const latlngs = [
       ...points.map((p) => [p.lat, p.lng]),
-      ...tracks.flatMap((t) => (t.points || []).map((pt) => [pt.lat, pt.lng])),
+      ...tracks.flatMap((t) => [
+        ...(t.points || []).map((pt) => [pt.lat, pt.lng]),
+        ...[t.pins?.clockIn, t.pins?.clockOut].filter(hasLatLng).map((p) => [p.lat, p.lng]),
+      ]),
+      ...live.map((e) => [e.position.lat, e.position.lng]),
       ...sites.filter((s) => s.latitude != null && s.longitude != null).map((s) => [s.latitude, s.longitude]),
     ];
     return latlngs.length ? L.latLngBounds(latlngs) : null;
-  }, [points, sites, tracks]);
+  }, [points, sites, tracks, live]);
 
   return (
     <MapContainer center={[20, 0]} zoom={2} scrollWheelZoom className="h-full w-full z-0">
       <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        key={tile.id}
+        attribution={tile.attribution}
+        url={tile.url}
+        maxZoom={tile.maxZoom}
+        {...(tile.minZoom != null ? { minZoom: tile.minZoom } : {})}
+        {...(tile.tileSize ? { tileSize: tile.tileSize, zoomOffset: tile.zoomOffset ?? 0 } : {})}
       />
-      <FitToData bounds={bounds} />
+      <FitToData bounds={bounds} fitKey={fitKey} />
+      <FlyTo focus={focus} />
 
       {/* Work sites — always shown */}
       {sites.filter((s) => s.latitude != null && s.longitude != null).map((s) =>
@@ -300,22 +398,21 @@ export default function EmployeeMapCanvas({ data, view, singleDay }) {
         )
       )}
 
-      {view === "routes" && <RouteLayer tracks={tracks} intervalMinutes={intervalMinutes} colorIndex={colorIndex} pinsByLog={pinsByLog} />}
+      {mode === "punches" && (punchView === "heat"
+        ? <HeatLayer points={heat} />
+        : points.map((p) => <PunchPin key={`${p.type}-${p.timeLogId}`} p={p} singleDay={singleDay} />))}
 
-      {view === "heat" ? (
-        <HeatLayer points={heat} />
-      ) : (
-        points.map((p) => (
-          <CircleMarker
-            key={`${p.type}-${p.timeLogId}`}
-            center={[p.lat, p.lng]}
-            radius={6}
-            pathOptions={{ className: POINT_CLASS[p.type], weight: 1.5, fillOpacity: 0.85 }}
-          >
-            <Popup><PunchPopup p={p} singleDay={singleDay} /></Popup>
-          </CircleMarker>
-        ))
-      )}
+      {mode === "routes" && <RouteLayer tracks={tracks} intervalMinutes={intervalMinutes} singleDay={singleDay} />}
+
+      {mode === "live" && live.map((e) => (
+        <Marker
+          key={e.timeLogId || e.employeeId}
+          position={[e.position.lat, e.position.lng]}
+          icon={initialsIcon({ initials: e.initials, color: e.color, stale: Boolean(e.position.stale), mocked: Boolean(e.position.isMocked) })}
+        >
+          <Popup><LivePopup e={e} ageSeconds={ageOf ? ageOf(e) : e.position.ageSeconds} tz={tz} /></Popup>
+        </Marker>
+      ))}
     </MapContainer>
   );
 }

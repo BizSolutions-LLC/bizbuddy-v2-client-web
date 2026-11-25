@@ -95,7 +95,9 @@ work belongs in the server repo — flag it and redirect rather than attempting 
   non-`NEXT_PUBLIC_*` var as a real secret requiring the same care as the server repo's `.env`.
   As of 2026-07-15, everything in this repo's `.env` is `NEXT_PUBLIC_*` (intentionally
   client-exposed) — re-verify this whenever new env vars are introduced, don't assume it still
-  holds.
+  holds. Added 2026-11-25 (BB-128 map styles): `NEXT_PUBLIC_MAP_SATELLITE_KEY` (+ optional
+  `NEXT_PUBLIC_MAP_SATELLITE_PROVIDER`). This is a public, domain-restricted map token, client-exposed
+  by design.
 - `jsonwebtoken`, `bcryptjs`, `nodemailer`, and the `stripe` server SDK are listed in
   `package.json` but confirmed **unused** anywhere in this repo's source (verified 2026-07-15
   via full-tree import search) — no need to re-investigate this in a future session. If any of
@@ -153,6 +155,13 @@ work belongs in the server repo — flag it and redirect rather than attempting 
 - Inline `style={{...}}` is acceptable only for genuinely computed runtime values
   (positioning, dynamic height/width, computed coordinates) — see
   `SchedulesCalendarView.jsx` for correct usage.
+
+- **Landing-look pilot (Employee Map only, 2026-11-25):** `EmployeeMap.jsx` uses the landing page's
+  style inside the dashboard: `font-display` titles, `rounded-brand` (2px) corners, flat bordered
+  surfaces, a flat stat row with a `border-accent-brand` left rule, an underline tab bar, and the
+  orange marker on the selected row. `accent-brand` (globals.css, with a dark value) is brand orange
+  for thin accents only, never fills. It's a pilot: don't copy it to other pages until Carlo decides
+  to roll it out.
 
 ### Known drift (flagged, not to be imitated)
 
