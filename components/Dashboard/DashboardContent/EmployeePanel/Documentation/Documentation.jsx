@@ -75,11 +75,7 @@ function resolveCompanyType(data) {
 const matchesCompanyType = (item, companyType) =>
   !item.companyType || !companyType || item.companyType === companyType;
 
-const GROUP_LABELS = {
-  ...Object.fromEntries(CompanyPanelItems.map((g) => [g.id, g.label])),
-  // Payroll is an Employee Panel sidebar group, not a Company Panel one.
-  payroll: "Payroll",
-};
+const GROUP_LABELS = Object.fromEntries(CompanyPanelItems.map((g) => [g.id, g.label]));
 
 // Groups consecutive sections by groupId so the TOC and section list can show
 // the same headings as the sidebar. Sections without a groupId get no heading.
@@ -313,13 +309,11 @@ export default function Documentation() {
     const hiddenRoutes = new Set(
       CompanyPanelItems.flatMap((g) => (g.children || []).map((c) => c.id)).filter((id) => !allowedRoutes.has(id))
     );
-    const canSeePayrollDocs = ["admin", "supervisor", "superadmin"].includes(String(role || "").toLowerCase());
 
     return TABS.filter((tab) => !(isSupport && tab.id === "employee")).map((tab) => {
       const sections = tab.content
         // Employee guide is ungrouped; company/settings sections follow the sidebar's role filter.
-        // Payroll is documented here even though those pages live on the Employee Panel.
-        .filter((s) => !s.groupId || allowedGroups.has(s.groupId) || (s.groupId === "payroll" && canSeePayrollDocs))
+        .filter((s) => !s.groupId || allowedGroups.has(s.groupId))
         .filter((s) => !(s.groupId && allowedGroups.has(s.groupId) && s.routeId && hiddenRoutes.has(s.routeId)))
         .filter((s) => !(isSupport && s.routeId && isBlockedForSystemAgent(`/dashboard/${s.routeId}`)))
         .filter((s) => matchesCompanyType(s, companyType))
