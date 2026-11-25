@@ -48,6 +48,8 @@ import {
 } from "@/components/ui/select";
 import CutoffDateRangeFilter, { periodRangeKey } from "@/components/common/CutoffDateRangeFilter";
 import { resolveLeavePayOutcome } from "@/lib/leaveBalanceUtils";
+import { sharedLeaveWindows } from "@/lib/leaveWindows";
+import LeaveWindowsHint from "@/components/common/LeaveWindowsHint";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
@@ -197,6 +199,26 @@ export default function EmployeeLeaveRequests() {
   // Actual day-by-day paid/unpaid outcome — GET /:id/days, only meaningful once decided
   const [dayBreakdown,        setDayBreakdown]        = useState([]);
   const [dayBreakdownLoading, setDayBreakdownLoading] = useState(false);
+
+  // BB-124 (added task): company zone, so leave times only name their zone when it
+  // differs (e.g. Manila shifts in a Los Angeles company). null → zone always shown.
+  const [companyTz, setCompanyTz] = useState(null);
+  useEffect(() => {
+    if (!token) return;
+    fetch(`${API_URL}/api/company-settings`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((j) => setCompanyTz(j?.data?.timezone || null))
+      .catch(() => setCompanyTz(null));
+  }, [token]);
+
+  // Day breakdown grouped by date (BB-045 split days), and the times shared by every day
+  const dayGroups = useMemo(() => Object.values(
+    dayBreakdown.reduce((acc, d) => {
+      (acc[d.date] ??= []).push(d);
+      return acc;
+    }, {})
+  ), [dayBreakdown]);
+  const dayShared = useMemo(() => sharedLeaveWindows(dayGroups, companyTz), [dayGroups, companyTz]);
 
   // ── Form modal ────────────────────────────────────────────────────────────
   const [modalOpen,        setModalOpen]        = useState(false);
@@ -998,22 +1020,25 @@ export default function EmployeeLeaveRequests() {
                         <Loader2 size={11} className="animate-spin" /> Loading…
                       </div>
                     ) : (
+                      <>
+                      {/* BB-124 (added task): same times every day → shown once here */}
+                      {dayShared && <div style={{ fontSize: 10, color: "#999", marginBottom: 4 }}>Every day: {dayShared}</div>}
                       <div style={{ border: "0.5px solid #e5e5e5", borderRadius: 8, overflow: "hidden", marginBottom: 6 }}>
                         <div style={{ maxHeight: 140, overflowY: "auto" }}>
                           {/* BB-045: a day split by proration has two entries sharing the
                               same date (one paid, one unpaid) — group by date so a split
                               day renders as one row with both badges, not two colliding rows. */}
                           {(() => {
-                            const grouped = Object.values(
-                              dayBreakdown.reduce((acc, d) => {
-                                (acc[d.date] ??= []).push(d);
-                                return acc;
-                              }, {})
-                            );
-                            return grouped.map((entries, i) => (
-                              <div key={entries[0].date} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 10px", borderBottom: i < grouped.length - 1 ? "0.5px solid #f0f0ee" : "none" }}>
-                                <span style={{ fontSize: 11, color: "#555" }}>{fmtDate(entries[0].date)}</span>
-                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            const grouped = dayGroups;
+                            return grouped.map((entries, i) => {
+                              return (
+                              <div key={entries[0].date} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "6px 10px", borderBottom: i < grouped.length - 1 ? "0.5px solid #f0f0ee" : "none" }}>
+                                <div style={{ minWidth: 0, display: "flex", flexDirection: "column" }}>
+                                  <span style={{ fontSize: 11, color: "#555" }}>{fmtDate(entries[0].date)}</span>
+                                  {/* BB-124 (added task): times + hover detail, when days differ */}
+                                  {!dayShared && <LeaveWindowsHint windows={entries[0].windows} companyTz={companyTz} />}
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
                                   {entries.map((d, j) => (
                                     <React.Fragment key={j}>
                                       <span style={{ fontSize: 11, color: "#bbb", textDecoration: d.reverted ? "line-through" : undefined }}>{d.hours}h</span>
@@ -1038,10 +1063,12 @@ export default function EmployeeLeaveRequests() {
                                   ))}
                                 </div>
                               </div>
-                            ));
+                              );
+                            });
                           })()}
                         </div>
                       </div>
+                      </>
                     )}
                   </>
                 )}

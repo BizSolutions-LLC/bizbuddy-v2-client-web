@@ -21,6 +21,7 @@ import {
   Download,
   ArrowRight,
   Calendar,
+  RotateCcw,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -58,6 +59,8 @@ import {
   DeptConfigPanel,
   useCutoffPeriods,
   CutoffPeriodDialogs,
+  ReopenedBadge,
+  OutdatedExportNote,
 } from "./cutoffPeriodsShared";
 import { CALENDAR_PREVIEW_ONLY as PREVIEW, PREVIEW_TIP, listViewHref } from "@/lib/cutoffCalendarPreview";
 
@@ -226,6 +229,7 @@ export default function CutoffPeriodsCalendar() {
     handleViewPayrollExport, handleDownloadPayrollExport, loadingAction,
     getDepartmentName, getDepartmentSetting,
     openConfigFor, openManual,
+    canReopen, openReopen,
   } = cp;
 
   const [statusTab,      setStatusTab]      = useState("all");
@@ -610,7 +614,8 @@ export default function CutoffPeriodsCalendar() {
                         const isProcessed = period.status === "processed";
                         const payPassed = !!period.paymentDate && dateOnly(period.paymentDate) < todayMidnight();
                         const canExport = !isSupport && period.payrollExport?.generated;
-                        const hasMenu = !isProcessed || canExport;
+                        const canReopenRow = isProcessed && canReopen; // BB-149 follow-up
+                        const hasMenu = !isProcessed || canExport || canReopenRow;
                         const busy = loadingAction?.periodId === period.id;
                         const markProcessed = () => openProcess(period);
                         return (
@@ -634,10 +639,14 @@ export default function CutoffPeriodsCalendar() {
 
                             {/* Status */}
                             <td className="px-4 py-3 whitespace-nowrap">
-                              <StatusPill status={period.status} />
+                              <div className="flex items-center gap-1.5">
+                                <StatusPill status={period.status} />
+                                <ReopenedBadge period={period} />
+                              </div>
                               {isLocked && payPassed && (
                                 <p className="text-[11px] font-semibold text-red-700 dark:text-red-400 mt-1">Pay date passed</p>
                               )}
+                              {canExport && <OutdatedExportNote exp={period.payrollExport} className="mt-1 text-[11px] whitespace-normal max-w-[220px]" />}
                             </td>
 
                             {/* Approvals */}
@@ -726,9 +735,20 @@ export default function CutoffPeriodsCalendar() {
                                           </>
                                         )}
 
+                                        {canReopenRow && (
+                                          <MenuAction
+                                            icon={RotateCcw}
+                                            title="Reopen period"
+                                            desc="Back to Open for corrections, with a reason. Approvals stay as they are."
+                                            disabled={PREVIEW}
+                                            onClick={() => openReopen(period)}
+                                          />
+                                        )}
+
                                         {canExport && (
                                           <>
-                                            {!isProcessed && <DropdownMenuSeparator />}
+                                            {(!isProcessed || canReopenRow) && <DropdownMenuSeparator />}
+                                            <OutdatedExportNote exp={period.payrollExport} className="px-3 py-1.5" />
                                             <MenuAction
                                               icon={Eye}
                                               title="View payroll export"

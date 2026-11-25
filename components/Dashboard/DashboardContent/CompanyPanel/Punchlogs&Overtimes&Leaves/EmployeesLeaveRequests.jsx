@@ -42,6 +42,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import CutoffDateRangeFilter, { periodRangeKey } from "@/components/common/CutoffDateRangeFilter";
 import { normalizeLeaveMatrixRow, resolveLeavePayOutcome } from "@/lib/leaveBalanceUtils";
+import { sharedLeaveWindows } from "@/lib/leaveWindows";
+import LeaveWindowsHint from "@/components/common/LeaveWindowsHint";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
@@ -144,6 +146,56 @@ const DetailRow = ({ label, value, valueClassName = "" }) => (
   </div>
 );
 
+// Day-by-day leave list — used by Request details (GET /:id/days) and the approve/reject
+// preview (GET /:id/preview). BB-045: a day split by proration has two entries sharing the
+// same date (one paid, one unpaid) — grouped by date so it renders as one row with both
+// badges. BB-124 (added task): the day's charged times (`windows`, same on both entries of
+// a split day). When every day has the same times they show once above the list;
+// otherwise a small line under each date, with shift names in a hover tooltip.
+const LeaveDayList = ({ days, companyTz, className = "" }) => {
+  const groups = Object.values(
+    days.reduce((acc, d) => {
+      (acc[d.date] ??= []).push(d);
+      return acc;
+    }, {})
+  );
+  const shared = sharedLeaveWindows(groups, companyTz);
+  return (
+    <div className={className}>
+      {shared && <p className="text-[11px] text-muted-foreground mb-1">Every day: {shared}</p>}
+      <div className="border rounded-md overflow-hidden bg-white dark:bg-neutral-900">
+        <div className="max-h-40 overflow-y-auto divide-y divide-neutral-100 dark:divide-neutral-800">
+          {groups.map((entries) => (
+            <div key={entries[0].date} className="flex items-center justify-between gap-3 px-3 py-1.5 text-xs">
+              <div className="min-w-0 flex flex-col">
+                <span>{toLocalDate(entries[0].date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</span>
+                {!shared && <LeaveWindowsHint windows={entries[0].windows} companyTz={companyTz} />}
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {entries.map((d, i) => (
+                  <React.Fragment key={i}>
+                    <span className={`text-muted-foreground ${d.reverted ? "line-through" : ""}`}>{d.hours}h</span>
+                    {d.reverted ? (
+                      // BB-125: day was punched and the punch honored — hours returned
+                      <Badge variant="outline" title={REVERT_EXPLANATION} className="cursor-help text-slate-700 border-slate-300 bg-slate-50 dark:text-slate-300 dark:border-slate-700 dark:bg-slate-800/40">
+                        Reverted
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className={d.isPaid ? "text-green-700 border-green-300 bg-green-50" : "text-amber-700 border-amber-300 bg-amber-50"}>
+                        {d.isPaid ? "Paid" : "Unpaid"}
+                      </Badge>
+                    )}
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function SupervisorLeaveRequests() {
@@ -168,6 +220,17 @@ export default function SupervisorLeaveRequests() {
   // Actual day-by-day paid/unpaid outcome — GET /:id/days, fetched when the detail dialog opens on a decided request
   const [dayBreakdown, setDayBreakdown] = useState([]);
   const [dayBreakdownLoading, setDayBreakdownLoading] = useState(false);
+
+  // BB-124 (added task): company zone, so leave times only name their zone when it
+  // differs (e.g. Manila shifts in a Los Angeles company). null → zone always shown.
+  const [companyTz, setCompanyTz] = useState(null);
+  useEffect(() => {
+    if (!token) return;
+    fetch(`${API_URL}/api/company-settings`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((j) => setCompanyTz(j?.data?.timezone || null))
+      .catch(() => setCompanyTz(null));
+  }, [token]);
 
   const matrixByEmail = useMemo(() => {
     const map = {};
@@ -737,40 +800,7 @@ export default function SupervisorLeaveRequests() {
                 <Loader2 className="h-3 w-3 animate-spin" /> Loading…
               </div>
             ) : (
-              <div className="border rounded-md overflow-hidden bg-white dark:bg-neutral-900">
-                <div className="max-h-40 overflow-y-auto divide-y divide-neutral-100 dark:divide-neutral-800">
-                  {/* BB-045: a day split by proration has two entries sharing the same
-                      date (one paid, one unpaid) — group by date so it renders as one
-                      row with both badges, not two colliding rows. */}
-                  {Object.values(
-                    dayBreakdown.reduce((acc, d) => {
-                      (acc[d.date] ??= []).push(d);
-                      return acc;
-                    }, {})
-                  ).map((entries) => (
-                    <div key={entries[0].date} className="flex items-center justify-between px-3 py-1.5 text-xs">
-                      <span>{toLocalDate(entries[0].date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</span>
-                      <div className="flex items-center gap-2">
-                        {entries.map((d, i) => (
-                          <React.Fragment key={i}>
-                            <span className={`text-muted-foreground ${d.reverted ? "line-through" : ""}`}>{d.hours}h</span>
-                            {d.reverted ? (
-                              // BB-125: day was punched and the punch honored — hours returned
-                              <Badge variant="outline" title={REVERT_EXPLANATION} className="cursor-help text-slate-700 border-slate-300 bg-slate-50 dark:text-slate-300 dark:border-slate-700 dark:bg-slate-800/40">
-                                Reverted
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline" className={d.isPaid ? "text-green-700 border-green-300 bg-green-50" : "text-amber-700 border-amber-300 bg-amber-50"}>
-                                {d.isPaid ? "Paid" : "Unpaid"}
-                              </Badge>
-                            )}
-                          </React.Fragment>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <LeaveDayList days={dayBreakdown} companyTz={companyTz} />
             )}
           </>
         )}
@@ -1527,6 +1557,10 @@ export default function SupervisorLeaveRequests() {
                 <div>
                   <DetailSectionLabel>Pay Outcome</DetailSectionLabel>
                   <p className="text-xs text-muted-foreground">Unpaid by the employee's choice — no balance will be checked or deducted.</p>
+                  {/* BB-124 (added task): days + times shown for unpaid requests too */}
+                  {Array.isArray(preview.days) && preview.days.length > 0 && (
+                    <LeaveDayList days={preview.days} companyTz={companyTz} className="mt-2" />
+                  )}
                 </div>
               ) : (
                 <div>
@@ -1547,33 +1581,7 @@ export default function SupervisorLeaveRequests() {
                     </p>
                   )}
                   {Array.isArray(preview.days) && preview.days.length > 0 && (
-                    <div className="border rounded-md overflow-hidden bg-white dark:bg-neutral-900 mt-2">
-                      <div className="max-h-40 overflow-y-auto divide-y divide-neutral-100 dark:divide-neutral-800">
-                        {/* BB-045: a day split by proration has two entries sharing the
-                            same date (one paid, one unpaid) — group by date so a split
-                            day renders as one row with both badges, not two colliding rows. */}
-                        {Object.values(
-                          preview.days.reduce((acc, d) => {
-                            (acc[d.date] ??= []).push(d);
-                            return acc;
-                          }, {})
-                        ).map((entries) => (
-                          <div key={entries[0].date} className="flex items-center justify-between px-3 py-1.5 text-xs">
-                            <span>{toLocalDate(entries[0].date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</span>
-                            <div className="flex items-center gap-2">
-                              {entries.map((d, i) => (
-                                <React.Fragment key={i}>
-                                  <span className="text-muted-foreground">{d.hours}h</span>
-                                  <Badge variant="outline" className={d.isPaid ? "text-green-700 border-green-300 bg-green-50" : "text-amber-700 border-amber-300 bg-amber-50"}>
-                                    {d.isPaid ? "Paid" : "Unpaid"}
-                                  </Badge>
-                                </React.Fragment>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                    <LeaveDayList days={preview.days} companyTz={companyTz} className="mt-2" />
                   )}
                 </div>
               )

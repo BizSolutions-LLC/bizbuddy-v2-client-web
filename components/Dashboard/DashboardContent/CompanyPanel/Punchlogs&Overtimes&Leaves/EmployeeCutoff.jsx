@@ -25,6 +25,7 @@ import {
   LayoutGrid,
   LayoutList,
   Trash2,
+  RotateCcw,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -51,6 +52,7 @@ import {
   initConfigForm,
   initManualForm,
   StatusBadge,
+  ReopenedBadge,
   DeptConfigPanel,
   useCutoffPeriods,
   CutoffPeriodDialogs,
@@ -116,6 +118,7 @@ export default function EmployeeCutoff() {
     setStatusConfirm, setIsReportPreviewOpen,
     setConfigForm, setManualForm,
     handleGenerate, handleUpdateStatus, handleDelete,
+    canReopen, openReopen,
     getDepartmentName, getDepartmentSetting,
   } = cp;
 
@@ -502,7 +505,10 @@ export default function EmployeeCutoff() {
 
                       {/* Status */}
                       <td className="px-4 py-3">
-                        <StatusBadge status={period.status} />
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <StatusBadge status={period.status} />
+                          <ReopenedBadge period={period} />
+                        </div>
                       </td>
 
                       {/* Approvals */}
@@ -533,7 +539,7 @@ export default function EmployeeCutoff() {
 
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button size="sm" variant="ghost" className="w-8 h-8 p-0" disabled={period.status === "processed"}>
+                              <Button size="sm" variant="ghost" className="w-8 h-8 p-0" disabled={period.status === "processed" && !canReopen}>
                                 <MoreVertical className="w-4 h-4" />
                               </Button>
                             </DropdownMenuTrigger>
@@ -552,6 +558,12 @@ export default function EmployeeCutoff() {
                                     <CheckCircle2 className="w-3.5 h-3.5 mr-2" /> Mark Processed
                                   </DropdownMenuItem>
                                 </>
+                              )}
+                              {/* BB-149 follow-up: admins can reopen a processed cutoff, with a reason */}
+                              {period.status === "processed" && canReopen && (
+                                <DropdownMenuItem onClick={() => openReopen(period)}>
+                                  <RotateCcw className="w-3.5 h-3.5 mr-2" /> Reopen Period
+                                </DropdownMenuItem>
                               )}
                               {period.status === "open" && (
                                 <>

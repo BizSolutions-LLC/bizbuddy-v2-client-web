@@ -744,6 +744,10 @@ const EmployeeSheet = () => {
         employees.reduce((sum, emp) => sum + (Number(emp.PTO) || 0), 0)
       ),
       generatedAt: data.data?.generatedAt ?? data.data?.payload?.generatedAt ?? null,
+      // BB-149 follow-up: a department of this period was reopened and isn't processed
+      // again yet, so the export still holds its old numbers.
+      outdated: data.data?.outdated === true,
+      outdatedDepartments: data.data?.outdatedDepartments || [],
     };
 
     return { hoursByUserId, summary };
@@ -1607,6 +1611,14 @@ const EmployeeSheet = () => {
         );
       } else {
         toast.success(`Hours loaded for ${from} to ${to}`);
+      }
+
+      if (summary?.outdated) {
+        const depts = summary.outdatedDepartments.filter(Boolean).join(', ') || 'A department';
+        toast.warning(`Outdated: ${depts} reopened, process again to update`, {
+          description: 'These hours are from before the reopen. Process the cutoff again before paying from them.',
+          duration: 15000,
+        });
       }
     } catch (err) {
       toast.error(err.message || 'Failed to load payroll export hours');

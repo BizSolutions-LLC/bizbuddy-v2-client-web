@@ -333,11 +333,11 @@ const companyDocsContent = [
       },
       {
         title: "Cutoff period lifecycle",
-        body: "Use the row menu to Lock Period, Unlock Period, Mark Processed, or Delete an open period.",
+        body: "Use the row menu to Lock Period, Unlock Period, Mark Processed, or Delete an open period. Admins can Reopen a processed period with a reason: approvals stay as they are, and the payroll export shows as outdated until the period is processed again. The review page's History button lists every status change with its date and time.",
         statuses: [
           { label: "Open", tone: "info", meaning: "Records are being reviewed and approved." },
           { label: "Locked", tone: "warning", meaning: "Finalized for payroll. No more changes unless unlocked." },
-          { label: "Processed", tone: "success", meaning: "Payroll has been run for this period." },
+          { label: "Processed", tone: "success", meaning: "Payroll has been run for this period. Read-only unless an admin reopens it." },
         ],
       },
       {
