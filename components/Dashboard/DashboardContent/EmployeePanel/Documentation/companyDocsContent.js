@@ -391,7 +391,7 @@ const companyDocsContent = [
       {
         title: "Training days",
         companyType: "DAYCARE",
-        body: "Click Add Training Day to mark every employee's pending punches on a date as Training. This also excludes pending driver/aide segments for those employees on that day.",
+        body: "Click Add Training Day to mark every employee's pending punches on a date as Training. This also excludes pending driver/aide segments for those employees on that day. Training is paid for the time worked, like a regular punch (breaks and lunch deducted). It counts toward overtime.",
       },
       {
         title: "Training days",

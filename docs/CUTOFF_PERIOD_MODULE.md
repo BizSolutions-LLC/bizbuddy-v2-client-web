@@ -4,7 +4,7 @@ This document is the canonical source of truth for how cutoff period approvals w
 all company types. Server-side strategy code and client-side UI logic must conform to these
 rules. Reference this document first when a bug is reported or a new feature is planned.
 
-Last updated: 2026-07-03 (unreleased — Bug 6 superseded: Training excluded from OT basis again, kept in TOTAL PAYABLE; see docs/TIMEKEEPING_GLOSSARY.md)
+Last updated: 2026-11-25 (BB-149 — Training paid real net hours with no 8 h cap, counts toward the OT basis, open training punch can't be approved; see docs/TIMEKEEPING_GLOSSARY.md)
 
 See also: [`TIMEKEEPING_GLOSSARY.md`](./TIMEKEEPING_GLOSSARY.md) for canonical term definitions
 (Raw/Effective Clock-In, Worked Duration, TR, SL, OT) shared with the client-side application.
@@ -159,39 +159,41 @@ Server behaviour:
 - `actualHours` = `finalClockOut − finalClockIn`
 
 #### Training
-**Intent:** Mark the day as a training day; pay a flat duration with no overtime.
+**Intent:** Mark the day as a training day; pay it for the time worked, like a regular punch.
 
-Server behaviour:
-- `actualHours` = `min(actual punch duration, defaultShiftHours)` — hard cap, never exceeds the company default
+Server behaviour (BB-149):
+- `actualHours` = **real net hours**: clock span − coffee breaks − lunch deduction (company
+  minimum lunch applies, same as a regular punch). No shift snap, **no cap**.
+- The server recomputes the TimeLog first (`applyTrainingHours`), so `tl.netWorkedHours` and
+  `approval.actualHours` hold the same value — the punch log and the approval always match.
 - `approvedClockIn`/`approvedClockOut` = actual punch times (raw, no snap)
-- `TimeLog.timeIn`/`timeOut` are **NOT modified** — only `TimeLogApproval` is written
-- `tl.netWorkedHours` on the TimeLog still reflects the raw punch duration after approval;
-  the capped payable value lives on `approval.actualHours` only
+- `TimeLog.timeIn`/`timeOut` are **NOT modified**
+- **Open punch (no clock-out):** approval is refused with 400 *"This training punch has no
+  clock-out yet. Approve it after the employee clocks out."* Bulk approve counts it as failed
+  (200 with `data.failed`).
 
-**Cap rule:** `actualHours = min(punch duration, defaultShiftHours)`.
-- If the employee punched 9 h on a training day → `actualHours = 8h` (capped at default)
-- If the employee punched 6 h on a training day → `actualHours = 6h` (punch is shorter than cap)
-- The cap is a ceiling, not a floor — training hours can be less than `defaultShiftHours`
-- The cap prevents the training day itself from generating OT; but the capped hours still
-  count toward the period OT threshold (see below)
+Examples:
+- 3 h training → 3 h (minus any breaks/lunch). It used to show a flat 8 h before approval.
+- 10 h training with a 30 min lunch → 9.5 h. It used to be capped at 8 h.
 
-**Training and OT — single pipeline:**
-Training `actualHours` (capped) are included in both TOTAL PAYABLE and the OT basis total.
-The phrase "no OT for training" means: a training day cannot produce more than `defaultShiftHours`
-credits on its own (the cap handles this). It does NOT mean training hours are excluded from the
-period total used to compute OT.
+**Training and OT:** Training `actualHours` count toward both TOTAL PAYABLE and the OT basis,
+like any other worked hour.
 
 ```
-OT basis      = Σ actualHours (ALL approved records, including Training with cap applied)
+OT basis      = Σ actualHours (ALL approved punch records, including Training)
               = 87.38h (non-training) + 8h (training) = 95.38h
 OT            = 95.38h − 80h threshold = +15.38h
 
-TOTAL PAYABLE = 95.38h  (same source as OT basis)
+TOTAL PAYABLE = 95.38h
 ```
 
 **Display rule:** Training records render as normal rows — same opacity, same hours column —
-just identified with a "Training" label. The hours shown are the capped payable value
-(`approval.actualHours`), not the raw punch duration. They are NOT grayed out.
+just identified with a "Training" label. They are NOT grayed out. Never hard-code 8 h for
+training.
+
+**Past records:** only new approvals and recomputes use this rule. Training already approved in
+an open cutoff keeps its old capped value until it's Reset and approved again. Locked/processed
+cutoffs are not changed.
 
 #### Edit
 **Intent:** Manually correct clock-in or clock-out before approving.
@@ -238,30 +240,31 @@ Same as DayCare Regular Exclude.
 OT is computed once per employee per cutoff period, not per day.
 
 Computation (`cutoffOtService.computeOtForCutoffBasis`):
-1. Sum `actualHours` across **all approved, non-Training** `TimeLogApproval` records in the period
+1. Sum `actualHours` across **all approved** `TimeLogApproval` records in the period, Training included
 2. `otHours = max(0, otBasisHours − cutoffOtThresholdHours)`
 3. Upsert one `CutoffOtBlock` per employee per period
 
-**Training records are excluded from the OT basis, but included in TOTAL PAYABLE.** This is a
-deliberate divergence between the two figures (see `docs/TIMEKEEPING_GLOSSARY.md` for the full
-reasoning) — Training is a flat, capped credit that is fully paid, but must not be allowed to
-push other, already-worked hours across the OT threshold. This supersedes Bug 6 (see Known
-Bugs section) — Bug 6's fix folded Training into the OT basis, which caused a training day to
-manufacture OT premium on unrelated worked hours.
+**Training records count toward the OT basis and TOTAL PAYABLE (BB-149).** Training is now paid
+for the real time worked (no cap), so it is worked time like a regular punch. This replaces the
+earlier rule (v2.10.22+) that kept Training out of the OT basis because it was a flat, capped
+credit. Daily-OT (B&C) companies already counted training — no change there.
 
 ```
-OT basis      = Σ actualHours (approved, NON-Training records only)
-TOTAL PAYABLE = Σ actualHours (ALL approved records, including Training)
+OT basis      = Σ actualHours (ALL approved punch records, including Training)
+TOTAL PAYABLE = Σ actualHours (ALL approved punch records, including Training) + leave
 
 OT = max(0, OT basis − cutoffOtThresholdHours)
 ```
 
-Concrete example: 87.38 h non-training + 8 h training (capped)
-→ OT basis = **87.38 h** → OT = 87.38 − 80 = **+7.38 h**
-→ TOTAL PAYABLE = **95.38 h** (87.38 worked + 8 training — training is still paid in full)
+Concrete example: 87.38 h non-training + 8 h training
+→ OT basis = **95.38 h** → OT = 95.38 − 80 = **+15.38 h**
+→ TOTAL PAYABLE = **95.38 h**
 
-**Approved leave hours are excluded from the OT basis** for the same reason as Training —
-they are a paid credit, not worked time, and including them would let leave manufacture OT
+The OT breakdown (`otBlocks[].breakdown`) still returns training rows in `days[]` with
+`isTraining: true` (a label only); `breakdown.totalHours` includes them.
+
+**Approved leave hours are excluded from the OT basis** — they are a paid credit, not worked
+time, and including them would let leave manufacture OT
 premium on other hours (double compensation). Because conflicting punches are auto-excluded
 (see Approved Leave Handling section) and standalone leave rows have no `TimeLogApproval`,
 leave hours never enter `computeOtForCutoffBasis` naturally today. Note: whether *all* paid
@@ -426,23 +429,20 @@ displayed and payable hours. Understanding the source of each value prevents dis
 - `segScheduledHours`      = `tl.scheduledHours`
 
 ### Training records (TRAINING punchType)
-Training approval does **not** update `TimeLog.timeIn`/`timeOut` or trigger
-`computeTimeLogSummary`. The capped payable value lives exclusively on `approval.actualHours`.
+Training approval does **not** update `TimeLog.timeIn`/`timeOut`. Since BB-149 it does
+recompute the TimeLog's hours first (`applyTrainingHours`), so both sources hold the same value.
 
 | Source | What it holds |
 |--------|---------------|
-| `tl.netWorkedHours` | Raw punch duration (uncapped) — set at clock-out time, not updated after approval |
-| `approval.actualHours` | Capped value: `min(rawDuration, defaultShiftHours)` — written at approval time |
+| `tl.netWorkedHours` | Real net hours: span − coffee breaks − lunch deduction, no cap (BB-149) |
+| `approval.actualHours` | The same net hours — written at approval time |
 
-**Rule:** For approved Training records, `enrichApprovals` must read `approval.actualHours`,
-not `tl.netWorkedHours`. Using `tl.netWorkedHours` returns the raw uncapped punch duration.
-The capped value (the only correct value for payroll) lives on `approval.actualHours`.
+**Rule:** For approved Training records, `enrichApprovals` reads `approval.actualHours`
+(Bug 4 fix). Since BB-149 this matches `tl.netWorkedHours`, except for training approved
+under the old capped rule, which keeps its capped `actualHours` until Reset and re-approved.
 
-`approval.actualHours` is also the value that feeds into `computeOtForCutoffBasis` (once
-Bug 6 is fixed) — so TOTAL PAYABLE and the OT basis are computed from the same source.
-
-**Bug 4 (pending fix):** `enrichApprovals` currently falls through to the non-driver path and
-reads `tl.netWorkedHours` for Training records. See Bug 4 in Known Bugs section.
+`approval.actualHours` is also the value that feeds into `computeOtForCutoffBasis` — so TOTAL
+PAYABLE and the OT basis are computed from the same source.
 
 ### Driver/Aide records
 For each segment type, `segmentHours` (payable) and `segScheduledHours` are:
@@ -527,6 +527,10 @@ TimeLog fields as a preview.
 **Fix location:** `src/controllers/Features/cutoffPeriodController.js` — `enrichApprovals`,
 non-driver branch.
 
+**BB-149 note:** the cap is gone and Training approval now writes the same net hours to
+`tl.netWorkedHours`, so the two sources no longer diverge for new approvals. The fix still
+matters for training approved under the old capped rule.
+
 ### Bug 5 — TOTAL PAYABLE display excludes Training hours (PENDING FIX)
 **Symptom:** The cutoff period summary shows `TOTAL PAYABLE = 87.38 h` for a period where a
 Training day (8 h, approved) also exists. Expected total: `87.38 h + 8 h = 95.38 h`.
@@ -565,7 +569,7 @@ worked. Concretely: 87.38 h worked (10 real days) alone would produce 7.38 h OT 
 threshold; adding an unrelated 8 h training day should not turn that into 15.38 h OT — the
 training day is fully paid on its own and shouldn't also inflate OT on the other days.
 
-**Current fix:** Training `actualHours` is again excluded from the OT-basis comparison (back to
+**Second fix (v2.10.22+, superseded by BB-149 — see below):** Training `actualHours` is again excluded from the OT-basis comparison (back to
 7.38 h in the example above), but — unlike the pre-Bug-6 state — Training is still fully
 counted in `TOTAL PAYABLE`. The two figures now diverge on purpose: `TOTAL PAYABLE` reflects
 everything the employee is paid for; the OT basis reflects only hours worked beyond the period
@@ -574,6 +578,11 @@ subtraction).
 
 **Fix location:** `src/services/Cutoff/cutoffOtService.js` — `computeOtForCutoffBasis`;
 `src/controllers/Features/cutoffPeriodController.js` — OT breakdown `totalHours` reduce.
+
+**Superseded again by BB-149 (2026-11-25):** the reasoning above relied on Training being a
+flat, capped 8 h credit. BB-149 removed the cap — Training is now paid the real net hours
+worked — so it is worked time and counts toward the OT basis again (15.38 h in the example
+above). See the Training section and OT Configuration above.
 
 ### Non-issue — Exclude on approved record
 **Investigation finding:** `approveSingle` (the single-record action handler) guards all
@@ -627,20 +636,24 @@ and to give approvers a consistent experience.
 
 - **Training rows — render normally, do NOT gray out:**
   Training records appear as normal punch rows with a "Training" label/badge. They have real
-  payable hours (`payrollSummary.payableRegularHours` = capped `actualHours`). Do not reduce
-  their opacity or style them as disabled/excluded.
+  payable hours (`payrollSummary.payableRegularHours` = `actualHours`, real net hours since
+  BB-149). Do not reduce their opacity or style them as disabled/excluded, and never hard-code
+  8 h for them.
 
 - **OT row:** Display as `"Period OT · {totalHours}h total / {threshold}h threshold → +{otHours}h"`.
   Expand to a per-day breakdown showing each approved record's `actualHours` contribution.
-  Training days in the breakdown (`isTraining: true`) should be labeled "Training" and rendered
-  distinctly (e.g. muted/annotated) since they do **not** count toward `totalHours` or the OT
-  basis — `totalHours` here is the OT-eligible total (worked hours only), not TOTAL PAYABLE.
-  The `isTraining` flag is both a label and a "does not count toward this total" signal now —
-  do not present it as if it contributes to the threshold comparison.
+  Training days in the breakdown (`isTraining: true`) get a plain "Training" label and render
+  like any other day — since BB-149 they **count** toward `totalHours` and the OT basis. Do not
+  grey them out or label them "not counted"/"excluded", and don't skip them when adding up
+  `days` on the client (prefer the server's `totalHours`).
+
+- **Approve errors:** show the server's `message` as-is (e.g. the 400 for an open training
+  punch). For bulk approve, a 200 with `data.failed > 0` means some rows were refused — warn,
+  then reload the approvals so refused rows show as pending again.
 
 - **TOTAL PAYABLE — critical rule:** Do **NOT** use `otBlocks.breakdown.totalHours` as the
-  source for TOTAL PAYABLE — it now deliberately excludes Training and is scoped to the
-  OT-eligible total, not the payable total. Compute TOTAL PAYABLE as:
+  source for TOTAL PAYABLE — it is the OT-basis total for one employee and leaves out leave
+  hours. Compute TOTAL PAYABLE as:
   ```
   TOTAL PAYABLE = Σ payrollSummary.payableRegularHours  (all approved punch records, incl. Training)
                 + Σ leave.leaveHours                    (all standalone leave rows in response)
@@ -649,8 +662,8 @@ and to give approvers a consistent experience.
   (leave conflicts) contribute 0 — their day is covered by the leave row instead.
 
   Example: 87.38 h punches + 8 h Training + 8 h leave day = **103.38 h** TOTAL PAYABLE.
-  OT basis = 87.38 h (worked only — Training and leave both excluded) → OT = **+7.38 h**.
-  See `docs/TIMEKEEPING_GLOSSARY.md` for the full formula and the reasoning for excluding TR/SL.
+  OT basis = 95.38 h (punches incl. Training; leave excluded) → OT = **+15.38 h**.
+  See `docs/TIMEKEEPING_GLOSSARY.md` for the full formula and the reasoning for excluding SL.
 
 - **OT display value:** Use `otBlock.breakdown.otHours` (computed fresh each response),
   NOT `otBlock.otHours` (stored DB value, may be stale until next sync/approval action).

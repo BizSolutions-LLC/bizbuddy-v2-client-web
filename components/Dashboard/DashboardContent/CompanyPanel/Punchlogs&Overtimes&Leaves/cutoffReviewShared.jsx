@@ -1359,18 +1359,23 @@ export function useCutoffReview(cutoffId) {
           body: JSON.stringify(payload),
         }
       );
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        // BB-149: show the server's reason as-is (e.g. open training punch refused)
+        let message = "";
+        try { message = (await res.json())?.message || ""; } catch { /* non-JSON body */ }
+        throw new Error(message);
+      }
       // BB-105: no "Approved" toast — the row's status change is confirmation enough.
       // Keep approvingIds active — refreshApprovals clears it once the GET /approvals
       // completes and employees are rebuilt with enriched hours from enrichApprovals.
       await refreshApprovals(recId);
-    } catch {
+    } catch (err) {
       setLocalStatus((s) => { const n = { ...s }; delete n[recId]; return n; });
       setApprovingIds((s) => { const n = new Set(s); n.delete(recId); return n; });
       if (approvalMode === "schedule" && shiftId) {
         setUsedShifts((s) => { const n = { ...s }; delete n[recId]; return n; });
       }
-      toast.error("Failed to approve");
+      toast.error(err?.message || "Failed to approve");
     }
   }, [token, cutoffId, findRecord, refreshApprovals]);
 
@@ -1536,7 +1541,23 @@ export function useCutoffReview(cutoffId) {
       );
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Bulk approve failed");
-      toast.success(`${data.data?.approved ?? toApprove.length} record(s) approved`);
+      const failed = Number(data.data?.failed) || 0;
+      if (failed > 0) {
+        // BB-149: some rows were refused (e.g. an open training punch). Reload from the
+        // server, then drop the optimistic "approved" so refused rows show as pending again.
+        toast.warning(
+          data.message || `${data.data?.approved ?? 0} approved, ${failed} failed`,
+          { description: "Open training punches can't be approved until the employee clocks out." }
+        );
+        await refreshApprovals();
+        setLocalStatus((s) => {
+          const n = { ...s };
+          recIds.forEach((id) => { delete n[id]; });
+          return n;
+        });
+      } else {
+        toast.success(`${data.data?.approved ?? toApprove.length} record(s) approved`);
+      }
       if (isBNC || otBasis === "cutoff") refreshOTBlocks();
       reloadFacePhotos(); // BB-141: approved punches hide their photos
     } catch (err) {
@@ -1547,7 +1568,7 @@ export function useCutoffReview(cutoffId) {
       });
       toast.error(err.message || "Bulk approve failed");
     }
-  }, [token, cutoffId, mergedEmployees, isBNC, otBasis, refreshOTBlocks, reloadFacePhotos]);
+  }, [token, cutoffId, mergedEmployees, isBNC, otBasis, refreshOTBlocks, reloadFacePhotos, refreshApprovals]);
 
   const doBulkApproveRaw      = useCallback((empId) => doBulkApprove(empId, "raw"),      [doBulkApprove]);
 
