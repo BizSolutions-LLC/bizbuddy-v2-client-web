@@ -166,6 +166,10 @@ work belongs in the server repo — flag it and redirect rather than attempting 
   detail-panel sections (lines 1387+) are clean and fine to reference; only these two specific
   parts are drift. Do not use this file's stat cards or `OTBanner` as a pattern to copy, even
   though the rest of the file is fine.
+- `LeaveLogs.jsx` (`components/Dashboard/DashboardContent/EmployeePanel/Leaves/LeaveLogs.jsx`,
+  employee Leave Logs page + details panel) — ~217 `style={{...}}` instances with hardcoded hex
+  colors and font sizes throughout, not computed values (flagged 2026-11-25, BB-124 added task;
+  no cleanup done; the leave-times hint there is the shared Tailwind `LeaveWindowsHint`). Don't copy its styling.
 - If a ticket touches any of these files, flag the drift and ask whether cleanup is in scope,
   rather than expanding the change unprompted.
 

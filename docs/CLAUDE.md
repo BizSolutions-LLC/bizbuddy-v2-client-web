@@ -171,6 +171,7 @@ components/
 │   ├── DeleteBtn.jsx
 │   ├── EditBtn.jsx
 │   ├── IconBtn.jsx
+│   ├── LeaveWindowsHint.jsx    # Small leave-day times line + hover with shift names (BB-124)
 │   ├── Spinner.jsx
 │   └── TableSkeleton.jsx
 │
@@ -255,6 +256,7 @@ lib/
 ├── socketService.js            # Socket.io connection and event handlers
 ├── companySetupApi.js          # Setup guide checklist calls: get, skip, review, dismiss, reopen (BB-115)
 ├── contestTimes.js             # Contest request time math in the company zone: build times, overnight, change/flags, locked cutoff (BB-123)
+├── leaveWindows.js             # Leave day time windows: compact line, hover text, "every day" check; zone only when ≠ company zone (BB-124)
 ├── systemAdminFetch.js         # All system-admin API calls: Bearer token, 401 → sign-in (BB-110)
 ├── systemAgent.js              # B. Buddy (isSystemAgent) helpers: route guard lists, 403 messages (BB-110)
 ├── timezones.js                # Time-zone list: Company Configurations, Add company (BB-107)

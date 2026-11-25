@@ -50,6 +50,7 @@ import {
   SyncOverlay,
   CutoffReviewDialogs,
 } from "./cutoffReviewShared";
+import { CutoffHistoryButton } from "./cutoffPeriodsShared"; // BB-149 follow-up
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
@@ -1164,6 +1165,7 @@ export default function CutoffReviewCalendar({ cutoffId }) {
             <Badge className="border-0 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 whitespace-nowrap capitalize">
               {cutoff?.status || "open"} · pays {fmtShortDate(cutoff?.paymentDate)}
             </Badge>
+            <CutoffHistoryButton cutoff={cutoff} />
             {ruleLabel && (
               <Badge className="border-0 bg-orange-50 text-orange-700 dark:bg-orange-950/30 dark:text-orange-300 whitespace-nowrap gap-1">
                 <TrendingUp className="w-3 h-3" /> OT rule · {ruleLabel}

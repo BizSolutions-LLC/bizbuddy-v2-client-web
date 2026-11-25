@@ -87,6 +87,7 @@ import {
   CutoffReviewDialogs,
 } from "./cutoffReviewShared";
 import { FacePhotoProvider, FacePhotoIcons, FacePhotoViewer } from "./cutoffFacePhotos"; // BB-141
+import { CutoffHistoryButton } from "./cutoffPeriodsShared"; // BB-149 follow-up
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SUB-COMPONENTS
@@ -125,6 +126,7 @@ const PageHeader = ({ cutoff, status, onFinalize, finalizeReady, getDepartmentNa
             <StatusIcon className="w-3 h-3" />
             {STATUS_CONFIG[status]?.label || status}
           </Badge>
+          <CutoffHistoryButton cutoff={cutoff} />
           <span className="text-xs text-neutral-400 whitespace-nowrap">
             Payment: <strong className="text-neutral-700 dark:text-neutral-300">{formatDate(cutoff?.paymentDate)}</strong>
           </span>
