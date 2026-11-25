@@ -504,8 +504,6 @@ const companyDocsContent = [
     ],
   },
 
-  // Payroll pages live under Employee Panel → Payroll. groupId "payroll" draws the
-  // bold Payroll heading; it is not a Company Panel sidebar group.
   {
     id: "payroll-management",
     groupId: "payroll",
@@ -515,7 +513,7 @@ const companyDocsContent = [
     topics: [
       {
         title: "Opening Payroll Management",
-        body: "Go to Employee Panel → Payroll → Payroll Management. Admins, supervisors and superadmins can open it. The page has five tabs: Employee Sheet, Reports, Employee, Company and Check Printing. Employee Sheet and Reports are marked Beta.",
+        body: "Go to Company Panel → Payroll → Payroll Management. Admins, supervisors and superadmins can open it. The page has five tabs: Employee Sheet, Reports, Employee, Company and Check Printing. Employee Sheet and Reports are marked Beta.",
       },
       {
         title: "Running payroll on Employee Sheet",
@@ -587,7 +585,7 @@ const companyDocsContent = [
     topics: [
       {
         title: "Who can use Disbursement",
-        body: "Open Employee Panel → Payroll → Disbursement. Admins, supervisors and superadmins can open it. Employees use Payroll → Payout account to connect the bank that receives their pay.",
+        body: "Open Company Panel → Payroll → Disbursement. Admins, supervisors and superadmins can open it. Employees use Payroll → Payout account to connect the bank that receives their pay.",
         tips: [
           "Admins create a batch, set up company funding, choose how each person is paid, and record an outside payment.",
           "Supervisors can review a batch and approve it. The person who created the batch cannot approve it.",

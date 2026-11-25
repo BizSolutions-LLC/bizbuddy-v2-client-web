@@ -54,21 +54,18 @@ const EmployeePanelItems = [
   },
 ];
 
+// Payroll Management and Disbursement are in the Company Panel's "payroll" group
 function getPayrollItems(role) {
   const roleLower = role.toLowerCase();
   if (["admin", "supervisor", "superadmin"].includes(roleLower)) {
     return {
-      id: "payroll",
+      id: "my-payroll",
       label: "Payroll",
-      children: [
-        { id: "employee/payroll", label: "Payroll Management" },
-        { id: "employee/disbursement", label: "Disbursement" },
-        { id: "employee/payslip", label: "My Payslip" },
-      ],
+      children: [{ id: "employee/payslip", label: "My Payslip" }],
     };
   }
   return {
-    id: "payroll",
+    id: "my-payroll",
     label: "Payroll",
     children: [
       { id: "employee/disbursement/my-payout-account", label: "Payout account" },
@@ -100,6 +97,14 @@ export const CompanyPanelItems = [
       { id: "company/cutoff-periods", label: "Employee Cutoff", notifyKey: "cutoff" },
       // BB-129: only while Configurations → Trial Features → Clock-out documentation is on
       { id: "company/employee-report", label: "Employee Report", requires: "taskReport" },
+    ],
+  },
+  {
+    id: "payroll",
+    label: "Payroll",
+    children: [
+      { id: "employee/payroll", label: "Payroll Management" },
+      { id: "employee/disbursement", label: "Disbursement" },
     ],
   },
   {
@@ -191,7 +196,7 @@ export function filterCompanyPanelByRole(items, role) {
     // BB-128: Employee Map, not Employees Location Restriction
     const partial = { "shifts&schedules": "company/schedules", locations: "company/employee-map" };
     return items
-      .filter((g) => ["organizations&people", "punch-logs", "shifts&schedules", "locations"].includes(g.id))
+      .filter((g) => ["organizations&people", "punch-logs", "payroll", "shifts&schedules", "locations"].includes(g.id))
       .map((g) => (partial[g.id] ? { ...g, children: g.children.filter((c) => c.id === partial[g.id]) } : g));
   }
   return items;
@@ -717,9 +722,12 @@ export default function Sidebar({ isSidebarOpen, closeSidebar, onNavigateStart, 
   const employeePanelWithPayroll = [...EmployeePanelItems, payrollItem];
 
   // BB-110: B. Buddy gets the Company panel only, minus company deletion
+  // BB-120: and minus Payroll (no payroll access)
   const isSystemAgent = Boolean(profileData?.user?.isSystemAgent);
   const companyItems = (isSystemAgent
-    ? CompanyPanelItems.map((g) => ({ ...g, children: g.children.filter((c) => c.id !== "company/deletion") }))
+    ? CompanyPanelItems
+        .filter((g) => g.id !== "payroll")
+        .map((g) => ({ ...g, children: g.children.filter((c) => c.id !== "company/deletion") }))
     : CompanyPanelItems
   )
     .map((g) => ({ ...g, children: g.children.filter((c) => !c.requires || featureOn[c.requires]) }))
