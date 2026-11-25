@@ -50,9 +50,33 @@ function PhoneFrame({ src, className, priority = false }) {
   );
 }
 
+// A smaller second screen in front of the main one (e.g. the Employee Map in Satellite view)
+function InsetFrame({ src, size }) {
+  return (
+    <div className="absolute bottom-[5%] right-[3%] w-[46%] overflow-hidden rounded-md bg-white shadow-2xl ring-1 ring-black/10">
+      <div className="flex h-4 items-center gap-1 bg-neutral-800 px-2">
+        <span className="size-1.5 rounded-full bg-neutral-600" />
+        <span className="size-1.5 rounded-full bg-neutral-600" />
+        <span className="size-1.5 rounded-full bg-neutral-600" />
+      </div>
+      <Image
+        src={src}
+        alt=""
+        width={size[0]}
+        height={size[1]}
+        quality={90}
+        sizes="(min-width: 1280px) 300px, (min-width: 768px) 24vw, 46vw"
+        priority
+        className="block h-auto w-full"
+      />
+    </div>
+  );
+}
+
 function ProductStage({ story }) {
   const hasWeb = story.stage !== "phone";
   const hasPhone = story.stage !== "web";
+  const hasInset = Boolean(story.inset);
 
   return (
     <div role="img" aria-label={story.alt} className="relative aspect-[16/11] overflow-hidden rounded-brand bg-brand-stage">
@@ -65,7 +89,7 @@ function ProductStage({ story }) {
         <div
           className={cn(
             "absolute bottom-0 left-[6%] top-[7%] flex flex-col overflow-hidden rounded-t-md bg-white shadow-2xl",
-            hasPhone ? "right-[24%]" : "right-[6%]"
+            hasPhone ? "right-[24%]" : hasInset ? "right-[16%]" : "right-[6%]"
           )}
         >
           <div className="flex h-[26px] flex-none items-center gap-1.5 bg-neutral-800 px-2.5">
@@ -93,6 +117,7 @@ function ProductStage({ story }) {
         </div>
       )}
 
+      {hasInset && hasWeb && <InsetFrame src={story.inset} size={story.insetSize} />}
       {hasPhone && hasWeb && <PhoneFrame src={story.phone} priority className="bottom-[4%] right-[4%] h-[90%]" />}
       {hasPhone && !hasWeb && (
         <PhoneFrame

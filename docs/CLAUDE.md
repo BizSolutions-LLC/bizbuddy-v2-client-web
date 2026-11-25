@@ -101,7 +101,7 @@ app/
 │   │   │   └── deletion/
 │   │   ├── contest-requests/
 │   │   ├── cutoff-periods/[id]/review/
-│   │   ├── employee-map/       # Locations → Employee Map: heat / points / routes (BB-128)
+│   │   ├── employee-map/       # Locations → Employee Map: Clock-in/out | Routes | Live (admins) tabs (BB-128)
 │   │   ├── employee-schedules/ # Redirect → /dashboard/company/schedules (merged in BB-135)
 │   │   └── notifications/
 │   │
@@ -355,6 +355,10 @@ B. Buddy is a hidden `admin` account in each company that BizBuddy support staff
   - Shifts & Schedules with **only Employees Schedule** (view only: no Create, Upload, Edit or Delete; Calendar is `readOnly`).
   - Locations with **only Employee Map**.
   - The in-app guide (`Documentation.jsx`) hides guides for pages taken out of a group.
+- **Employee Map** (`Punchlogs&Overtimes&Leaves/EmployeeMap.jsx` + `EmployeeMapCanvas.jsx`, BB-128):
+  - three tabs, each with its own endpoint, loaded only when opened: `GET /api/employee-map/punches`, `/routes`, `/live`. Live is for admins and superadmin only (polled every `refreshSeconds` while visible);
+  - people are drawn as initials badges in the server's `color`;
+  - map style switcher: Street (OSM, always), plus Light (Esri Light Gray) and Satellite (Esri World Imagery) when the Esri key `NEXT_PUBLIC_MAP_SATELLITE_KEY` is set (ArcGIS Location Platform, "Static basemap tiles" privilege only, referrer-restricted, expires yearly). CARTO dropped: its tiles now need a key and the free tier is non-commercial. Only the style id is kept in localStorage, never location data.
 - **Employees Schedule** (`Shifts&Schedules/Schedules.jsx`):
   - views: Recurring | Calendar | Roster (`SchedulesRosterView.jsx`, `GET /api/usershifts/range`, OT warning via `includeOt=1`);
   - coverage cards from `/api/usershifts/company-stats`;
