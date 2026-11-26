@@ -135,6 +135,7 @@ export const CompanyPanelItems = [
       { id: "company/clock-out-forms", label: "Clock-out Forms", requires: "taskReport" },
       { id: "company/leave-settings", label: "Leave Settings" },
       { id: "company/notifications", label: "Notifications" },
+      { id: "company/settings-history", label: "History" }, // BB-151: who changed which setting (admins only)
       { id: "company/subscription", label: "Subscription", notifyKey: "subscription", variant: "dot" },
       { id: "company/deletion", label: "Deletion" },
     ],

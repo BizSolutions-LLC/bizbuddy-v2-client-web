@@ -6,6 +6,8 @@ import useAuthStore from "@/store/useAuthStore";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import useAccountRole from "@/lib/hooks/useAccountRole";
+import { useConfirmCompanySave } from "@/components/ui/confirm-company-save";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
@@ -28,6 +30,9 @@ const FONT_SIZE_RANGES = {
 
 const CheckSettings = () => {
     const { token } = useAuthStore();
+  // BB-151: saving and the test PDF are admin-only on the server; each save asks first
+  const { isAdmin } = useAccountRole();
+  const { confirmSave, confirmDialog } = useConfirmCompanySave();
     const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [generatingPDF, setGeneratingPDF] = useState(false);
@@ -186,6 +191,7 @@ const CheckSettings = () => {
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
+      {confirmDialog}
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -201,7 +207,7 @@ const CheckSettings = () => {
         </div>
         <Button
           onClick={generateTestPDF}
-          disabled={generatingPDF}
+          disabled={!isAdmin || generatingPDF}
           className="self-start sm:self-auto bg-orange-500 hover:bg-orange-600 text-white"
         >
           {generatingPDF ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Printer className="w-4 h-4 mr-2" />}
@@ -316,13 +322,14 @@ const CheckSettings = () => {
 
           {/* Save Button */}
           <Button
-            onClick={handleSave}
-            disabled={saving}
+            onClick={() => confirmSave(handleSave)}
+            disabled={!isAdmin || saving}
             className="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold py-3 h-auto"
           >
             {saving && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
             {saving ? 'Saving…' : 'Save Settings'}
           </Button>
+          {!isAdmin && <p className="text-xs text-muted-foreground text-center">Only admins can change this setting.</p>}
         </div>
 
         {/* RIGHT: Live Preview */}

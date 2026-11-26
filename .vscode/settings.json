@@ -1,5 +1,6 @@
 {
     "editor.inlayHints.fontSize": 6,
     "editor.fontSize": 14,
-    "prettier.printWidth": 130
+    "prettier.printWidth": 130,
+    "postman.settings.dotenv-detection-notification-visibility": false
 }

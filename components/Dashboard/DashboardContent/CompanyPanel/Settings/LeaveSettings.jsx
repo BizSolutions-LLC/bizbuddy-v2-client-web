@@ -11,6 +11,8 @@ import {
 } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
+import useAccountRole from "@/lib/hooks/useAccountRole";
+import { useConfirmCompanySave } from "@/components/ui/confirm-company-save";
 import DataTable from "@/components/common/DataTable";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -379,6 +381,9 @@ function LeaveCreditsSettingsCard({ loading, settings, token, API, onSettingsCha
   const [saving,      setSaving]      = useState(false);
   const [togglingKey, setTogglingKey] = useState(null);
   const [setupBody,   setSetupBody]   = useState(null);
+  // BB-151: confirm before each save. Turning a toggle on goes through the setup preview,
+  // whose Apply step already is the confirmation.
+  const { confirmSave, confirmDialog } = useConfirmCompanySave();
 
   // Re-sync only when the saved credit fields change — edits in the other cards
   // also replace `settings`, and shouldn't wipe unsaved edits here.
@@ -425,7 +430,11 @@ function LeaveCreditsSettingsCard({ loading, settings, token, API, onSettingsCha
       });
       return;
     }
-    // Turning off is always allowed — send only this one toggle.
+    // Turning off is always allowed — send only this one toggle (after the BB-151 confirm).
+    confirmSave(() => turnOff(key));
+  };
+
+  const turnOff = async (key) => {
     setTogglingKey(key);
     try {
       const r = await fetch(`${API}/api/company-settings`, {
@@ -445,6 +454,7 @@ function LeaveCreditsSettingsCard({ loading, settings, token, API, onSettingsCha
 
   return (
     <>
+      {confirmDialog}
       <LeaveCreditSetupDialog
         open={Boolean(setupBody)}
         onClose={() => setSetupBody(null)}
@@ -566,7 +576,7 @@ function LeaveCreditsSettingsCard({ loading, settings, token, API, onSettingsCha
               </div>
 
               <div className="flex justify-end">
-                <Button onClick={saveFields} disabled={!dirty || saving} className="bg-orange-500 hover:bg-orange-600 text-white text-sm">
+                <Button onClick={() => confirmSave(saveFields)} disabled={!dirty || saving} className="bg-orange-500 hover:bg-orange-600 text-white text-sm">
                   {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
                   Save Credit Settings
                 </Button>
@@ -1806,7 +1816,9 @@ function LeaveCreditsAccordionCard({ token, API, matrix, leaveTypes, policies, l
 
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function LeaveSettings() {
-  const { token, role } = useAuthStore();
+  const { token } = useAuthStore();
+  const { role } = useAccountRole(); // BB-151: the store has no role
+  const { confirmSave, confirmDialog } = useConfirmCompanySave(); // BB-151
   const API = process.env.NEXT_PUBLIC_API_URL;
 
   useEffect(() => {
@@ -1919,6 +1931,7 @@ export default function LeaveSettings() {
   return (
     <div className="p-4 sm:p-6 space-y-5 max-w-6xl mx-auto">
       <Toaster position="top-center" />
+      {confirmDialog}
       <LeaveReportDialog
         open={reportOpen}
         onOpenChange={setReportOpen}
@@ -1947,7 +1960,7 @@ export default function LeaveSettings() {
           <Button variant="outline" onClick={() => setReportOpen(true)} disabled={loadingMatrix} className="border-orange-200 text-orange-600 hover:bg-orange-50">
             <FileSpreadsheet className="w-4 h-4 mr-2" /> Generate Report
           </Button>
-          <Button onClick={saveSettings} disabled={savingSettings || loadingSettings} className="bg-orange-500 hover:bg-orange-600 text-white">
+          <Button onClick={() => confirmSave(saveSettings)} disabled={savingSettings || loadingSettings} className="bg-orange-500 hover:bg-orange-600 text-white">
             {savingSettings ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
             Save Settings
           </Button>

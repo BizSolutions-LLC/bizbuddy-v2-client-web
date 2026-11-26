@@ -98,6 +98,7 @@ app/
 │   │   │   ├── subscription/
 │   │   │   ├── configurations/
 │   │   │   ├── leave-settings/
+│   │   │   ├── settings-history/   # Settings → History: who changed which company setting (admins, BB-151)
 │   │   │   └── deletion/
 │   │   ├── contest-requests/
 │   │   ├── cutoff-periods/[id]/review/
@@ -171,6 +172,7 @@ components/
 │   ├── DeleteBtn.jsx
 │   ├── EditBtn.jsx
 │   ├── IconBtn.jsx
+│   ├── CompanyTimeBadge.jsx    # Orange bottom-edge tab "15:52:07 GMT+8" + card with company/your time, when the device zone differs (BB-152)
 │   ├── LeaveWindowsHint.jsx    # Small leave-day times line + hover with shift names (BB-124)
 │   ├── Spinner.jsx
 │   └── TableSkeleton.jsx
@@ -264,6 +266,7 @@ lib/
 ├── versionCheck.js             # App version check logic
 └── hooks/
     ├── use-mobile.js           # Mobile breakpoint detection hook
+    ├── useAccountRole.js       # Signed-in role from /api/account/profile (the store has no role), isAdmin (BB-151)
     └── useImportTeam.js        # Bulk-import employee picker: /employee/team, active only (BB-108)
 ```
 
@@ -357,7 +360,10 @@ B. Buddy is a hidden `admin` account in each company that BizBuddy support staff
   - The in-app guide (`Documentation.jsx`) hides guides for pages taken out of a group.
 - **Employee Map** (`Punchlogs&Overtimes&Leaves/EmployeeMap.jsx` + `EmployeeMapCanvas.jsx`, BB-128):
   - three tabs, each with its own endpoint, loaded only when opened: `GET /api/employee-map/punches`, `/routes`, `/live`. Live is for admins and superadmin only (polled every `refreshSeconds` while visible);
-  - people are drawn as initials badges in the server's `color`;
+  - people are drawn as initials badges in the server's `color`; clicking one opens a Life360-style bubble (`.map-bubble` in globals.css) with "stayed" (Routes, stops worked out on the client: `findStops`, 100 m / 5 min) or "here for" (Live, server `position.hereSince`);
+  - Live **Locate now** (BB-128 3b): crosshair button on the bubble / side-panel row → `POST /api/employee-map/live/:employeeId/locate`; toolbar "Refresh locations" → `POST /live/locate` (30 s lock). While any `locate.status` is pending, /live polls every 5 s until `expiresAt` + 5 s; the old pin stays with a pulsing ring. Clicking a pin never sends a request by itself;
+  - Live redesign (2026-11-26): pins coloured by status (`LIVE_STATUS` / `liveStatus` in employeeMapRoutes.js: fake GPS, no location, no recent update, outside, on site), GPS accuracy halo, site chips ("Kaingin site · 1 here"), person card popup, side panel grouped Needs a look / On site with search + order; map style inside the map. Site state needs the server's `position.site` (`docs/server-request-BB-128-live-site.md`);
+  - map shapes: give colours via Leaflet `color`/`fillColor` or a top-level `className` prop — `className` inside `pathOptions` is ignored and shows Leaflet's default blue;
   - map style switcher: Street (OSM, always), plus Light (Esri Light Gray) and Satellite (Esri World Imagery) when the Esri key `NEXT_PUBLIC_MAP_SATELLITE_KEY` is set (ArcGIS Location Platform, "Static basemap tiles" privilege only, referrer-restricted, expires yearly). CARTO dropped: its tiles now need a key and the free tier is non-commercial. Only the style id is kept in localStorage, never location data.
 - **Employees Schedule** (`Shifts&Schedules/Schedules.jsx`):
   - views: Recurring | Calendar | Roster (`SchedulesRosterView.jsx`, `GET /api/usershifts/range`, OT warning via `includeOt=1`);

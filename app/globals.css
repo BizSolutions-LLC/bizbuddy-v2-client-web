@@ -109,3 +109,46 @@ body {
     @apply bg-background text-foreground;
   }
 }
+/* BB-128 follow-up: Employee Map pin bubble (Leaflet popup with className "map-bubble").
+   Leaflet renders the popup outside React, so it's styled here with the theme tokens. */
+.map-bubble .leaflet-popup-content-wrapper,
+.map-bubble .leaflet-popup-tip {
+  background: hsl(var(--card));
+  color: hsl(var(--card-foreground));
+  box-shadow: 0 4px 14px hsl(var(--foreground) / 0.15);
+}
+.map-bubble .leaflet-popup-content-wrapper {
+  border-radius: 0.75rem;
+  border: 1px solid hsl(var(--border));
+}
+.map-bubble .leaflet-popup-content {
+  margin: 0.625rem 0.875rem;
+  line-height: 1.35;
+}
+.map-bubble .leaflet-popup-content p {
+  margin: 0;
+}
+.map-bubble a.leaflet-popup-close-button {
+  color: hsl(var(--muted-foreground));
+  top: 6px;
+  right: 6px;
+}
+.map-bubble a.leaflet-popup-close-button:hover {
+  color: hsl(var(--foreground));
+}
+
+/* Live redesign: work-site label above each circle ("Kaingin site · 1 here"). Thin orange accent. */
+.site-chip {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  color: hsl(var(--foreground));
+  background: hsl(var(--card));
+  border: 1px dashed hsl(var(--accent-brand));
+  border-radius: 9999px;
+  pointer-events: none;
+}

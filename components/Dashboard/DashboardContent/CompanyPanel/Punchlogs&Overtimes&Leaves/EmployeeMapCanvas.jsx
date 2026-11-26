@@ -14,8 +14,10 @@
 import { Fragment, useEffect, useMemo, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { Crosshair, MapPin } from "lucide-react";
 import { MapContainer, TileLayer, Circle, CircleMarker, Marker, Polyline, Popup, Tooltip, useMap } from "react-leaflet";
-import { ROUTE_START_CLASS, ROUTE_END_CLASS, BASEMAPS, DEFAULT_BASEMAP, splitTrack, fmtAgo, fmtBattery, fmtClock } from "./employeeMapRoutes";
+import { ROUTE_START_CLASS, ROUTE_END_CLASS, BASEMAPS, DEFAULT_BASEMAP, splitTrack, fmtAgo, fmtBattery, fmtClock, findStops, stopAt, stayAtPin, fmtStay,
+  LIVE_STATUS, liveStatus, fmtShortSpan, hereSeconds } from "./employeeMapRoutes";
 
 // Default marker images (same fix as Locations.jsx: bundlers break Leaflet's own paths)
 delete L.Icon.Default.prototype._getIconUrl;
@@ -29,6 +31,10 @@ L.Icon.Default.mergeOptions({
 // A small canvas layer (the same technique as leaflet.heat / simpleheat): each point is
 // stamped as a soft alpha blob weighted by `weight`, then the alpha is coloured through a
 // gradient. Colours are canvas pixel values, so they can't be Tailwind classes.
+// Work-site circle: brand orange (Tailwind orange-500). Leaflet paints its default blue on the
+// shape itself, so the colour has to go through Leaflet's own color/fillColor options, not CSS classes.
+const SITE_ORANGE = "#f97316";
+const ACCURACY_GREY = "#737373"; // Live GPS accuracy halo (neutral-500)
 const HEAT_GRADIENT = { 0.4: "#3b82f6", 0.6: "#06b6d4", 0.7: "#84cc16", 0.8: "#eab308", 1.0: "#ef4444" };
 
 function buildPalette() {
@@ -129,18 +135,22 @@ const escapeHtml = (v) =>
 
 const PIN_SIZE = 26;
 const iconCache = new Map();
-function initialsIcon({ initials, color, variant = "in", stale = false, mocked = false }) {
-  const key = `${initials}|${color}|${variant}|${stale}|${mocked}`;
+function initialsIcon({ initials, color, variant = "in", stale = false, mocked = false, locating = false, selected = false }) {
+  const key = `${initials}|${color}|${variant}|${stale}|${mocked}|${locating}|${selected}`;
   if (iconCache.has(key)) return iconCache.get(key);
   const cls = [
     "flex h-[26px] w-[26px] items-center justify-center rounded-full text-[10px] font-semibold leading-none text-white shadow-md select-none",
     variant === "out" ? "ring-2 ring-inset ring-white" : "",
     stale ? "opacity-50" : "",
     mocked ? "outline outline-2 outline-offset-1 outline-red-600" : "",
+    selected && !mocked ? "outline outline-[5px] outline-orange-500/30" : "",
   ].filter(Boolean).join(" ");
   const icon = L.divIcon({
     className: "", // no default white box
-    html: `<div class="${cls}" style="background:${safeColor(color)}">${escapeHtml((initials || "?").slice(0, 3))}</div>`,
+    // BB-128 3b: pulsing ring while a Locate now request is pending (the old pin stays meanwhile)
+    html: `<div class="relative">${
+      locating ? `<span class="absolute inset-0 rounded-full animate-ping" style="background:${safeColor(color)};opacity:.45"></span>` : ""
+    }<div class="relative ${cls}" style="background:${safeColor(color)}">${escapeHtml((initials || "?").slice(0, 3))}</div></div>`,
     iconSize: [PIN_SIZE, PIN_SIZE],
     iconAnchor: [PIN_SIZE / 2, PIN_SIZE / 2],
     popupAnchor: [0, -PIN_SIZE / 2],
@@ -168,7 +178,7 @@ function FitToData({ bounds, fitKey }) {
 function FlyTo({ focus }) {
   const map = useMap();
   useEffect(() => {
-    if (!focus) return;
+    if (!focus || focus.fly === false) return; // a pin click selects without moving the map
     map.flyTo([focus.lat, focus.lng], Math.max(map.getZoom(), 16), { duration: 0.6 });
   }, [map, focus]);
   return null;
@@ -183,22 +193,43 @@ function placeText(p) {
   return `Nearest site: ${p.siteName} (${fmtDistance(p.distanceMeters)})`;
 }
 
-function PunchPopup({ p, singleDay }) {
-  const when = singleDay ? (p.atLocal || "").split(" ").slice(1).join(" ") : p.atLocal;
+// BB-128 follow-up: Life360-style bubble for the initials pins (styles: .map-bubble in globals.css).
+// `stay` = { label: "here for" | "stayed", text: "1 hr, 20 min" } when known.
+const BUBBLE_POPUP = { closeButton: false, className: "map-bubble", offset: [0, -14] };
+
+function MapBubble({ stay, title, children }) {
   return (
-    <div className="space-y-0.5 text-sm">
-      <p className="font-semibold">{p.employeeName}</p>
-      <p>{p.type === "out" ? "Clock-out" : "Clock-in"} {when}</p>
-      {p.siteName !== undefined && <p className="text-muted-foreground">{placeText(p)}</p>}
-      {p.accuracy != null && <p className="text-muted-foreground">±{Math.round(p.accuracy)} m</p>}
+    <div className="min-w-[9rem] text-sm">
+      {stay && (
+        <div className="flex items-center gap-2 pb-2 mb-2 border-b border-border">
+          <MapPin className="h-5 w-5 shrink-0 text-orange-500" aria-hidden />
+          <div className="leading-tight">
+            <p className="text-xs text-muted-foreground">{stay.label}</p>
+            <p className="font-semibold">{stay.text}</p>
+          </div>
+        </div>
+      )}
+      <p className="font-semibold">{title}</p>
+      <div className="space-y-0.5 text-muted-foreground">{children}</div>
     </div>
   );
 }
 
-function PunchPin({ p, singleDay }) {
+function PunchPopup({ p, singleDay, stay }) {
+  const when = singleDay ? (p.atLocal || "").split(" ").slice(1).join(" ") : p.atLocal;
+  return (
+    <MapBubble stay={stay} title={p.employeeName}>
+      <p className="text-foreground">{p.type === "out" ? "Clock-out" : "Clock-in"} {when}</p>
+      {p.siteName !== undefined && <p>{placeText(p)}</p>}
+      {p.accuracy != null && <p>±{Math.round(p.accuracy)} m</p>}
+    </MapBubble>
+  );
+}
+
+function PunchPin({ p, singleDay, stay }) {
   return (
     <Marker position={[p.lat, p.lng]} icon={initialsIcon({ initials: p.initials, color: p.color, variant: p.type })}>
-      <Popup><PunchPopup p={p} singleDay={singleDay} /></Popup>
+      <Popup {...BUBBLE_POPUP}><PunchPopup p={p} singleDay={singleDay} stay={stay} /></Popup>
     </Marker>
   );
 }
@@ -208,12 +239,13 @@ function PunchPin({ p, singleDay }) {
 // markers get slow); the lines are always drawn. One employee is always below it.
 const MAX_DOTS = 2000;
 
-function BreadcrumbTip({ track, pt }) {
+function BreadcrumbTip({ track, pt, stop }) {
   const battery = fmtBattery(pt.batteryLevel);
   return (
     <div className="space-y-0.5 text-xs">
       <p className="font-semibold">{track.employeeName}</p>
       <p>{pt.atLocal}</p>
+      {stop && <p className="font-semibold">Stayed {fmtStay(stop.seconds)} here</p>}
       {pt.accuracy != null && (
         <p>±{Math.round(pt.accuracy)} m{pt.lowAccuracy && ", not counted in distance"}</p>
       )}
@@ -225,6 +257,10 @@ function BreadcrumbTip({ track, pt }) {
   );
 }
 
+// Note: react-leaflet only applies `className` when given as its own prop at creation; inside
+// `pathOptions` it is ignored and Leaflet's default blue shows. Shapes whose class can change get a
+// `key` that changes with it, so they are recreated with the new class.
+
 // BB-128 2b: faint dashed link between a punch pin and its route (clock-in pin → first point,
 // last point → clock-out pin). Red when the server's pin check says they don't connect.
 function PinLink({ from, to, check, label }) {
@@ -232,9 +268,10 @@ function PinLink({ from, to, check, label }) {
   const bad = Boolean(check?.suspicious);
   return (
     <Polyline
+      key={bad ? "bad" : "ok"}
       positions={[from, to]}
+      className={bad ? "stroke-red-600" : "stroke-neutral-500"}
       pathOptions={{
-        className: bad ? "stroke-red-600" : "stroke-neutral-500",
         weight: bad ? 2 : 1.5,
         opacity: bad ? 0.8 : 0.45,
         dashArray: "2 6",
@@ -255,6 +292,12 @@ function RouteLayer({ tracks, intervalMinutes, singleDay }) {
     const color = safeColor(t.color);
     const { solid, gaps, jumps } = splitTrack(pts, intervalMinutes);
     const last = pts.length - 1;
+    // BB-128 follow-up: stops along the route ("Stayed 1 hr, 20 min"), from the points only
+    const stops = findStops(pts);
+    const stayOf = (pin, end) => {
+      const seconds = stayAtPin(pts, stops, pin, end);
+      return seconds ? { label: "stayed", text: fmtStay(seconds) } : null;
+    };
     // Punch pins come with the track (server: tracks[].pins); missing until the server sends them
     const pinIn = hasLatLng(t.pins?.clockIn) ? t.pins.clockIn : null;
     const pinOut = hasLatLng(t.pins?.clockOut) ? t.pins.clockOut : null;
@@ -270,12 +313,15 @@ function RouteLayer({ tracks, intervalMinutes, singleDay }) {
         {solid.map((run, i) => (
           <Polyline key={`s${i}`} positions={run} pathOptions={{ color, weight: 3, opacity: 0.85 }} />
         ))}
+        {/* No location for a while: drawn solid like the route (Carlo, 2026-11-26); the hover says it's a straight line */}
         {gaps.map((seg, i) => (
-          <Polyline key={`g${i}`} positions={seg} pathOptions={{ color, weight: 2, opacity: 0.7, dashArray: "6 6" }} />
+          <Polyline key={`g${i}`} positions={seg} pathOptions={{ color, weight: 3, opacity: 0.85 }}>
+            <Tooltip sticky>No location recorded here; straight line between two points</Tooltip>
+          </Polyline>
         ))}
         {/* BB-128 2b: impossible moves — dashed red, never part of the route line */}
         {jumps.map((seg, i) => (
-          <Polyline key={`j${i}`} positions={seg} pathOptions={{ className: "stroke-red-600", weight: 2.5, opacity: 0.9, dashArray: "8 6" }}>
+          <Polyline key={`j${i}`} positions={seg} className="stroke-red-600" pathOptions={{ weight: 2.5, opacity: 0.9, dashArray: "8 6" }}>
             <Tooltip sticky>⚠ Suspicious movement</Tooltip>
           </Polyline>
         ))}
@@ -284,44 +330,178 @@ function RouteLayer({ tracks, intervalMinutes, singleDay }) {
           const flagged = pt.isMocked || pt.jumpedHere;
           if (!flagged && !isEnd && !allDots) return null;
           // Low accuracy (> 100 m): still drawn, lighter; not counted in distance
-          const options = flagged
-            ? { className: "fill-red-500 stroke-red-700", weight: 1, fillOpacity: 1 }
-            : i === 0
-              ? { className: ROUTE_START_CLASS, weight: 2, fillOpacity: 1 }
-              : i === last
-                ? { className: ROUTE_END_CLASS, weight: 2, fillOpacity: 1 }
-                : { color, fillColor: color, weight: 1, fillOpacity: pt.lowAccuracy ? 0.25 : 1, opacity: pt.lowAccuracy ? 0.35 : 1 };
+          const dotClass = flagged ? "fill-red-500 stroke-red-700" : i === 0 ? ROUTE_START_CLASS : i === last ? ROUTE_END_CLASS : undefined;
+          const options = dotClass
+            ? { weight: flagged ? 1 : 2, fillOpacity: 1 }
+            : { color, fillColor: color, weight: 1, fillOpacity: pt.lowAccuracy ? 0.25 : 1, opacity: pt.lowAccuracy ? 0.35 : 1 };
           return (
-            <CircleMarker key={`p${i}`} center={[pt.lat, pt.lng]} radius={flagged || isEnd ? 5 : 2.5} pathOptions={options}>
-              <Tooltip><BreadcrumbTip track={t} pt={pt} /></Tooltip>
+            <CircleMarker
+              key={`p${i}-${dotClass || "plain"}`}
+              center={[pt.lat, pt.lng]}
+              radius={flagged || isEnd ? 5 : 2.5}
+              className={dotClass}
+              pathOptions={options}
+            >
+              <Tooltip><BreadcrumbTip track={t} pt={pt} stop={stopAt(stops, i)} /></Tooltip>
             </CircleMarker>
           );
         })}
-        {pinIn && <PunchPin p={{ ...person, ...pinIn, type: "in" }} singleDay={singleDay} />}
-        {pinOut && <PunchPin p={{ ...person, ...pinOut, type: "out" }} singleDay={singleDay} />}
+        {pinIn && <PunchPin p={{ ...person, ...pinIn, type: "in" }} singleDay={singleDay} stay={stayOf(pinIn, "in")} />}
+        {pinOut && <PunchPin p={{ ...person, ...pinOut, type: "out" }} singleDay={singleDay} stay={stayOf(pinOut, "out")} />}
       </Fragment>
     );
   });
 }
 
 // ── Live ─────────────────────────────────────────────────────────────────────
-function LivePopup({ e, ageSeconds, tz }) {
-  const pos = e.position;
-  const battery = fmtBattery(pos.batteryLevel);
+// Live redesign (2026-11-26): person card — header, status badge, facts, Locate now.
+const LIVE_POPUP = { className: "map-bubble", offset: [0, -14], minWidth: 256, maxWidth: 300 };
+
+function Fact({ label, children }) {
   return (
-    <div className="space-y-0.5 text-sm">
-      <p className="font-semibold">{e.name}</p>
-      <p>
-        {pos.source === "clockIn"
-          ? `At clock-in, ${fmtClock(pos.at || e.clockedInAt, tz)}`
-          : `Seen ${fmtAgo(ageSeconds)}`}
-        {pos.stale && pos.source !== "clockIn" && <span className="text-muted-foreground"> (stale)</span>}
-      </p>
-      <p className="text-muted-foreground">Clocked in {fmtClock(e.clockedInAt, tz)}</p>
-      {pos.accuracy != null && <p className="text-muted-foreground">±{Math.round(pos.accuracy)} m</p>}
-      {battery && <p className="text-muted-foreground">Battery {battery}</p>}
-      {pos.isMocked && <p className="font-semibold text-red-600">⚠ Fake GPS reported by the phone</p>}
+    <>
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="text-right font-medium tabular-nums">{children}</dd>
+    </>
+  );
+}
+
+function LivePopup({ e, ageSeconds, tz, status, onLocate }) {
+  const pos = e.position;
+  const st = liveStatus(e);
+  const meta = LIVE_STATUS[st];
+  const battery = fmtBattery(pos.batteryLevel);
+  const here = hereSeconds(pos);
+  const since = Date.parse(e.clockedInAt);
+  const clockedAgo = Number.isFinite(since) ? fmtShortSpan((Date.now() - since) / 1000) : null;
+  const site = pos.site;
+  return (
+    <div className="text-sm">
+      <div className="flex items-center gap-3 pr-5">
+        <span
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white"
+          style={{ background: meta.pin }}
+        >
+          {(e.initials || "?").slice(0, 3)}
+        </span>
+        <div className="min-w-0">
+          <p className="font-semibold truncate">{e.name}</p>
+          <p className="flex items-center gap-2 min-w-0">
+            {e.department && <span className="text-xs text-muted-foreground truncate">{e.department}</span>}
+            <span className={`inline-flex shrink-0 rounded-brand border px-1.5 py-px text-[11px] font-semibold ${meta.text}`}>{meta.label}</span>
+          </p>
+        </div>
+      </div>
+      <div className="mt-3 border-t border-border pt-3 space-y-2.5">
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
+          <Fact label="Clocked in">
+            {fmtClock(e.clockedInAt, tz)}{clockedAgo && clockedAgo !== "just now" ? ` · ${clockedAgo} ago` : ""}
+          </Fact>
+          {here != null && <Fact label={pos.stale ? "Was here for" : "Here for"}>{fmtStay(here)}</Fact>}
+          <Fact label="Last location">{pos.source === "clockIn" ? "At clock-in" : fmtAgo(ageSeconds)}</Fact>
+          {pos.accuracy != null && <Fact label="GPS accuracy">±{Math.round(pos.accuracy)} m</Fact>}
+          {site && (
+            <Fact label="Work site">
+              <span className={site.inside ? LIVE_STATUS.onsite.text : ""}>
+                {site.inside
+                  ? `${site.name} · inside`
+                  : `${site.distanceMeters != null ? `${Math.round(site.distanceMeters)} m ` : ""}outside ${site.name}`}
+              </span>
+            </Fact>
+          )}
+          {battery && <Fact label="Battery">{battery}</Fact>}
+        </dl>
+        {pos.isMocked && <p className="text-xs font-semibold text-red-600">⚠ Fake GPS reported by the phone</p>}
+        {status && (
+          <p className={`text-xs ${status.pending ? "text-foreground animate-pulse" : status.fresh ? "text-foreground font-medium" : "text-muted-foreground"}`}>
+            {status.text}
+          </p>
+        )}
+        {onLocate && (
+          <button
+            type="button"
+            onClick={() => onLocate(e)}
+            disabled={Boolean(status?.pending)}
+            className="w-full inline-flex items-center justify-center gap-1.5 rounded-brand border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted disabled:opacity-50"
+          >
+            <Crosshair className="h-3.5 w-3.5" /> Locate now
+          </button>
+        )}
+      </div>
     </div>
+  );
+}
+
+// Site label above the circle: "Kaingin site · 1 here" (Live). A non-interactive divIcon marker at
+// the circle's top edge; the chip centres itself on that point.
+function siteChipIcon(text) {
+  return L.divIcon({
+    className: "",
+    html: `<span class="site-chip">${escapeHtml(text)}</span>`,
+    iconSize: [0, 0],
+    iconAnchor: [0, 0],
+  });
+}
+
+// Live: accuracy halos, status pins, site chips; opens the selected person's card
+function LiveLayer({ live, sites, ageOf, tz, locateStatus, onLocate, onSelect, selectedId, openKey }) {
+  const markers = useRef({});
+  // Open the card of the person picked in the side panel (after the fly-to)
+  useEffect(() => {
+    if (!selectedId || !openKey) return;
+    const t = setTimeout(() => markers.current[selectedId]?.openPopup(), 650);
+    return () => clearTimeout(t);
+  }, [selectedId, openKey]);
+
+  const counts = useMemo(() => {
+    const c = {};
+    live.forEach((e) => { const st = e.position?.site; if (st?.inside && st.id) c[st.id] = (c[st.id] || 0) + 1; });
+    return c;
+  }, [live]);
+
+  return (
+    <>
+      {sites.filter((s) => s.latitude != null && s.longitude != null && s.radius != null).map((s) => (
+        <Marker
+          key={`chip-${s.id}`}
+          position={[s.latitude + s.radius / 111320, s.longitude]}
+          icon={siteChipIcon(counts[s.id] ? `${s.name} · ${counts[s.id]} here` : s.name)}
+          interactive={false}
+          keyboard={false}
+        />
+      ))}
+      {live.map((e) => e.position.accuracy > 0 && (
+        <Circle
+          key={`acc-${e.timeLogId || e.employeeId}`}
+          center={[e.position.lat, e.position.lng]}
+          radius={e.position.accuracy}
+          interactive={false}
+          pathOptions={{ stroke: false, fillColor: ACCURACY_GREY, fillOpacity: 0.18 }}
+        />
+      ))}
+      {live.map((e) => {
+        const id = e.employeeId || e.timeLogId;
+        return (
+          <Marker
+            key={e.timeLogId || e.employeeId}
+            ref={(m) => { if (m) markers.current[id] = m; else delete markers.current[id]; }}
+            position={[e.position.lat, e.position.lng]}
+            icon={initialsIcon({
+              initials: e.initials,
+              color: LIVE_STATUS[liveStatus(e)].pin,
+              mocked: Boolean(e.position.isMocked),
+              locating: Boolean(locateStatus?.(e)?.pending),
+              selected: selectedId === id,
+            })}
+            eventHandlers={{ click: () => onSelect?.(e) }}
+          >
+            <Popup {...LIVE_POPUP}>
+              <LivePopup e={e} ageSeconds={ageOf ? ageOf(e) : e.position.ageSeconds} tz={tz} status={locateStatus?.(e)} onLocate={onLocate} />
+            </Popup>
+          </Marker>
+        );
+      })}
+    </>
   );
 }
 
@@ -335,8 +515,14 @@ function LivePopup({ e, ageSeconds, tz }) {
  * @param focus      { lat, lng } to fly to (Live side panel)
  * @param ageOf      (employee) → seconds since their position, re-counted between polls (Live)
  * @param tz         company time zone for Live labels
+ * @param locateStatus (employee) → { text, pending?, fresh? } | null — Locate now state (Live, BB-128 3b)
+ * @param onLocate   (employee) → void — sends Locate now; null hides the button (tracking off)
+ * @param onSelect   (employee) → void — a Live pin was clicked (side panel follows)
+ * @param selectedId employeeId of the selected Live person (ring on the pin)
  */
-export default function EmployeeMapCanvas({ mode, data, punchView = "pins", singleDay, basemap, fitKey, focus, ageOf, tz }) {
+export default function EmployeeMapCanvas({
+  mode, data, punchView = "pins", singleDay, basemap, fitKey, focus, ageOf, tz, locateStatus, onLocate, onSelect, selectedId,
+}) {
   const tile = Object.hasOwn(BASEMAPS, basemap || "") ? BASEMAPS[basemap] : BASEMAPS[DEFAULT_BASEMAP];
   const sites = data?.sites || [];
   const tracks = useMemo(() => (mode === "routes" ? data?.tracks || [] : []), [data, mode]);
@@ -387,7 +573,7 @@ export default function EmployeeMapCanvas({ mode, data, punchView = "pins", sing
             key={s.id}
             center={[s.latitude, s.longitude]}
             radius={s.radius}
-            pathOptions={{ className: "fill-orange-500/10 stroke-orange-500", dashArray: "6 4", weight: 2 }}
+            pathOptions={{ color: SITE_ORANGE, fillColor: SITE_ORANGE, fillOpacity: 0.1, dashArray: "6 4", weight: 2 }}
           >
             <Tooltip>{s.name} ({s.radius} m)</Tooltip>
           </Circle>
@@ -404,15 +590,13 @@ export default function EmployeeMapCanvas({ mode, data, punchView = "pins", sing
 
       {mode === "routes" && <RouteLayer tracks={tracks} intervalMinutes={intervalMinutes} singleDay={singleDay} />}
 
-      {mode === "live" && live.map((e) => (
-        <Marker
-          key={e.timeLogId || e.employeeId}
-          position={[e.position.lat, e.position.lng]}
-          icon={initialsIcon({ initials: e.initials, color: e.color, stale: Boolean(e.position.stale), mocked: Boolean(e.position.isMocked) })}
-        >
-          <Popup><LivePopup e={e} ageSeconds={ageOf ? ageOf(e) : e.position.ageSeconds} tz={tz} /></Popup>
-        </Marker>
-      ))}
+      {mode === "live" && (
+        <LiveLayer
+          live={live} sites={sites} ageOf={ageOf} tz={tz}
+          locateStatus={locateStatus} onLocate={onLocate} onSelect={onSelect}
+          selectedId={selectedId} openKey={focus?.open ? focus.at : null}
+        />
+      )}
     </MapContainer>
   );
 }

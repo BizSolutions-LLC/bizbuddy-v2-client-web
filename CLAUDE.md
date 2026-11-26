@@ -160,7 +160,8 @@ work belongs in the server repo — flag it and redirect rather than attempting 
   style inside the dashboard: `font-display` titles, `rounded-brand` (2px) corners, flat bordered
   surfaces, a flat stat row with a `border-accent-brand` left rule, an underline tab bar, and the
   orange marker on the selected row. `accent-brand` (globals.css, with a dark value) is brand orange
-  for thin accents only, never fills. It's a pilot: don't copy it to other pages until Carlo decides
+  for thin accents only, never fills. Exception (Carlo, 2026-11-26): map pins are markers, not surfaces, so
+  the Live "On site" pin is solid orange (orange-700); buttons, rows and cards still keep orange to accents. It's a pilot: don't copy it to other pages until Carlo decides
   to roll it out.
 
 ### Known drift (flagged, not to be imitated)

@@ -11,6 +11,7 @@ import PageLoader from "@/components/Dashboard/PageLoader";
 import DashboardSkeleton from "./DashboardSkeleton";
 import ErrorBoundary from "@/components/common/ErrorBoundary";
 import FeedbackWidget from "@/components/common/FeedbackWidget";
+import CompanyTimeBadge from "@/components/common/CompanyTimeBadge"; // BB-152
 import { isSystemAgentToken, isBlockedForSystemAgent, SYSTEM_AGENT_HOME } from "@/lib/systemAgent";
 
 export default function DashboardLayoutClient({ children }) {
@@ -136,6 +137,7 @@ export default function DashboardLayoutClient({ children }) {
         />
 
         <FeedbackWidget isSidebarOpen={isSidebarOpen} />
+        <CompanyTimeBadge />
 
         <motion.main
           initial={{ opacity: 0 }}

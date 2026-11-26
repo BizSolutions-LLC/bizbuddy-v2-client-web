@@ -16,7 +16,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { BatteryLow, BatteryMedium, BatteryFull, RefreshCw, X } from "lucide-react";
+import { BatteryLow, BatteryMedium, BatteryFull, Crosshair, RefreshCw, Search, X } from "lucide-react";
+import { toast, Toaster } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +28,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import {
   DISTANCE_UNITS, BASEMAPS, BASEMAP_OPTIONS, DEFAULT_BASEMAP, BASEMAP_STORAGE_KEY,
   fmtTrackDistance, fmtClock, fmtAgo, fmtBattery, suspiciousLines,
+  LIVE_STATUS, liveStatus, hereSeconds, fmtStay,
 } from "./employeeMapRoutes";
 
 const EmployeeMapCanvas = dynamic(() => import("./EmployeeMapCanvas"), {
@@ -37,6 +39,17 @@ const EmployeeMapCanvas = dynamic(() => import("./EmployeeMapCanvas"), {
 const ALL = "all";
 const MAX_RANGE_DAYS = 31;
 const LIVE_TICK_MS = 30000; // re-count "Seen X min ago" between polls
+// BB-128 3b Locate now
+const LOCATE_FAST_POLL_MS = 5000;   // poll /live this often while a request is pending
+const LOCATE_REFRESH_LOCK_MS = 30000; // Refresh disabled after a click (server ignores repeats anyway)
+const LOCATE_FLASH_MS = 20000;      // "Updated just now" after an answer
+const LOCATE_REASON_TEXT = {
+  no_device: "No phone registered, showing last known location",
+  push_failed: "Couldn't reach the phone, showing last known location",
+  rate_limited: "Too many requests, try again in a few minutes",
+};
+// Live side panel: search shows from this many people up (Carlo, 2026-11-26)
+const LIVE_SEARCH_MIN = 5;
 const TYPES = [
   { id: "both", label: "Both" },
   { id: "in", label: "Clock-in" },
@@ -216,6 +229,7 @@ export default function EmployeeMap() {
   const [focus, setFocus] = useState(null);       // Live: { lat, lng } to fly to
   const [now, setNow] = useState(() => Date.now());
   const seqRef = useRef({ punches: 0, routes: 0, live: 0 }); // drop out-of-order responses
+  const [liveQuery, setLiveQuery] = useState("");          // Live side panel search (name or ID)
 
   const rangeError = rangeMode
     ? !from || !to
@@ -381,12 +395,156 @@ export default function EmployeeMap() {
     { label: "At clock-in only", field: "clockInOnly" },
     { label: "No location yet", field: "noPosition" },
   ];
-  const liveLabel = (e) => {
+
+  // ── Live side panel (redesign): status line, search, groups ──
+  const liveLine = (e) => {
     const p = e.position;
-    if (!p) return "No location yet";
-    if (p.source === "clockIn") return `At clock-in, ${fmtClock(p.at || e.clockedInAt, liveTz)}`;
-    return `Seen ${fmtAgo(ageOf(e))}${p.stale ? " (stale)" : ""}`;
+    const st = liveStatus(e);
+    const seen = p?.source === "clockIn" ? `at clock-in, ${fmtClock(p.at || e.clockedInAt, liveTz)}` : fmtAgo(ageOf(e));
+    const here = hereSeconds(p, now);
+    switch (st) {
+      case "none": return "No location yet";
+      case "mocked": return `Fake GPS detected · last seen ${seen}`;
+      case "stale": return `Last location ${seen} · phone may be off`;
+      case "outside": {
+        const since = p.site?.since ? (now - Date.parse(p.site.since)) / 1000 : null;
+        const dist = p.site?.distanceMeters != null ? `${Math.round(p.site.distanceMeters)} m ` : "";
+        return `${dist}outside ${p.site?.name || "a site"}${since > 60 ? ` · ${fmtStay(since)}` : ""}`;
+      }
+      case "onsite": return `At ${p.site?.name || "a site"}${here ? ` · here ${fmtStay(here)}` : ""}`;
+      default: return p.source === "clockIn" ? `At clock-in, ${fmtClock(p.at || e.clockedInAt, liveTz)}` : `Seen ${seen}${here ? ` · here ${fmtStay(here)}` : ""}`;
+    }
   };
+  const liveGroups = useMemo(() => {
+    const q = liveQuery.trim().toLowerCase();
+    const rows = liveEmployees.filter((e) => !q
+      || (e.name || "").toLowerCase().includes(q)
+      || (e.employeeCode || "").toLowerCase().includes(q));
+    const byRank = (a, b) => LIVE_STATUS[liveStatus(a)].rank - LIVE_STATUS[liveStatus(b)].rank || (a.name || "").localeCompare(b.name || "");
+    const look = rows.filter((e) => LIVE_STATUS[liveStatus(e)].needsLook).sort(byRank);
+    const onsite = rows.filter((e) => liveStatus(e) === "onsite");
+    const other = rows.filter((e) => liveStatus(e) === "unknown");
+    return [
+      { id: "look", label: "Needs a look", rows: look, alert: true },
+      { id: "onsite", label: "On site", rows: onsite },
+      { id: "other", label: "Clocked in", rows: other },
+    ].filter((g) => g.rows.length);
+  }, [liveEmployees, liveQuery]);
+  const selectLive = (e, { fromMap = false } = {}) => {
+    const p = e.position;
+    if (!p) return;
+    setFocus({ lat: p.lat, lng: p.lng, at: Date.now(), employeeId: e.employeeId, fly: !fromMap, open: !fromMap });
+  };
+
+  // ── Locate now (BB-128 3b): ask clocked-in phones for a fresh point; the old pin stays meanwhile ──
+  const [locateNotes, setLocateNotes] = useState({}); // employeeId → local note (no phone, push failed…)
+  const [locatingIds, setLocatingIds] = useState({}); // employeeId → true while the POST is in flight
+  const [refreshLockedUntil, setRefreshLockedUntil] = useState(0);
+  const liveFilters = () => ({ ...filters });
+
+  const locateOne = async (e) => {
+    if (!e?.employeeId || locatingIds[e.employeeId]) return;
+    setLocatingIds((m) => ({ ...m, [e.employeeId]: true }));
+    setLocateNotes((m) => { const n = { ...m }; delete n[e.employeeId]; return n; });
+    try {
+      const res = await fetch(`${API}/api/employee-map/live/${encodeURIComponent(e.employeeId)}/locate`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(j.message || `Couldn't send the request (${res.status})`); return; }
+      const d = j.data || {};
+      if (!d.sent && LOCATE_REASON_TEXT[d.reason]) {
+        setLocateNotes((m) => ({ ...m, [e.employeeId]: LOCATE_REASON_TEXT[d.reason] }));
+      }
+      load("live", liveFilters(), { quiet: true }); // picks up locate.status = pending
+    } catch {
+      toast.error("Network error sending the location request");
+    } finally {
+      setLocatingIds((m) => { const n = { ...m }; delete n[e.employeeId]; return n; });
+    }
+  };
+
+  const locateAll = async () => {
+    setRefreshLockedUntil(Date.now() + LOCATE_REFRESH_LOCK_MS);
+    setLocateNotes({});
+    try {
+      const res = await fetch(`${API}/api/employee-map/live/locate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(departmentId !== ALL ? { departmentId } : {}),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(j.message || `Couldn't send the requests (${res.status})`); return; }
+      const d = j.data || {};
+      const notes = {};
+      (d.results || []).forEach((r) => {
+        if (!r.sent && LOCATE_REASON_TEXT[r.reason]) notes[r.employeeId] = LOCATE_REASON_TEXT[r.reason];
+      });
+      setLocateNotes(notes);
+      const asked = (d.sent || 0) + (d.reused || 0);
+      const extras = [
+        d.noDevice ? `${d.noDevice} without a phone` : null,
+        d.failed ? `${d.failed} couldn't be reached` : null,
+        d.skippedOverCap ? `${d.skippedOverCap} over the 50 limit` : null,
+      ].filter(Boolean);
+      if (d.rateLimited && !asked) toast.error(LOCATE_REASON_TEXT.rate_limited);
+      else toast(`Locating ${asked} ${asked === 1 ? "person" : "people"}…${extras.length ? ` (${extras.join(", ")})` : ""}`);
+      load("live", liveFilters(), { quiet: true });
+    } catch {
+      toast.error("Network error sending the location requests");
+    }
+  };
+  const refreshLocked = now < refreshLockedUntil;
+  // Re-render when the Refresh lock ends (the 30 s tick is too coarse for this)
+  useEffect(() => {
+    if (!refreshLockedUntil) return;
+    const ms = refreshLockedUntil - Date.now();
+    if (ms <= 0) return;
+    const t = setTimeout(() => setNow(Date.now()), ms + 50);
+    return () => clearTimeout(t);
+  }, [refreshLockedUntil]);
+
+  // While any request is pending: poll every 5 s until its expiresAt + 5 s, then back to 60 s
+  const pendingUntil = useMemo(() => {
+    const ends = (live?.employees || [])
+      .filter((e) => e.locate?.status === "pending" && e.locate.expiresAt)
+      .map((e) => Date.parse(e.locate.expiresAt))
+      .filter(Number.isFinite);
+    return ends.length ? Math.max(...ends) + 5000 : 0;
+  }, [live]);
+  useEffect(() => {
+    if (!token || tab !== "live" || !isAdmin || !pendingUntil) return;
+    const f = liveFilters();
+    const timer = setInterval(() => {
+      if (Date.now() > pendingUntil) { clearInterval(timer); return; }
+      if (document.visibilityState === "visible") load("live", f, { quiet: true });
+      setNow(Date.now());
+    }, LOCATE_FAST_POLL_MS);
+    return () => clearInterval(timer);
+  }, [token, tab, isAdmin, pendingUntil, departmentId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // One status line per person for the bubble and the side panel, or null
+  const locateStatus = useCallback((e) => {
+    if (locatingIds[e.employeeId]) return { text: "Locating…", pending: true };
+    const note = locateNotes[e.employeeId];
+    const lc = e.locate;
+    if (lc?.status === "pending") return { text: "Locating…", pending: true };
+    if (lc?.status === "answered") {
+      const ago = now - Date.parse(lc.answeredAt);
+      return Number.isFinite(ago) && ago < LOCATE_FLASH_MS ? { text: "Updated just now", fresh: true } : null;
+    }
+    if (note) return { text: note };
+    if (lc?.status === "no_answer" || lc?.status === "not_sent") {
+      const seen = e.position?.source === "breadcrumb" && ageOf(e) != null ? ` (seen ${fmtAgo(ageOf(e))})` : "";
+      return {
+        text: lc.status === "no_answer"
+          ? `Phone didn't answer, showing last known location${seen}`
+          : `Couldn't reach the phone, showing last known location${seen}`,
+      };
+    }
+    return null;
+  }, [locatingIds, locateNotes, now, ageOf]);
 
   const fitKey = tab === "live" ? `live?${departmentId}` : `${current.key}@${current.fetchedAt}`;
 
@@ -405,6 +563,7 @@ export default function EmployeeMap() {
 
   return (
     <div className="p-4 sm:p-6 space-y-6 max-w-7xl mx-auto">
+      <Toaster position="top-center" />
       {/* Header */}
       <div className="flex items-end justify-between gap-4 flex-wrap">
         <div>
@@ -522,13 +681,24 @@ export default function EmployeeMap() {
             <div className="flex items-center gap-2 flex-wrap">
               {tab === "punches" && <Segmented options={PUNCH_VIEWS} value={punchView} onChange={setPunchView} />}
               {tab === "routes" && <Segmented options={DISTANCE_UNITS} value={unit} onChange={setUnit} />}
+              {tab === "live" && live?.tracking?.enabled !== false && liveEmployees.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 rounded-brand"
+                  onClick={locateAll}
+                  disabled={refreshLocked}
+                  title="Ask everyone's phone for a fresh location"
+                >
+                  <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Refresh locations
+                </Button>
+              )}
               {tab === "live" && live?.generatedAt && (
                 <span className="text-xs text-muted-foreground">
-                  Updated {fmtClock(live.generatedAt, liveTz)} · refreshes every {refreshSeconds} s
+                  Updated {fmtClock(live.generatedAt, liveTz)} · refreshes every {pendingUntil ? 5 : refreshSeconds} s
                 </span>
               )}
             </div>
-            {BASEMAP_OPTIONS.length > 1 && <Segmented options={BASEMAP_OPTIONS} value={basemap} onChange={chooseBasemap} />}
           </div>
           {tab === "routes" && (routesNotice || crumbs?.truncated) && (
             <div className="border-b px-3 py-2 space-y-1 text-sm text-muted-foreground">
@@ -538,7 +708,13 @@ export default function EmployeeMap() {
               )}
             </div>
           )}
-          <div className="h-[28rem] sm:h-[34rem] relative">
+          <div className="relative h-[28rem] sm:h-[34rem]">
+            {/* Map style switch inside the map (top right) */}
+            {BASEMAP_OPTIONS.length > 1 && (
+              <div className="absolute right-2.5 top-2.5 z-[400] bg-card shadow-sm rounded-brand">
+                <Segmented options={BASEMAP_OPTIONS} value={basemap} onChange={chooseBasemap} />
+              </div>
+            )}
             {data ? (
               <EmployeeMapCanvas
                 mode={tab}
@@ -550,6 +726,10 @@ export default function EmployeeMap() {
                 focus={tab === "live" ? focus : null}
                 ageOf={ageOf}
                 tz={liveTz}
+                locateStatus={locateStatus}
+                onLocate={live?.tracking?.enabled !== false ? locateOne : null}
+                onSelect={(e) => selectLive(e, { fromMap: true })}
+                selectedId={tab === "live" ? focus?.employeeId : null}
               />
             ) : (
               <Skeleton className="h-full w-full rounded-none" />
@@ -568,19 +748,25 @@ export default function EmployeeMap() {
                 <LegendDot className="h-2.5 w-2.5 rounded-full border-2 border-foreground bg-background">Start</LegendDot>
                 <LegendDot className="h-2.5 w-2.5 rounded-full bg-foreground">End</LegendDot>
                 <LegendDot className="h-2.5 w-2.5 rounded-full bg-muted-foreground/30">Low accuracy</LegendDot>
-                <LegendDot className="w-4 border-t-2 border-dashed border-muted-foreground">No location</LegendDot>
                 <LegendDot className="h-2.5 w-2.5 rounded-full bg-red-500">Fake GPS</LegendDot>
                 <LegendDot className="w-4 border-t-2 border-dashed border-red-600">Suspicious movement</LegendDot>
               </>
             )}
             {tab === "live" && (
               <>
-                <span className="flex items-center gap-1.5"><InitialsBadge initials="AB" small />Current</span>
-                <span className="flex items-center gap-1.5"><InitialsBadge initials="AB" faded small />Stale</span>
-                <span className="flex items-center gap-1.5"><InitialsBadge initials="AB" mocked small />Fake GPS</span>
+                <span className="flex items-center gap-1.5"><InitialsBadge initials="AB" color={LIVE_STATUS.onsite.pin} small />On site</span>
+                <span className="flex items-center gap-1.5"><InitialsBadge initials="AB" color={LIVE_STATUS.outside.pin} small />Outside a site</span>
+                <span className="flex items-center gap-1.5">
+                  <InitialsBadge initials="AB" color={LIVE_STATUS.stale.pin} small />
+                  No update in {live?.tracking?.staleAfterMinutes ?? 15}+ min
+                </span>
+                <span className="flex items-center gap-1.5"><InitialsBadge initials="AB" color={LIVE_STATUS.mocked.pin} mocked small />Fake GPS flagged</span>
               </>
             )}
-            <LegendDot className="h-2.5 w-2.5 rounded-full border-2 border-dashed border-orange-500">Work site</LegendDot>
+            <LegendDot className="h-2.5 w-2.5 rounded-full border-2 border-dashed border-orange-500">
+              {tab === "live" ? "Work site boundary" : "Work site"}
+            </LegendDot>
+            {tab === "live" && <LegendDot className="h-2.5 w-2.5 rounded-full bg-neutral-500/30">GPS accuracy (±m)</LegendDot>}
           </div>
         </section>
 
@@ -657,35 +843,87 @@ export default function EmployeeMap() {
               !liveEmployees.length ? (
                 <p className="p-4 text-sm text-muted-foreground">Nobody is clocked in right now.</p>
               ) : (
-                <ul className="divide-y">
-                  {liveEmployees.map((e) => {
-                    const p = e.position;
-                    const selected = Boolean(p && focus && focus.lat === p.lat && focus.lng === p.lng);
-                    return (
-                      <li key={e.timeLogId || e.employeeId}>
-                        <button
-                          type="button"
-                          disabled={!p}
-                          onClick={() => p && setFocus({ lat: p.lat, lng: p.lng, at: Date.now() })}
-                          className={`${rowClass(selected)} disabled:cursor-default disabled:hover:bg-transparent`}
-                        >
-                          <p className="text-sm font-semibold truncate flex items-center gap-2">
-                            <InitialsBadge initials={e.initials} color={e.color} faded={!p || p.stale} mocked={p?.isMocked} />
-                            {e.name}
-                          </p>
-                          <p className="text-xs text-muted-foreground truncate mt-1">
-                            {[e.employeeCode, e.department].filter(Boolean).join(" · ") || "—"}
-                          </p>
-                          <p className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
-                            <span>{liveLabel(e)}</span>
-                            {p?.batteryLevel != null && <BatteryIcon level={p.batteryLevel} />}
-                          </p>
-                          {p?.isMocked && <p className="text-xs font-semibold text-red-600">⚠ Fake GPS reported by the phone</p>}
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
+                <>
+                  {/* Search (5+ people) */}
+                  {liveEmployees.length >= LIVE_SEARCH_MIN && (
+                  <div className="border-b p-3">
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={liveQuery}
+                        onChange={(ev) => setLiveQuery(ev.target.value)}
+                        placeholder="Search name"
+                        aria-label="Search name"
+                        className="h-8 pl-8 rounded-brand"
+                      />
+                    </div>
+                  </div>
+                  )}
+                  {!liveGroups.length && <p className="p-4 text-sm text-muted-foreground">No one matches “{liveQuery}”.</p>}
+                  {liveGroups.map((g) => (
+                    <div key={g.id}>
+                      {g.label && (
+                        <p className={`border-b bg-muted/40 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide ${g.alert ? "text-red-700 dark:text-red-400" : "text-muted-foreground"}`}>
+                          {g.label} · {g.rows.length}
+                        </p>
+                      )}
+                      <ul className="divide-y">
+                        {g.rows.map((e) => {
+                          const p = e.position;
+                          const st = liveStatus(e);
+                          const meta = LIVE_STATUS[st];
+                          const selected = Boolean(focus?.employeeId && focus.employeeId === e.employeeId);
+                          const ls = locateStatus(e);
+                          return (
+                            <li key={e.timeLogId || e.employeeId} className="relative">
+                              <button
+                                type="button"
+                                disabled={!p}
+                                onClick={() => selectLive(e)}
+                                className={`${rowClass(selected)} pr-11 disabled:cursor-default disabled:hover:bg-transparent`}
+                              >
+                                <div className="flex items-start gap-2.5">
+                                  <InitialsBadge initials={e.initials} color={meta.pin} mocked={p?.isMocked} />
+                                  <div className="min-w-0 flex-1">
+                                    <p className="flex items-baseline gap-2">
+                                      <span className="text-sm font-semibold truncate">{e.name}</span>
+                                      <span className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums">
+                                        in {fmtClock(e.clockedInAt, liveTz)}
+                                      </span>
+                                    </p>
+                                    {e.department && <p className="text-xs text-muted-foreground truncate">{e.department}</p>}
+                                    <p className={`text-[11px] font-medium truncate ${meta.text}`} title={liveLine(e)}>{liveLine(e)}</p>
+                                    {p?.batteryLevel != null && (
+                                      <p className="text-xs text-muted-foreground"><BatteryIcon level={p.batteryLevel} /></p>
+                                    )}
+                                    {ls && (
+                                      <p className={`text-xs mt-0.5 ${ls.pending ? "text-foreground animate-pulse" : ls.fresh ? "text-foreground font-medium" : "text-muted-foreground"}`}>
+                                        {ls.text}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              </button>
+                              {live?.tracking?.enabled !== false && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="absolute right-2 bottom-2 h-7 w-7"
+                                  onClick={() => locateOne(e)}
+                                  disabled={Boolean(ls?.pending)}
+                                  title={`Locate ${e.name} now`}
+                                  aria-label={`Locate ${e.name} now`}
+                                >
+                                  <Crosshair className="h-4 w-4" />
+                                </Button>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  ))}
+                </>
               )
             ) : !data?.employees?.length ? (
               <p className="p-4 text-sm text-muted-foreground">No punches for these filters.</p>
