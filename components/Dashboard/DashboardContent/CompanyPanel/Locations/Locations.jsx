@@ -52,6 +52,10 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+// Same tiles as the Employee Map: Light by default (Street when the Esri key is missing)
+import { BASEMAPS, DEFAULT_BASEMAP } from "@/components/Dashboard/DashboardContent/CompanyPanel/Punchlogs&Overtimes&Leaves/employeeMapRoutes";
+
+const MAP_TILE = BASEMAPS[DEFAULT_BASEMAP];
 
 const MapContainer = dynamic(() => import("react-leaflet").then((m) => m.MapContainer), { ssr: false });
 const TileLayer = dynamic(() => import("react-leaflet").then((m) => m.TileLayer), { ssr: false });
@@ -254,8 +258,11 @@ function LocationPicker({ lat, lng, radius, onChange }) {
           style={{ height: "100%", width: "100%" }}
         >
           <TileLayer
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            attribution='&copy; <a href="https://osm.org/copyright">OpenStreetMap</a> contributors'
+            url={MAP_TILE.url}
+            attribution={MAP_TILE.attribution}
+            maxZoom={MAP_TILE.maxZoom}
+            {...(MAP_TILE.minZoom != null ? { minZoom: MAP_TILE.minZoom } : {})}
+            {...(MAP_TILE.tileSize ? { tileSize: MAP_TILE.tileSize, zoomOffset: MAP_TILE.zoomOffset ?? 0 } : {})}
           />
           <Circle
             center={center}

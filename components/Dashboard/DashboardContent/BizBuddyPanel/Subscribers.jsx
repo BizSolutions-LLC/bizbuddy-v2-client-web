@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
+import { useConfirmCompanySave } from "@/components/ui/confirm-company-save";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -131,6 +132,7 @@ function firstRelevantSub(subs) {
 
 export default function Subscribers() {
   const { token } = useAuthStore();
+  const { confirmSave, confirmDialog } = useConfirmCompanySave(); // BB-151: company edit is recorded in Settings History
   const API = process.env.NEXT_PUBLIC_API_URL;
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -319,6 +321,7 @@ export default function Subscribers() {
   return (
     <div className="max-w-full mx-auto p-4 lg:px-10 px-2 space-y-8">
       <Toaster position="top-center" />
+      {confirmDialog}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 px-2">
         <div>
           <h2 className="text-2xl md:text-3xl font-bold flex items-center gap-2">
@@ -682,7 +685,7 @@ export default function Subscribers() {
             <Button variant="outline" onClick={() => setShowEdit(false)}>
               Cancel
             </Button>
-            <Button onClick={submitEdit} disabled={submitting} className="bg-orange-500 hover:bg-orange-600 text-white">
+            <Button onClick={() => confirmSave(submitEdit)} disabled={submitting} className="bg-orange-500 hover:bg-orange-600 text-white">
               {submitting ? "Saving…" : "Save Changes"}
             </Button>
           </DialogFooter>

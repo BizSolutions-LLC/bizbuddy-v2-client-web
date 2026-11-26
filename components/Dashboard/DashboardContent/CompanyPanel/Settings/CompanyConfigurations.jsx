@@ -28,6 +28,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Label } from "@/components/ui/label";
+import { useConfirmCompanySave } from "@/components/ui/confirm-company-save";
 import { TIMEZONES } from "@/lib/timezones";
 import { announceTaskReportSetting } from "@/lib/taskReportsApi";
 import { TASK_REPORT_MODES, FORM_WINDOW, FORM_WINDOW_PRESETS, fmtWindowHours } from "@/lib/taskReportFormsApi";
@@ -2089,7 +2090,7 @@ function PunchDeviceProofCard({ loading, enabled, canEdit, saving, onChange }) {
 // N minutes while clocked in; routes show on Employee Map → Routes and are kept 90 days.
 // Each field saves on its own. Turning it on asks first: employees should be told.
 const BREADCRUMB_NOTICE =
-  "When location tracking is on, the BizBuddy mobile app records your location every few minutes, only while you are clocked in. It stops when you clock out. Your supervisor and company administrators can see the route, and so can you. Locations are deleted after 90 days.";
+  "When location tracking is on, the BizBuddy mobile app records your location every few minutes, only while you are clocked in. It stops when you clock out. Your supervisor and company administrators can see the route, and so can you. An administrator can also ask for your current location while you are clocked in. Locations are deleted after 90 days.";
 const BREADCRUMB_INTERVALS = [1, 2, 3, 5, 10, 15, 20, 30, 45, 60];
 
 function BreadcrumbsSettingCard({
@@ -2310,6 +2311,9 @@ export default function ModernCompanyConfigurations() {
   const [savingFormWindow,        setSavingFormWindow]        = useState(false); // BB-129 phase 2
   const [savingPunchDeviceProof,  setSavingPunchDeviceProof]  = useState(false); // BB-134
   const [savingBreadcrumbs,       setSavingBreadcrumbs]       = useState(false); // BB-128 part 2
+  // BB-151: every company-wide save asks "Save changes?" first (department toggles excepted, not recorded)
+  const { confirmSave, confirmDialog } = useConfirmCompanySave();
+  const withConfirm = (fn) => (...args) => confirmSave(() => fn(...args));
   const [savingBreadcrumbInterval, setSavingBreadcrumbInterval] = useState(false); // BB-128 part 2
   const [savingFaceCapture,       setSavingFaceCapture]       = useState(null);  // BB-141: field being saved, or null
 
@@ -2739,6 +2743,7 @@ export default function ModernCompanyConfigurations() {
   return (
     <div className="p-4 sm:p-6 space-y-5 max-w-6xl mx-auto">
       <Toaster position="top-center" />
+      {confirmDialog}
 
       {/* Page header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -2797,28 +2802,28 @@ export default function ModernCompanyConfigurations() {
           />
           <TimeDefaultsCard loading={loadingSettings} draft={draft} setDraft={setDraft} />
           <AutoClockOutCard loading={loadingSettings} draft={draft} setDraft={setDraft} />
-          <SaveSettingsBar onSave={saveSettings} saving={savingSettings || loadingSettings} />
+          <SaveSettingsBar onSave={withConfirm(saveSettings)} saving={savingSettings || loadingSettings} />
         </div>
       )}
 
       {activeTab === "ot-config" && (
         <div className="space-y-5">
           <OvertimeConfigCard loading={loadingSettings} draft={draft} setDraft={setDraft} />
-          <SaveSettingsBar onSave={saveSettings} saving={savingSettings || loadingSettings} />
+          <SaveSettingsBar onSave={withConfirm(saveSettings)} saving={savingSettings || loadingSettings} />
         </div>
       )}
 
       {activeTab === "daycare" && isDayCare && (
         <div className="space-y-5">
           <DayCareSettingsCard loading={loadingSettings} draft={draft} setDraft={setDraft} />
-          <SaveSettingsBar onSave={saveSettings} saving={savingSettings || loadingSettings} />
+          <SaveSettingsBar onSave={withConfirm(saveSettings)} saving={savingSettings || loadingSettings} />
         </div>
       )}
 
       {activeTab === "break-policy" && (
         <div className="space-y-5">
           <AutoBreakPolicyCard loading={loadingSettings} draft={draft} setDraft={setDraft} />
-          <SaveSettingsBar onSave={saveSettings} saving={savingSettings || loadingSettings} label="Save Break Policy" />
+          <SaveSettingsBar onSave={withConfirm(saveSettings)} saving={savingSettings || loadingSettings} label="Save Break Policy" />
           <DepartmentBreakPolicyCard
             departments={departments} departmentBreakSettings={departmentBreakSettings}
             departmentAutoLunchSettings={departmentAutoLunchSettings}
@@ -2865,31 +2870,31 @@ export default function ModernCompanyConfigurations() {
             value={draft?.cutoffPageView}
             canEdit={canEditCutoffPageView}
             saving={savingCutoffPageView}
-            onChange={saveCutoffPageView}
+            onChange={withConfirm(saveCutoffPageView)}
           />
           <TaskReportSettingCard
             loading={loadingSettings}
             enabled={draft?.taskReportEnabled}
             canEdit={canEditTaskReport}
             saving={savingTaskReport}
-            onChange={saveTaskReportEnabled}
+            onChange={withConfirm(saveTaskReportEnabled)}
             mode={draft?.taskReportMode}
             savingMode={savingTaskReportMode}
-            onModeChange={saveTaskReportMode}
+            onModeChange={withConfirm(saveTaskReportMode)}
             windowHours={draft?.taskReportFormWindowHours}
             savingWindow={savingFormWindow}
-            onWindowChange={saveFormWindowHours}
+            onWindowChange={withConfirm(saveFormWindowHours)}
             faceCapture={draft?.taskReportFaceCapture}
             faceCaptureClockIn={draft?.taskReportFaceCaptureClockIn}
             savingFaceCapture={savingFaceCapture}
-            onFaceCaptureChange={saveFaceCapture}
+            onFaceCaptureChange={withConfirm(saveFaceCapture)}
           />
           <PunchDeviceProofCard
             loading={loadingSettings}
             enabled={draft?.punchDeviceProofEnabled}
             canEdit={canEditTaskReport}
             saving={savingPunchDeviceProof}
-            onChange={savePunchDeviceProof}
+            onChange={(v) => (v ? savePunchDeviceProof(v) : confirmSave(() => savePunchDeviceProof(v)))}
           />
           <BreadcrumbsSettingCard
             loading={loadingSettings}
@@ -2898,8 +2903,8 @@ export default function ModernCompanyConfigurations() {
             canEdit={canEditTaskReport}
             saving={savingBreadcrumbs}
             savingInterval={savingBreadcrumbInterval}
-            onChange={saveBreadcrumbsEnabled}
-            onIntervalChange={saveBreadcrumbInterval}
+            onChange={(v) => (v ? saveBreadcrumbsEnabled(v) : confirmSave(() => saveBreadcrumbsEnabled(v)))}
+            onIntervalChange={withConfirm(saveBreadcrumbInterval)}
           />
         </div>
       )}

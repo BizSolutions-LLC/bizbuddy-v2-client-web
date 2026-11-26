@@ -26,6 +26,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast, Toaster } from "sonner";
 import useAuthStore from '@/store/useAuthStore';
 import { useRouter } from 'next/navigation';
+import { useConfirmCompanySave } from '@/components/ui/confirm-company-save';
 
 export default function NotificationSettings() {
   const { token } = useAuthStore(); 
@@ -35,6 +36,9 @@ export default function NotificationSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [userRole, setUserRole] = useState(null); 
+  // BB-151: only admins may save (server answers 403 otherwise); every save asks first
+  const isAdmin = ['admin', 'superadmin'].includes(userRole || '');
+  const { confirmSave, confirmDialog } = useConfirmCompanySave();
   const [settings, setSettings] = useState({
     clockInGracePeriod: 30,
     clockOutGracePeriod: 30,
@@ -143,6 +147,7 @@ export default function NotificationSettings() {
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       <Toaster position="top-center" />
+      {confirmDialog}
       
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -167,9 +172,10 @@ export default function NotificationSettings() {
             </p>
           </div>
         </div>
+        <div className="flex flex-col items-end gap-1">
         <Button
-          onClick={handleSave}
-          disabled={saving || loading}
+          onClick={() => confirmSave(handleSave)}
+          disabled={!isAdmin || saving || loading}
           className="bg-orange-500 hover:bg-orange-600 text-white"
         >
           {saving ? (
@@ -184,6 +190,8 @@ export default function NotificationSettings() {
             </>
           )}
         </Button>
+        {!isAdmin && <p className="text-xs text-muted-foreground">Only admins can change this setting.</p>}
+        </div>
       </div>
 
       {loading ? (

@@ -8,6 +8,11 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import ModalPortal from "@/components/ui/modal-portal";
 import { DEFAULT_ETT_RATE, DEFAULT_SUI_RATE } from "@/lib/payrollCompute";
+import useAccountRole from "@/lib/hooks/useAccountRole";
+import { useConfirmCompanySave } from "@/components/ui/confirm-company-save";
+
+// BB-151: payroll config, earning/deduction types and tax brackets are admin-only on the server.
+const ADMIN_ONLY_NOTE = "Only admins can change this setting.";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
 
@@ -56,7 +61,7 @@ const TAX_ICON_PATH =
   "M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4";
 
 /** Shared accordion-by-filing-status editor for a bracket table (Federal or State). */
-function TaxBracketSection({ title, subtitle, theme, rates, setRates, onUpdateRate, onToggleRate, onAddClick }) {
+function TaxBracketSection({ title, subtitle, theme, rates, setRates, onUpdateRate, onToggleRate, onAddClick, canEdit = true }) {
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200">
       <div
@@ -71,12 +76,16 @@ function TaxBracketSection({ title, subtitle, theme, rates, setRates, onUpdateRa
           </h2>
           <p className="text-xs text-gray-500 mt-1">{subtitle}</p>
         </div>
-        <button
-          onClick={onAddClick}
-          className={`w-full sm:w-auto px-4 py-2 text-sm font-medium rounded-md ${theme.addButtonColor}`}
-        >
-          + Add Bracket
-        </button>
+        {canEdit ? (
+          <button
+            onClick={onAddClick}
+            className={`w-full sm:w-auto px-4 py-2 text-sm font-medium rounded-md ${theme.addButtonColor}`}
+          >
+            + Add Bracket
+          </button>
+        ) : (
+          <p className="text-xs text-muted-foreground">{ADMIN_ONLY_NOTE}</p>
+        )}
       </div>
 
       <div className="p-4 sm:p-6">
@@ -122,6 +131,7 @@ function TaxBracketSection({ title, subtitle, theme, rates, setRates, onUpdateRa
                               <div className="relative w-28">
                                 <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-500">$</span>
                                 <input
+                                  disabled={!canEdit}
                                   type="number"
                                   min="0"
                                   step="0.01"
@@ -148,6 +158,7 @@ function TaxBracketSection({ title, subtitle, theme, rates, setRates, onUpdateRa
                               <div className="relative w-28">
                                 <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-500">$</span>
                                 <input
+                                  disabled={!canEdit}
                                   type="number"
                                   min="0"
                                   step="0.01"
@@ -178,6 +189,7 @@ function TaxBracketSection({ title, subtitle, theme, rates, setRates, onUpdateRa
                             </label>
                             <div className="relative w-24">
                               <input
+                                disabled={!canEdit}
                                 type="number"
                                 min="0"
                                 max="100"
@@ -204,6 +216,7 @@ function TaxBracketSection({ title, subtitle, theme, rates, setRates, onUpdateRa
                               Enabled
                             </label>
                             <button
+                              disabled={!canEdit}
                               onClick={() => onToggleRate(ftr.id, ftr.enabled)}
                               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${ftr.enabled ? theme.toggleOn : "bg-gray-300"}`}
                             >
@@ -351,6 +364,8 @@ function FutaInfoTooltip() {
 
 const Company = () => {
   const { token } = useAuthStore();
+  const { isAdmin: canEdit } = useAccountRole(); // BB-151
+  const { confirmSave, confirmDialog } = useConfirmCompanySave(); // BB-151
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1049,6 +1064,7 @@ const Company = () => {
   return (
     <>
       <Toaster position="top-center" richColors />
+      {confirmDialog}
 
       <div className="p-3 sm:p-6 space-y-4 sm:space-y-6 min-w-0">
         {/* Company Information Card */}
@@ -1191,9 +1207,10 @@ const Company = () => {
             </div>
 
             <div className="flex justify-stretch sm:justify-end pt-4 border-t">
+              {!canEdit && <p className="self-center text-xs text-muted-foreground mr-3">{ADMIN_ONLY_NOTE}</p>}
               <button
-                onClick={handleUpdatePayrollConfig}
-                disabled={saving}
+                onClick={() => confirmSave(handleUpdatePayrollConfig)}
+                disabled={!canEdit || saving}
                 className="w-full sm:w-auto px-4 sm:px-8 py-3 bg-orange-600 text-white font-medium rounded-md hover:bg-orange-700 transition-colors disabled:opacity-50"
               >
                 {saving ? "UPDATING..." : "UPDATE SETTINGS"}
@@ -1212,6 +1229,7 @@ const Company = () => {
           onUpdateRate={handleUpdateFederalTaxRate}
           onToggleRate={handleToggleFederalTaxRate}
           onAddClick={() => setShowAddFederalTaxRate(true)}
+          canEdit={canEdit}
         />
 
         {/* State Income Tax Brackets Card */}
@@ -1224,6 +1242,7 @@ const Company = () => {
           onUpdateRate={handleUpdateStateTaxRate}
           onToggleRate={handleToggleStateTaxRate}
           onAddClick={() => setShowAddStateTaxRate(true)}
+          canEdit={canEdit}
         />
 
         {/* Payroll Tax Rates Card */}
@@ -1647,12 +1666,16 @@ const Company = () => {
         <div className="bg-white rounded-xl shadow-sm border border-gray-200">
           <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200 bg-gradient-to-r from-green-50 to-green-100 flex flex-col sm:flex-row gap-2 sm:justify-between sm:items-center">
             <h2 className="text-lg font-bold text-gray-800">Earnings</h2>
-            <button
-              onClick={() => setShowAddEarning(true)}
-              className="w-full sm:w-auto px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-md hover:bg-green-700"
-            >
-              + Add Earning Type
-            </button>
+            {canEdit ? (
+              <button
+                onClick={() => setShowAddEarning(true)}
+                className="w-full sm:w-auto px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-md hover:bg-green-700"
+              >
+                + Add Earning Type
+              </button>
+            ) : (
+              <p className="text-xs text-muted-foreground">{ADMIN_ONLY_NOTE}</p>
+            )}
           </div>
 
           <div className="p-4 sm:p-6 overflow-x-auto">
@@ -1670,6 +1693,7 @@ const Company = () => {
                   <tr key={earning.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4">
                       <button
+                        disabled={!canEdit}
                         onClick={() => handleToggleEarning(earning.id, earning.enabled)}
                         className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${earning.enabled ? "bg-green-600" : "bg-gray-300"}`}
                       >
@@ -1683,6 +1707,7 @@ const Company = () => {
                       <input
                         type="text"
                         value={earning.label ?? ""}
+                        disabled={!canEdit}
                         onChange={(e) =>
                           setEarningTypes((prev) =>
                             prev.map((et) => (et.id === earning.id ? { ...et, label: e.target.value } : et)),
@@ -1708,12 +1733,16 @@ const Company = () => {
         <div className="bg-white rounded-xl shadow-sm border border-gray-200">
           <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200 bg-gradient-to-r from-red-50 to-red-100 flex flex-col sm:flex-row gap-2 sm:justify-between sm:items-center">
             <h2 className="text-lg font-bold text-gray-800">Deductions</h2>
-            <button
-              onClick={() => setShowAddDeduction(true)}
-              className="w-full sm:w-auto px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700"
-            >
-              + Add Deduction Type
-            </button>
+            {canEdit ? (
+              <button
+                onClick={() => setShowAddDeduction(true)}
+                className="w-full sm:w-auto px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700"
+              >
+                + Add Deduction Type
+              </button>
+            ) : (
+              <p className="text-xs text-muted-foreground">{ADMIN_ONLY_NOTE}</p>
+            )}
           </div>
 
           <div className="p-4 sm:p-6 overflow-x-auto">
@@ -1732,6 +1761,7 @@ const Company = () => {
                   <tr key={deduction.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4">
                       <button
+                        disabled={!canEdit}
                         onClick={() => handleToggleDeduction(deduction.id, deduction.enabled)}
                         className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${deduction.enabled ? "bg-red-600" : "bg-gray-300"}`}
                       >
@@ -1745,6 +1775,7 @@ const Company = () => {
                       <input
                         type="text"
                         value={deduction.label ?? ""}
+                        disabled={!canEdit}
                         onChange={(e) =>
                           setDeductionTypes((prev) =>
                             prev.map((dt) => (dt.id === deduction.id ? { ...dt, label: e.target.value } : dt)),
@@ -1757,6 +1788,7 @@ const Company = () => {
                     <td className="px-6 py-4">
                       <select
                         value={deduction.calculationType || "fixed"}
+                        disabled={!canEdit}
                         onChange={(e) => {
                           const calculationType = e.target.value;
                           setDeductionTypes((prev) =>
