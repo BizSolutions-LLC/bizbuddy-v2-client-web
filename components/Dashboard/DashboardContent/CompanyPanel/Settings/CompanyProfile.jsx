@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import useAccountRole from "@/lib/hooks/useAccountRole";
 import { useConfirmCompanySave } from "@/components/ui/confirm-company-save";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 const API = process.env.NEXT_PUBLIC_API_URL;
 
@@ -45,6 +46,7 @@ export default function CompanyProfile() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false); // in-app confirm (never the browser's confirm())
 
   const [form, setForm] = useState({
     name: "",
@@ -109,14 +111,13 @@ export default function CompanyProfile() {
   };
 
   const remove = async () => {
-    if (!confirm("Delete company profile? This cannot be undone.")) return;
     setDeleting(true);
     try {
       const r = await fetch(`${API}/api/company/me`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (r.ok) toast.success("Company deleted. You will be logged out.");
+      if (r.ok) { setConfirmDelete(false); toast.success("Company deleted. You will be logged out."); }
       else {
         const j = await r.json();
         throw new Error(j.error || "Delete failed");
@@ -132,6 +133,25 @@ export default function CompanyProfile() {
     <div className="max-w-4xl mx-auto p-4 lg:px-6 px-2 space-y-6">
       <Toaster position="top-center" />
       {confirmDialog}
+      <Dialog open={confirmDelete} onOpenChange={(open) => { if (!deleting) setConfirmDelete(open); }}>
+        <DialogContent className="w-[90vw] sm:max-w-[440px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trash2 className="w-4 h-4 text-red-600" /> Delete the company?
+            </DialogTitle>
+            <DialogDescription>
+              The company profile and its data are deleted, and you'll be signed out. This can't be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setConfirmDelete(false)} disabled={deleting}>Cancel</Button>
+            <Button variant="destructive" onClick={remove} disabled={deleting} className="gap-2">
+              {deleting ? <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" /> : <Trash2 className="w-4 h-4" />}
+              Delete company
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-2">
@@ -342,7 +362,7 @@ export default function CompanyProfile() {
                 </Button>
 
                 {role === "superadmin" && (
-                  <Button disabled={deleting} onClick={remove} variant="destructive" className="w-full py-3" size="lg">
+                  <Button disabled={deleting} onClick={() => setConfirmDelete(true)} variant="destructive" className="w-full py-3" size="lg">
                     {deleting ? (
                       <>
                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />

@@ -115,6 +115,15 @@ work belongs in the server repo — flag it and redirect rather than attempting 
   a summary, then wait.
 - When in doubt about scope or intent, ask — don't assume the safer-sounding interpretation and
   proceed.
+- **Never use the browser's native dialogs** — `window.confirm()`, `window.alert()`,
+  `window.prompt()` (or bare `confirm(` / `alert(` / `prompt(`). They show "localhost:3000 says…",
+  can't be styled, block the page, and look broken. Confirmations use an in-app dialog built on
+  `components/ui/dialog.jsx` (or `alert-dialog.jsx`), in the restrained style of the existing ones
+  (e.g. the Reopen cutoff dialog, `ReopenCutoffDialog` in `cutoffPeriodsShared.jsx`): title, what
+  will happen, Cancel + the action button, busy state while saving. Messages and errors use Sonner
+  toasts. If you find a native dialog anywhere, flag it (Carlo, 2026-11-27: all of them were
+  replaced that day — cutoff delete, company delete, paychecks placeholders, screenshot error — so
+  a search for `confirm(` / `alert(` / `prompt(` should find none).
 - Before running any Bash command that will trigger a permission prompt (`git commit`, or
   anything else gated by plan mode), first explain in plain language, as a separate message,
   before the approval prompt appears: what the command does, why you're running it now, and

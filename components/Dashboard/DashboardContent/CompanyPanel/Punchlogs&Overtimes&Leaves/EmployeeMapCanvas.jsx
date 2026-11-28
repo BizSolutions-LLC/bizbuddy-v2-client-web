@@ -284,7 +284,7 @@ function PinLink({ from, to, check, label }) {
 
 const hasLatLng = (p) => p && p.lat != null && p.lng != null;
 
-function RouteLayer({ tracks, intervalMinutes, singleDay }) {
+function RouteLayer({ tracks, intervalMinutes, singleDay, dimmed = false }) {
   const totalPoints = tracks.reduce((n, t) => n + (t.points?.length || 0), 0);
   const allDots = totalPoints <= MAX_DOTS;
   return tracks.map((t) => {
@@ -311,11 +311,11 @@ function RouteLayer({ tracks, intervalMinutes, singleDay }) {
           </>
         )}
         {solid.map((run, i) => (
-          <Polyline key={`s${i}`} positions={run} pathOptions={{ color, weight: 3, opacity: 0.85 }} />
+          <Polyline key={`s${i}`} positions={run} pathOptions={{ color, weight: 3, opacity: dimmed ? 0.25 : 0.85 }} />
         ))}
         {/* No location for a while: drawn solid like the route (Carlo, 2026-11-26); the hover says it's a straight line */}
         {gaps.map((seg, i) => (
-          <Polyline key={`g${i}`} positions={seg} pathOptions={{ color, weight: 3, opacity: 0.85 }}>
+          <Polyline key={`g${i}`} positions={seg} pathOptions={{ color, weight: 3, opacity: dimmed ? 0.25 : 0.85 }}>
             <Tooltip sticky>No location recorded here; straight line between two points</Tooltip>
           </Polyline>
         ))}
@@ -505,6 +505,56 @@ function LiveLayer({ live, sites, ageOf, tz, locateStatus, onLocate, onSelect, s
   );
 }
 
+// ── BB-153: route replay ─────────────────────────────────────────────────────
+// For each person replayed: the trail drawn so far (points passed + the current spot) in full colour
+// over the dimmed routes, and their initials pin moving along it. Ended people stay, faded.
+function PlaybackLayer({ playback }) {
+  return (
+    <>
+      {(playback.items || []).map((it) => {
+        if (!it.pos) return null;
+        const trail = [...it.points.slice(0, it.pos.i + 1).map((pt) => [pt.lat, pt.lng]), [it.pos.lat, it.pos.lng]];
+        return (
+          <Fragment key={it.key}>
+            <Polyline positions={trail} pathOptions={{ color: safeColor(it.color), weight: 4, opacity: it.pos.ended ? 0.5 : 0.95 }} interactive={false} />
+            <Marker
+              position={[it.pos.lat, it.pos.lng]}
+              icon={initialsIcon({ initials: it.initials, color: it.color, selected: !it.pos.ended, stale: it.pos.ended })}
+              zIndexOffset={1000}
+              interactive={false}
+            />
+          </Fragment>
+        );
+      })}
+      {playback.follow && <FollowPins items={playback.items} onUserMove={playback.onUserMove} />}
+    </>
+  );
+}
+
+// Keeps the moving pins in view: pans (one pin) or refits (several) only when a pin nears the edge,
+// so the map doesn't jitter. Dragging the map turns Follow off (onUserMove).
+function FollowPins({ items, onUserMove }) {
+  const map = useMap();
+  const moveRef = useRef(onUserMove);
+  moveRef.current = onUserMove;
+  useEffect(() => {
+    const off = () => moveRef.current?.();
+    map.on("dragstart", off);
+    return () => { map.off("dragstart", off); };
+  }, [map]);
+  const live = (items || []).filter((it) => it.pos && !it.pos.ended);
+  const key = live.map((it) => `${it.pos.lat.toFixed(5)},${it.pos.lng.toFixed(5)}`).join("|");
+  useEffect(() => {
+    if (!live.length) return;
+    const inner = map.getBounds().pad(-0.2); // the middle 60% of the view
+    const outside = live.some((it) => !inner.contains([it.pos.lat, it.pos.lng]));
+    if (!outside) return;
+    if (live.length === 1) map.panTo([live[0].pos.lat, live[0].pos.lng], { animate: true, duration: 0.4 });
+    else map.fitBounds(L.latLngBounds(live.map((it) => [it.pos.lat, it.pos.lng])).pad(0.3), { animate: true, maxZoom: map.getZoom() });
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  return null;
+}
+
 // ── Map ──────────────────────────────────────────────────────────────────────
 /**
  * @param mode       "punches" | "routes" | "live"
@@ -519,9 +569,10 @@ function LiveLayer({ live, sites, ageOf, tz, locateStatus, onLocate, onSelect, s
  * @param onLocate   (employee) → void — sends Locate now; null hides the button (tracking off)
  * @param onSelect   (employee) → void — a Live pin was clicked (side panel follows)
  * @param selectedId employeeId of the selected Live person (ring on the pin)
+ * @param playback   BB-153 Routes replay: { items: [{ key, points, pos, initials, color }], follow, onUserMove }
  */
 export default function EmployeeMapCanvas({
-  mode, data, punchView = "pins", singleDay, basemap, fitKey, focus, ageOf, tz, locateStatus, onLocate, onSelect, selectedId,
+  mode, data, punchView = "pins", singleDay, basemap, fitKey, focus, ageOf, tz, locateStatus, onLocate, onSelect, selectedId, playback,
 }) {
   const tile = Object.hasOwn(BASEMAPS, basemap || "") ? BASEMAPS[basemap] : BASEMAPS[DEFAULT_BASEMAP];
   const sites = data?.sites || [];
@@ -588,7 +639,8 @@ export default function EmployeeMapCanvas({
         ? <HeatLayer points={heat} />
         : points.map((p) => <PunchPin key={`${p.type}-${p.timeLogId}`} p={p} singleDay={singleDay} />))}
 
-      {mode === "routes" && <RouteLayer tracks={tracks} intervalMinutes={intervalMinutes} singleDay={singleDay} />}
+      {mode === "routes" && <RouteLayer tracks={tracks} intervalMinutes={intervalMinutes} singleDay={singleDay} dimmed={Boolean(playback)} />}
+      {mode === "routes" && playback && <PlaybackLayer playback={playback} />}
 
       {mode === "live" && (
         <LiveLayer

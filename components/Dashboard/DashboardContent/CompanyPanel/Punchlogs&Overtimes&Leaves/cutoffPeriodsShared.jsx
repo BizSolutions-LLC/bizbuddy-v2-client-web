@@ -4,7 +4,7 @@
 // Moved out of EmployeeCutoff.jsx unchanged; behaviour is the same on both pages.
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
 import {
   Plus,
@@ -22,6 +22,7 @@ import {
   RotateCcw,
   AlertTriangle,
   History,
+  Trash2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -47,6 +48,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
+import useAccountRole from "@/lib/hooks/useAccountRole";
 import { isSystemAgentToken } from "@/lib/systemAgent";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -137,8 +139,8 @@ export const formatStamp = (at) => {
   return d.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
 };
 
-/** Who did it: B. Buddy shows as "BizBuddy Support". */
-export const actorLabel = (e) => (e?.bySupport ? "BizBuddy Support" : e?.by?.name || "Unknown user");
+/** Who did it. Support events: the server's name, "B. Buddy (123)" (older events: "B. Buddy"). */
+export const actorLabel = (e) => (e?.bySupport ? e?.by?.name || "B. Buddy" : e?.by?.name || "Unknown user");
 
 const STATUS_WORD = { open: "Open", locked: "Locked", processed: "Processed" };
 
@@ -407,12 +409,14 @@ export const DeptConfigPanel = ({
 //                    company's name (from GET /api/account/profile, open to every role)
 //                    instead of "No Department". Used by the Calendar page only.
 export function useCutoffPeriods({ useCompanyName = false } = {}) {
-  const { token, role } = useAuthStore();
+  const { token } = useAuthStore();
+  // useAuthStore has no `role` — it comes from /api/account/profile (useAccountRole, BB-151).
+  const { isAdmin } = useAccountRole();
   const [companyName, setCompanyName] = useState("");
   // BB-120: B. Buddy has no payroll access, so the payroll export preview is hidden
   const isSupport = isSystemAgentToken(token);
   // BB-149 follow-up: reopening a processed cutoff is admin / superadmin only (B. Buddy too)
-  const canReopen = ["admin", "superadmin"].includes((role || "").toLowerCase());
+  const canReopen = isAdmin;
 
   // ── Data state ──
   const [departments,         setDepartments]         = useState([]);
@@ -430,12 +434,12 @@ export function useCutoffPeriods({ useCompanyName = false } = {}) {
   const [isReportPreviewOpen, setIsReportPreviewOpen] = useState(false);
   const [loadingAction,       setLoadingAction]       = useState(null); // { periodId, type: "view" | "download" }
   const [viewingPayload,      setViewingPayload]      = useState(null); // { payload, label }
-  // BB-149 follow-up: Reopen dialog
-  const [reopenTarget,        setReopenTarget]        = useState(null); // period
-  const [reopenReason,        setReopenReason]        = useState("");
-  const [reopenError,         setReopenError]         = useState("");   // reason field error
-  const [reopenPaidWarning,   setReopenPaidWarning]   = useState(null); // message when payment date reached
-  const [isReopening,         setIsReopening]         = useState(false);
+  // BB-149 follow-up: Reopen dialog (shared with the Calendar review page)
+  const fetchCutoffPeriodsRef = useRef(null);
+  const reopen = useReopenCutoff({ token, onDone: () => fetchCutoffPeriodsRef.current?.() });
+  // Delete confirm (in-app dialog)
+  const [deleteTarget, setDeleteTarget] = useState(null); // period
+  const [isDeleting,   setIsDeleting]   = useState(false);
 
   // ── Form state ──
   const [configForm, setConfigForm] = useState(initConfigForm());
@@ -488,6 +492,7 @@ export function useCutoffPeriods({ useCompanyName = false } = {}) {
       setIsLoading(false);
     }
   }, [token]);
+  fetchCutoffPeriodsRef.current = fetchCutoffPeriods;
 
   useEffect(() => {
     fetchDepartments();
@@ -689,90 +694,32 @@ export function useCutoffPeriods({ useCompanyName = false } = {}) {
     setStatusConfirm(null);
   };
 
-  // ── BB-149 follow-up: reopen a processed cutoff ──
-  const paidWarningFor = (period) =>
-    `This cutoff's payment date (${formatDate(period.paymentDate)}) has been reached, so it may already be paid. ` +
-    "Changes after reopening can differ from what was paid.";
-
-  const openReopen = useCallback((period) => {
-    setReopenTarget(period);
-    setReopenReason("");
-    setReopenError("");
-    // Warn up front when the payment date has passed (the server checks again in the company zone)
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    setReopenPaidWarning(period.paymentDate && dateOnly(period.paymentDate) <= today ? paidWarningFor(period) : null);
-  }, []);
-
-  const closeReopen = () => {
-    if (isReopening) return;
-    setReopenTarget(null);
+  // Delete: opens the in-app confirm dialog (never the browser's confirm()); confirmDelete sends it
+  const handleDelete = (cutoffId) => {
+    const period = cutoffPeriods.find((p) => p.id === cutoffId);
+    setDeleteTarget(period || { id: cutoffId });
   };
 
-  const submitReopen = async () => {
-    if (!reopenTarget) return;
-    const reason = reopenReason.trim();
-    if (reason.length < REOPEN_REASON_MIN || reason.length > REOPEN_REASON_MAX) {
-      setReopenError(`Give a reason for reopening (${REOPEN_REASON_MIN}–${REOPEN_REASON_MAX} characters).`);
-      return;
-    }
-    setReopenError("");
-    setIsReopening(true);
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
     try {
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/cutoff-periods/${reopenTarget.id}/reopen`,
-        {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-          // The paid warning is on screen, so this click is the confirmation
-          body: JSON.stringify({ reason, confirmPaid: !!reopenPaidWarning }),
-        }
-      );
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        toast.success(data.message || "Cutoff reopened");
-        setReopenTarget(null);
-        fetchCutoffPeriods();
-        return;
-      }
-      switch (data.code) {
-        case "REOPEN_REASON_REQUIRED":
-          setReopenError(data.message || "Give a reason for reopening.");
-          break;
-        case "REOPEN_CONFIRM_PAID":
-          // Payment date reached in the company zone — show the warning, next click confirms
-          setReopenPaidWarning(data.message || paidWarningFor(reopenTarget));
-          break;
-        case "REOPEN_STATUS_CHANGED":
-          toast.error(data.message || "The cutoff's status changed meanwhile. Reload and try again.");
-          setReopenTarget(null);
-          fetchCutoffPeriods();
-          break;
-        default: // REOPEN_NOT_PROCESSED, REOPEN_NOT_READY, others
-          toast.error(data.message || "Failed to reopen the cutoff");
-      }
-    } catch (err) {
-      toast.error("Failed to reopen the cutoff");
-    } finally {
-      setIsReopening(false);
-    }
-  };
-
-  const handleDelete = async (cutoffId) => {
-    if (!confirm("Are you sure you want to delete this cutoff period?")) return;
-    try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/cutoff-periods/${cutoffId}`,
+        `${process.env.NEXT_PUBLIC_API_URL}/api/cutoff-periods/${deleteTarget.id}`,
         { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }
       );
       if (res.ok) {
         toast.success("Cutoff period deleted");
+        setDeleteTarget(null);
         fetchCutoffPeriods();
       } else {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         toast.error(data.message || "Failed to delete");
       }
     } catch (err) {
       toast.error("Failed to delete cutoff period");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -821,8 +768,7 @@ export function useCutoffPeriods({ useCompanyName = false } = {}) {
 
   return {
     token, isSupport, canReopen, companyName,
-    reopenTarget, reopenReason, setReopenReason, reopenError, reopenPaidWarning, isReopening,
-    openReopen, closeReopen, submitReopen,
+    ...reopen,
     departments, departmentSettings, cutoffPeriods, stats,
     isLoading, isGenerating,
     isConfigModalOpen, setIsConfigModalOpen,
@@ -836,6 +782,7 @@ export function useCutoffPeriods({ useCompanyName = false } = {}) {
     handleDownloadPayrollExport, handleViewPayrollExport,
     handleSaveConfig, handleCreateManual, handleGenerate,
     handleUpdateStatus, confirmStatusChange, handleDelete,
+    deleteTarget, setDeleteTarget, isDeleting, confirmDelete,
     getDepartmentName, getDepartmentSetting, reportPreviewPeriods,
     openConfigFor, openManual,
   };
@@ -857,8 +804,7 @@ export function CutoffPeriodDialogs({ cp }) {
     handleDownloadPayrollExport, handleViewPayrollExport,
     handleSaveConfig, handleCreateManual, confirmStatusChange,
     getDepartmentName, reportPreviewPeriods,
-    reopenTarget, reopenReason, setReopenReason, reopenError, reopenPaidWarning, isReopening,
-    closeReopen, submitReopen,
+    deleteTarget, setDeleteTarget, isDeleting, confirmDelete,
   } = cp;
 
   return (
@@ -1063,63 +1009,31 @@ export function CutoffPeriodDialogs({ cp }) {
       </Dialog>
 
       {/* ── BB-149 follow-up: Reopen a processed cutoff ── */}
-      <Dialog open={!!reopenTarget} onOpenChange={(open) => !open && closeReopen()}>
-        <DialogContent className="w-[90vw] sm:max-w-[460px]">
+      <ReopenCutoffDialog r={cp} getDepartmentName={getDepartmentName} />
+
+      {/* ── Delete a cutoff (in-app, never the browser's confirm()) ── */}
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open && !isDeleting) setDeleteTarget(null); }}>
+        <DialogContent className="w-[90vw] sm:max-w-[440px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <RotateCcw className="w-4 h-4 text-orange-500" /> Reopen this cutoff?
+              <Trash2 className="w-4 h-4 text-red-600" /> Delete this cutoff?
             </DialogTitle>
             <DialogDescription>
-              {reopenTarget && (
+              {deleteTarget?.periodStart ? (
                 <>
-                  <strong>{getDepartmentName(reopenTarget.departmentId)}</strong> · {formatDate(reopenTarget.periodStart)} – {formatDate(reopenTarget.periodEnd)} goes back to Open.
+                  <strong>{getDepartmentName(deleteTarget.departmentId)}</strong> · {formatDate(deleteTarget.periodStart)} – {formatDate(deleteTarget.periodEnd)}
                 </>
-              )}
+              ) : "This cutoff period"}
             </DialogDescription>
           </DialogHeader>
-
-          <div className="space-y-3 pt-1">
-            <div className="space-y-1.5">
-              <Label htmlFor="reopen-reason" className="text-xs font-bold uppercase tracking-wide text-neutral-500">Reason</Label>
-              <Textarea
-                id="reopen-reason"
-                rows={3}
-                maxLength={REOPEN_REASON_MAX}
-                placeholder="e.g. Training day hours corrected (Nov 14)"
-                value={reopenReason}
-                onChange={(e) => setReopenReason(e.target.value)}
-                disabled={isReopening}
-                aria-invalid={!!reopenError}
-              />
-              <div className="flex items-start justify-between gap-3">
-                <p className="text-xs text-red-600 dark:text-red-400">{reopenError}</p>
-                <p className="text-xs text-neutral-400 flex-shrink-0">{reopenReason.trim().length}/{REOPEN_REASON_MAX}</p>
-              </div>
-            </div>
-
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">
-              Approvals stay as they are. The payroll export will show as outdated until you process it again.
-            </p>
-
-            {reopenPaidWarning && (
-              <div className="flex items-start gap-2 rounded-lg border border-amber-200 dark:border-amber-900 p-3">
-                <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-                <p className="text-sm text-amber-800 dark:text-amber-300">{reopenPaidWarning}</p>
-              </div>
-            )}
-          </div>
-
+          <p className="text-sm text-neutral-600 dark:text-neutral-300">
+            The cutoff is removed. Its timesheets will need another cutoff before they can be reviewed and paid. This can't be undone.
+          </p>
           <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" onClick={closeReopen} disabled={isReopening}>
-              Cancel
-            </Button>
-            <Button
-              className="bg-orange-500 hover:bg-orange-600 text-white gap-2"
-              onClick={submitReopen}
-              disabled={isReopening}
-            >
-              {isReopening ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
-              {reopenPaidWarning ? "Reopen anyway" : "Reopen"}
+            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={isDeleting}>Cancel</Button>
+            <Button className="bg-red-600 hover:bg-red-700 text-white gap-2" onClick={confirmDelete} disabled={isDeleting}>
+              {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+              Delete cutoff
             </Button>
           </div>
         </DialogContent>
@@ -1217,5 +1131,157 @@ export function CutoffPeriodDialogs({ cp }) {
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BB-149 follow-up: reopen a processed cutoff — shared by the cutoff list pages and the
+// Calendar review page. onDone runs after a reopen (or a status change) to reload data.
+// ─────────────────────────────────────────────────────────────────────────────
+export function useReopenCutoff({ token, onDone }) {
+  const [reopenTarget,      setReopenTarget]      = useState(null); // period
+  const [reopenReason,      setReopenReason]      = useState("");
+  const [reopenError,       setReopenError]       = useState("");   // reason field error
+  const [reopenPaidWarning, setReopenPaidWarning] = useState(null); // message when payment date reached
+  const [isReopening,       setIsReopening]       = useState(false);
+
+  const paidWarningFor = (period) =>
+    `This cutoff's payment date (${formatDate(period.paymentDate)}) has been reached, so it may already be paid. ` +
+    "Changes after reopening can differ from what was paid.";
+
+  const openReopen = useCallback((period) => {
+    setReopenTarget(period);
+    setReopenReason("");
+    setReopenError("");
+    // Warn up front when the payment date has passed (the server checks again in the company zone)
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    setReopenPaidWarning(period.paymentDate && dateOnly(period.paymentDate) <= today ? paidWarningFor(period) : null);
+  }, []);
+
+  const closeReopen = () => {
+    if (isReopening) return;
+    setReopenTarget(null);
+  };
+
+  const submitReopen = async () => {
+    if (!reopenTarget) return;
+    const reason = reopenReason.trim();
+    if (reason.length < REOPEN_REASON_MIN || reason.length > REOPEN_REASON_MAX) {
+      setReopenError(`Give a reason for reopening (${REOPEN_REASON_MIN}–${REOPEN_REASON_MAX} characters).`);
+      return;
+    }
+    setReopenError("");
+    setIsReopening(true);
+    try {
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/cutoff-periods/${reopenTarget.id}/reopen`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          // The paid warning is on screen, so this click is the confirmation
+          body: JSON.stringify({ reason, confirmPaid: !!reopenPaidWarning }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        toast.success(data.message || "Cutoff reopened");
+        setReopenTarget(null);
+        onDone?.();
+        return;
+      }
+      switch (data.code) {
+        case "REOPEN_REASON_REQUIRED":
+          setReopenError(data.message || "Give a reason for reopening.");
+          break;
+        case "REOPEN_CONFIRM_PAID":
+          // Payment date reached in the company zone — show the warning, next click confirms
+          setReopenPaidWarning(data.message || paidWarningFor(reopenTarget));
+          break;
+        case "REOPEN_STATUS_CHANGED":
+          toast.error(data.message || "The cutoff's status changed meanwhile. Reload and try again.");
+          setReopenTarget(null);
+          onDone?.();
+          break;
+        default: // REOPEN_NOT_PROCESSED, REOPEN_NOT_READY, others
+          toast.error(data.message || "Failed to reopen the cutoff");
+      }
+    } catch (err) {
+      toast.error("Failed to reopen the cutoff");
+    } finally {
+      setIsReopening(false);
+    }
+  };
+
+  return {
+    reopenTarget, reopenReason, setReopenReason, reopenError, reopenPaidWarning, isReopening,
+    openReopen, closeReopen, submitReopen,
+  };
+}
+
+export function ReopenCutoffDialog({ r, getDepartmentName }) {
+  const { reopenTarget, reopenReason, setReopenReason, reopenError, reopenPaidWarning, isReopening, closeReopen, submitReopen } = r;
+  return (
+      <Dialog open={!!reopenTarget} onOpenChange={(open) => !open && closeReopen()}>
+        <DialogContent className="w-[90vw] sm:max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RotateCcw className="w-4 h-4 text-orange-500" /> Reopen this cutoff?
+            </DialogTitle>
+            <DialogDescription>
+              {reopenTarget && (
+                <>
+                  <strong>{getDepartmentName(reopenTarget.departmentId)}</strong> · {formatDate(reopenTarget.periodStart)} – {formatDate(reopenTarget.periodEnd)} goes back to Open.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 pt-1">
+            <div className="space-y-1.5">
+              <Label htmlFor="reopen-reason" className="text-xs font-bold uppercase tracking-wide text-neutral-500">Reason</Label>
+              <Textarea
+                id="reopen-reason"
+                rows={3}
+                maxLength={REOPEN_REASON_MAX}
+                placeholder="e.g. Training day hours corrected (Nov 14)"
+                value={reopenReason}
+                onChange={(e) => setReopenReason(e.target.value)}
+                disabled={isReopening}
+                aria-invalid={!!reopenError}
+              />
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-xs text-red-600 dark:text-red-400">{reopenError}</p>
+                <p className="text-xs text-neutral-400 flex-shrink-0">{reopenReason.trim().length}/{REOPEN_REASON_MAX}</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              Approvals stay as they are. The payroll export will show as outdated until you process it again.
+            </p>
+
+            {reopenPaidWarning && (
+              <div className="flex items-start gap-2 rounded-lg border border-amber-200 dark:border-amber-900 p-3">
+                <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-amber-800 dark:text-amber-300">{reopenPaidWarning}</p>
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={closeReopen} disabled={isReopening}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-orange-500 hover:bg-orange-600 text-white gap-2"
+              onClick={submitReopen}
+              disabled={isReopening}
+            >
+              {isReopening ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+              {reopenPaidWarning ? "Reopen anyway" : "Reopen"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
   );
 }
