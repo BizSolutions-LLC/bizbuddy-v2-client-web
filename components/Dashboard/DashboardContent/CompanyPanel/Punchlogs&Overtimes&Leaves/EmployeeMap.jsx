@@ -16,7 +16,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { BatteryLow, BatteryMedium, BatteryFull, Crosshair, RefreshCw, Search, X } from "lucide-react";
+import { BatteryLow, BatteryMedium, BatteryFull, Crosshair, RefreshCw, Search, X, Play, Pause, RotateCcw } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import useAuthStore from "@/store/useAuthStore";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,7 @@ import {
   DISTANCE_UNITS, BASEMAPS, BASEMAP_OPTIONS, DEFAULT_BASEMAP, BASEMAP_STORAGE_KEY,
   fmtTrackDistance, fmtClock, fmtAgo, fmtBattery, suspiciousLines,
   LIVE_STATUS, liveStatus, hereSeconds, fmtStay,
+  buildPlayback, playbackAt, realPosAt,
 } from "./employeeMapRoutes";
 
 const EmployeeMapCanvas = dynamic(() => import("./EmployeeMapCanvas"), {
@@ -374,6 +375,63 @@ export default function EmployeeMap() {
   const fmtSpan = (t) => {
     const day = singleDay ? "" : `${new Date(t.startedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: tz || "UTC" })}, `;
     return `${day}${fmtClock(t.startedAt, tz)} – ${t.endedAt ? fmtClock(t.endedAt, tz) : "still clocked in"}`;
+  };
+
+  // ── BB-153: replay routes (Routes tab) ──
+  //   one person picked → that person's route, with "Skip stops" (virtual time);
+  //   everyone (2+ routes shown) → all routes on one real clock (no skipping, everyone stops at different times).
+  const [pbTrackId, setPbTrackId] = useState(null);
+  const [pbPlaying, setPbPlaying] = useState(false);
+  const [pbSpeedOne, setPbSpeedOne] = useState(60);   // 60× = one real minute per second
+  const [pbSpeedAll, setPbSpeedAll] = useState(300);  // a 9-hour day in under 2 minutes
+  const [pbSkip, setPbSkip] = useState(true);         // one person: stops and long gaps play in a moment
+  const [pbFollow, setPbFollow] = useState(true);     // keep the moving pin(s) in view
+  const [pbT, setPbT] = useState(0);                  // ms into the replay (virtual for one, real for everyone)
+  const pbMode = tab !== "routes" || !tracks.length ? null : userId !== ALL ? "one" : tracks.length > 1 ? "all" : "one";
+  const pbTrack = pbMode === "one" ? tracks.find((t) => t.timeLogId === pbTrackId) || tracks[0] || null : null;
+  const pb = useMemo(() => (pbTrack ? buildPlayback(pbTrack.points, { skipStops: pbSkip }) : null), [pbTrack, pbSkip]);
+  const pbAll = useMemo(() => {
+    if (pbMode !== "all") return null;
+    const times = tracks.flatMap((t) => (t.points || []).filter((p) => p.at).map((p) => Date.parse(p.at)));
+    if (times.length < 2) return null;
+    const start = Math.min(...times), endT = Math.max(...times);
+    return endT > start ? { start, total: endT - start } : null;
+  }, [pbMode, tracks]);
+  const pbTotal = pbMode === "one" ? pb?.total || 0 : pbAll?.total || 0;
+  const pbSpeed = pbMode === "all" ? pbSpeedAll : pbSpeedOne;
+  const pbReady = pbMode === "one" ? Boolean(pb) : Boolean(pbAll);
+  const pbPos = pbMode === "one" && pb ? playbackAt(pb, pbT) : null;
+  const pbActive = pbReady && (pbPlaying || pbT > 0);
+  const pbClock = pbMode === "one" ? pbPos?.at : pbAll ? new Date(pbAll.start + pbT).toISOString() : null;
+  const pbItems = !pbActive ? null
+    : pbMode === "one"
+      ? [{ key: pbTrack.timeLogId, points: pb.points, pos: pbPos, initials: pbTrack.initials, color: pbTrack.color }]
+      : tracks.map((t) => {
+          const pts = (t.points || []).filter((p) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng) && p.at);
+          return { key: t.timeLogId, points: pts, pos: realPosAt(pts, pbAll.start + pbT), initials: t.initials, color: t.color };
+        });
+  // New track / mode / skip setting / leaving Routes: back to the start
+  useEffect(() => { setPbPlaying(false); setPbT(0); }, [pbTrack?.timeLogId, pbSkip, pbMode, tab, userId]);
+  useEffect(() => {
+    if (!pbPlaying || !pbTotal) return undefined;
+    let raf, last = performance.now();
+    const step = (now) => {
+      const dt = now - last; last = now;
+      setPbT((t) => {
+        const next = Math.min(pbTotal, t + dt * pbSpeed);
+        if (next >= pbTotal) setPbPlaying(false);
+        return next;
+      });
+      raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [pbPlaying, pbTotal, pbSpeed]);
+  const pbToggle = () => {
+    if (!pbReady) return;
+    if (!pbPlaying && pbT >= pbTotal) setPbT(0);
+    if (!pbPlaying) setPbFollow(true);
+    setPbPlaying((v) => !v);
   };
 
   // ── Live ──
@@ -730,11 +788,76 @@ export default function EmployeeMap() {
                 onLocate={live?.tracking?.enabled !== false ? locateOne : null}
                 onSelect={(e) => selectLive(e, { fromMap: true })}
                 selectedId={tab === "live" ? focus?.employeeId : null}
+                playback={pbItems ? { items: pbItems, follow: pbFollow && pbPlaying, onUserMove: () => setPbFollow(false) } : null}
               />
             ) : (
               <Skeleton className="h-full w-full rounded-none" />
             )}
           </div>
+          {/* BB-153: replay controls (Routes: one person, or everyone on one clock) */}
+          {pbMode && (
+            <div className="border-t px-3 py-2.5 flex items-center gap-3 flex-wrap">
+              {pbReady ? (
+                <>
+                  <Button size="sm" onClick={pbToggle} className="h-8 w-8 p-0 rounded-brand bg-orange-500 hover:bg-orange-600 text-neutral-950" aria-label={pbPlaying ? "Pause" : pbMode === "all" ? "Play everyone's routes" : "Play route"}>
+                    {pbPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => { setPbPlaying(false); setPbT(0); }} disabled={!pbActive} className="h-8 w-8 p-0 rounded-brand" aria-label="Back to the start">
+                    <RotateCcw className="h-3.5 w-3.5" />
+                  </Button>
+                  <input
+                    type="range"
+                    min={0}
+                    max={Math.round(pbTotal)}
+                    step={1000}
+                    value={Math.round(pbT)}
+                    onChange={(e) => { setPbPlaying(false); setPbT(Number(e.target.value)); }}
+                    aria-label="Replay position"
+                    className="flex-1 min-w-[8rem] accent-orange-500"
+                  />
+                  <span className="text-sm font-semibold tabular-nums w-[4.5rem] text-right">{pbClock ? fmtClock(pbClock, tz) : ""}</span>
+                  {pbMode === "all" ? (
+                    <Segmented
+                      options={[{ id: 120, label: "120×" }, { id: 300, label: "300×" }, { id: 600, label: "600×" }]}
+                      value={pbSpeedAll}
+                      onChange={setPbSpeedAll}
+                    />
+                  ) : (
+                    <Segmented
+                      options={[{ id: 30, label: "30×" }, { id: 60, label: "60×" }, { id: 120, label: "120×" }]}
+                      value={pbSpeedOne}
+                      onChange={setPbSpeedOne}
+                    />
+                  )}
+                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer" title="Keep the moving pins in view. Dragging the map turns it off.">
+                    <input type="checkbox" checked={pbFollow} onChange={(e) => setPbFollow(e.target.checked)} className="accent-orange-500" />
+                    Follow
+                  </label>
+                  {pbMode === "one" ? (
+                    <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+                      <input type="checkbox" checked={pbSkip} onChange={(e) => setPbSkip(e.target.checked)} className="accent-orange-500" />
+                      Skip stops
+                    </label>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">Everyone · {tracks.length} routes · real time</span>
+                  )}
+                  {pbMode === "one" && tracks.length > 1 && (
+                    <Select value={pbTrack?.timeLogId || ""} onValueChange={setPbTrackId}>
+                      <SelectTrigger className="h-8 w-auto min-w-[10rem] text-xs rounded-brand"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {tracks.map((t) => <SelectItem key={t.timeLogId} value={t.timeLogId} className="text-xs">{fmtSpan(t)}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  {pbMode === "one" && pbActive && pbPos?.stop && (
+                    <span className="w-full text-xs text-muted-foreground">Stayed {fmtStay(pbPos.stop.seconds)} here{pbSkip ? " (fast-forwarded)" : ""}</span>
+                  )}
+                </>
+              ) : (
+                <span className="text-xs text-muted-foreground">Not enough route points to replay.</span>
+              )}
+            </div>
+          )}
           {/* Legend */}
           <div className="border-t px-3 py-2 flex items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground flex-wrap">
             {(tab === "routes" || (tab === "punches" && punchView === "pins")) && (

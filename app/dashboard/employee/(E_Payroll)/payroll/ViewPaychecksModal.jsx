@@ -82,22 +82,7 @@ const ViewPaychecksModal = ({ isOpen, onClose, paychecks }) => {
               >
                 Close
               </button>
-              {paychecks.length > 0 && (
-                <>
-                  <button
-                    onClick={() => alert('Print selected paychecks')}
-                    className="w-full sm:w-auto px-6 py-2 bg-orange-600 text-white font-medium rounded-md hover:bg-orange-700 transition-colors duration-200"
-                  >
-                    Print Selected
-                  </button>
-                  <button
-                    onClick={() => alert('Download selected paychecks')}
-                    className="w-full sm:w-auto px-6 py-2 bg-orange-600 text-white font-medium rounded-md hover:bg-orange-700 transition-colors duration-200"
-                  >
-                    Download
-                  </button>
-                </>
-              )}
+              {/* Print / Download were alert() placeholders with no feature behind them — removed (2026-11-27). */}
             </div>
           </div>
         </div>

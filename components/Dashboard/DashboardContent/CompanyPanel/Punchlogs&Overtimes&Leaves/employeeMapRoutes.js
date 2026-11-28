@@ -275,3 +275,60 @@ export const DEFAULT_BASEMAP = BASEMAPS.light ? "light" : "street";
 // Per-browser convenience only: just the style id, never any location data.
 // v2: earlier saved choices are dropped once, so everyone starts on Light.
 export const BASEMAP_STORAGE_KEY = "employeeMap.basemap.v2";
+
+// ── BB-153: route playback ───────────────────────────────────────────────────
+// A replay timeline for one track. Every point already has its own time (`at`), so the replay follows the
+// real order and pace. With skipStops, a stop (findStops) or a long gap with no points plays in a couple
+// of seconds instead of its real length, so a day with hours parked doesn't replay hours of nothing.
+// Times are "virtual" ms from the start of the replay; at 60× one real minute plays in one second.
+export const PLAYBACK_STOP_MS = 90 * 1000;   // a stop / long gap lasts 90 real seconds in the replay
+export const PLAYBACK_GAP_MS = 15 * 60 * 1000; // no points for longer than this = a long gap
+
+export function buildPlayback(points, { skipStops = true } = {}) {
+  const pts = (points || []).filter((p) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng) && p.at);
+  if (pts.length < 2) return null;
+  const stops = skipStops ? findStops(pts) : [];
+  const stopOf = (i) => stops.find((s) => i > s.start && i <= s.end) || null;
+  const frames = [{ t: 0, i: 0, lat: pts[0].lat, lng: pts[0].lng, at: pts[0].at }];
+  let t = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const real = Math.max(0, Date.parse(pts[i].at) - Date.parse(pts[i - 1].at));
+    const st = stopOf(i);
+    let dt = real;
+    if (st) dt = PLAYBACK_STOP_MS / Math.max(1, st.end - st.start);   // the whole stop takes PLAYBACK_STOP_MS
+    else if (skipStops && real > PLAYBACK_GAP_MS) dt = PLAYBACK_STOP_MS;
+    t += dt;
+    frames.push({ t, i, lat: pts[i].lat, lng: pts[i].lng, at: pts[i].at, stop: st });
+  }
+  return { frames, total: t, stops, points: pts };
+}
+
+/** Where the replay is at virtual time vt: interpolated position, the real clock time, the last point passed */
+export function playbackAt(pb, vt) {
+  if (!pb) return null;
+  const f = pb.frames;
+  if (vt <= 0) return { lat: f[0].lat, lng: f[0].lng, at: f[0].at, i: 0, stop: null };
+  if (vt >= pb.total) { const z = f[f.length - 1]; return { lat: z.lat, lng: z.lng, at: z.at, i: z.i, stop: null, done: true }; }
+  let lo = 0, hi = f.length - 1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (f[mid].t <= vt) lo = mid; else hi = mid; }
+  const a = f[lo], b = f[hi];
+  const k = b.t > a.t ? (vt - a.t) / (b.t - a.t) : 1;
+  const at = new Date(Date.parse(a.at) + (Date.parse(b.at) - Date.parse(a.at)) * k).toISOString();
+  return { lat: a.lat + (b.lat - a.lat) * k, lng: a.lng + (b.lng - a.lng) * k, at, i: a.i, stop: b.stop || null };
+}
+
+// BB-153 follow-up: everyone on one clock. Real time only (no skipping: each person stops at different
+// times). Before a person's first point they aren't shown; after their last point they stay there (ended).
+export function realPosAt(points, ms) {
+  const pts = (points || []).filter((p) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng) && p.at);
+  if (!pts.length) return null;
+  const first = Date.parse(pts[0].at), lastT = Date.parse(pts[pts.length - 1].at);
+  if (ms < first) return null;
+  if (ms >= lastT) { const z = pts[pts.length - 1]; return { lat: z.lat, lng: z.lng, i: pts.length - 1, ended: true }; }
+  let lo = 0, hi = pts.length - 1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (Date.parse(pts[mid].at) <= ms) lo = mid; else hi = mid; }
+  const a = pts[lo], b = pts[hi];
+  const ta = Date.parse(a.at), tb = Date.parse(b.at);
+  const k = tb > ta ? (ms - ta) / (tb - ta) : 1;
+  return { lat: a.lat + (b.lat - a.lat) * k, lng: a.lng + (b.lng - a.lng) * k, i: lo, ended: false };
+}
